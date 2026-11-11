@@ -68,15 +68,20 @@ export async function leerFrescura(db: SupabaseClient): Promise<Frescura[]> {
   const { data: locales, error } = await db.from('sucursales').select('id, nombre, caja_modo_prueba').eq('activa', true);
   if (error) throw new Error(error.message);
   const datos = await Promise.all(((locales ?? []) as any[]).map(async (s) => {
-    const [sync, ventas] = await Promise.all([
+    const [sync, aplicada, ventas] = await Promise.all([
       // la foto del stock: la apertura o la última sincronización con el sistema del local
       db.from('movimientos_stock').select('creado_en').eq('sucursal_id', s.id).in('referencia_tipo', ['importacion', 'apertura'])
         .order('creado_en', { ascending: false }).limit(1).maybeSingle(),
+      // una puesta al día que no cambió ningún stock no deja movimientos, pero cuenta
+      db.from('auditoria').select('creado_en').eq('accion', 'puesta_al_dia_aplicada').eq('datos_despues->>sucursal_id', s.id)
+        .order('creado_en', { ascending: false }).limit(1).maybeSingle(),
       db.from('ventas_historicas').select('hasta').eq('sucursal_id', s.id).order('hasta', { ascending: false }).limit(1).maybeSingle(),
     ]);
+    const ms = (v: unknown) => (v ? Date.parse(String(v)) : 0);
+    const stockAl = ms((aplicada.data as any)?.creado_en) > ms((sync.data as any)?.creado_en) ? (aplicada.data as any)?.creado_en : (sync.data as any)?.creado_en;
     return frescuraDeLocal({
       sucursalId: s.id, nombre: s.nombre, sucursal: nombreDeLocal(s.nombre),
-      stockAl: (sync.data as any)?.creado_en, ventasHasta: (ventas.data as any)?.hasta,
+      stockAl, ventasHasta: (ventas.data as any)?.hasta,
       // con la caja en modo prueba el local todavía vende con su sistema: el stock no baja solo
       enVivo: s.caja_modo_prueba === false,
     });

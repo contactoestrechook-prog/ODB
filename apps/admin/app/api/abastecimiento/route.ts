@@ -54,7 +54,34 @@ export async function GET(req: Request) {
 // La charla con el agente, o (?que=orden) la nota tildada que se convierte en orden
 export async function POST(req: Request) {
   const cuerpo = await req.json().catch(() => ({}) as any);
-  if (new URL(req.url).searchParams.get('que') === 'orden') {
+  const que = new URL(req.url).searchParams.get('que');
+  // Poner al día el stock y las ventas de un local (11/11/2026): primero se
+  // simula (solo lee) y después se aplica, todo o nada.
+  if (que === 'simular-carga' || que === 'aplicar-carga') {
+    try {
+      const res = await fetch(`${API}/abastecimiento/puesta-al-dia/${que === 'simular-carga' ? 'simular' : 'aplicar'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await auth()) },
+        body: JSON.stringify(cuerpo),
+        signal: AbortSignal.timeout(150_000),
+      });
+      const texto = await res.text();
+      try {
+        return NextResponse.json(texto ? JSON.parse(texto) : {}, { status: res.status });
+      } catch {
+        return NextResponse.json({ message: `El servidor respondió ${res.status} y no se entendió la respuesta.` }, { status: 502 });
+      }
+    } catch {
+      return NextResponse.json(
+        { message: que === 'aplicar-carga'
+          // la carga pudo haberse aplicado igual: antes de reintentar hay que mirar
+          ? 'No tuve respuesta del servidor al aplicar. Antes de reintentar, recargá la página y mirá de cuándo dice que es el stock: puede haberse aplicado igual.'
+          : 'No pude conectarme con el servidor. Probá de nuevo.' },
+        { status: 504 },
+      );
+    }
+  }
+  if (que === 'orden') {
     try {
       const res = await fetch(`${API}/abastecimiento/orden`, {
         method: 'POST',

@@ -145,7 +145,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
 
       {error && <Aviso tono="error">{error}</Aviso>}
 
-      {tab === 'abastecer' && <AbastecimientoPanel />}
+      {tab === 'abastecer' && <AbastecimientoPanel esDueno={esDueno} />}
 
       {tab === 'proveedores' && <HistorialProveedor />}
 

@@ -10,9 +10,10 @@ import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
-import { leerAbastecimiento } from './motor';
+import { invalidarAbastecimiento, leerAbastecimiento } from './motor';
 import { claveNecesidad, contextoDeNecesidad, necesidadEnUnaLinea, ordenDeNivel, parteDeNecesidad, resumenDeNecesidad, sinTraspasos, type Necesidad, type ResumenNecesidad } from './necesidad';
-import { frenoDeTraspasos, leerFrescura, type Frescura } from './frescura';
+import { frenoDeTraspasos, leerFrescura, olvidarFrescura, type Frescura } from './frescura';
+import { planDePuestaAlDia, type BasePuestaAlDia, type EntradaPuestaAlDia } from './puesta-al-dia';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 
@@ -368,6 +369,77 @@ export class AbastecimientoService {
       this.log.warn(`necesidad: no se pudo armar el resumen (${e?.message ?? e})`);
       return null;
     }
+  }
+
+  // ---------- poner al día el stock y las ventas de un local (puesta-al-dia.ts) ----------
+
+  // Lo que llega de la pantalla, revisado: el navegador ya leyó los dos archivos
+  // del sistema del local y manda solo códigos y cantidades.
+  private entradaPuestaAlDia(b: any): EntradaPuestaAlDia {
+    const sucursalId = String(b?.sucursalId ?? '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(sucursalId)) throw new BadRequestException('Falta el local');
+    if (!Array.isArray(b?.stock) || !Array.isArray(b?.ventas)) throw new BadRequestException('Faltan el stock o las ventas');
+    if (b.stock.length > 50_000 || b.ventas.length > 300_000) throw new BadRequestException('Los archivos traen más renglones de los que se esperan de un local');
+    return {
+      sucursalId,
+      corte: String(b?.corte ?? ''),
+      stock: b.stock.map((f: any) => ({ codigo: String(f?.codigo ?? '').trim(), cantidad: Number(f?.cantidad) })).filter((f: any) => f.codigo && Number.isFinite(f.cantidad)),
+      ventas: b.ventas.map((v: any) => ({ fecha: String(v?.fecha ?? '').slice(0, 10), codigo: String(v?.codigo ?? '').trim(), unidades: Number(v?.unidades) })).filter((v: any) => v.codigo && Number.isFinite(v.unidades)),
+    };
+  }
+
+  // Cómo está ese local ahora: productos por código, stock, lo que se movió desde
+  // la última sincronización y hasta qué día hay ventas.
+  private async basePuestaAlDia(sucursalId: string): Promise<BasePuestaAlDia> {
+    const [productos, stock, sync, aplicada, ventas] = await Promise.all([
+      // toda lectura paginada lleva un orden único: si no, las páginas saltean filas (10/11/2026)
+      traerTodo<any>((a, b) => this.db.from('productos').select('id, sku, nombre, codigo_legacy, activo').not('codigo_legacy', 'is', null).order('id').range(a, b) as any),
+      traerTodo<any>((a, b) => this.db.from('stock').select('producto_id, cantidad').eq('sucursal_id', sucursalId).order('producto_id').range(a, b) as any),
+      this.db.from('movimientos_stock').select('creado_en').eq('sucursal_id', sucursalId).eq('referencia_tipo', 'importacion').order('creado_en', { ascending: false }).limit(1).maybeSingle(),
+      this.db.from('auditoria').select('creado_en').eq('accion', 'puesta_al_dia_aplicada').eq('datos_despues->>sucursal_id', sucursalId).order('creado_en', { ascending: false }).limit(1).maybeSingle(),
+      this.db.from('ventas_historicas').select('hasta').eq('sucursal_id', sucursalId).order('hasta', { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const ms = (v: unknown) => (v ? Date.parse(String(v)) : 0);
+    const ultima = [(sync.data as any)?.creado_en, (aplicada.data as any)?.creado_en].filter(Boolean).sort((x, y) => ms(x) - ms(y)).pop() ?? null;
+    const movimientos = ultima
+      ? await traerTodo<any>((a, b) => this.db.from('movimientos_stock').select('producto_id, tipo, cantidad, referencia_tipo').eq('sucursal_id', sucursalId).gt('creado_en', ultima).order('id').range(a, b) as any)
+      : [];
+    return {
+      productos,
+      stock: new Map(stock.map((s) => [s.producto_id, Number(s.cantidad)])),
+      movimientos: movimientos.map((m) => ({ producto_id: m.producto_id, tipo: m.tipo, cantidad: Number(m.cantidad), referencia_tipo: m.referencia_tipo })),
+      ultimaSincronizacion: ultima,
+      ventasHasta: (ventas.data as any)?.hasta ? String((ventas.data as any).hasta).slice(0, 10) : null,
+    };
+  }
+
+  // Solo lee: qué cambiaría.
+  async simularPuestaAlDia(b: any) {
+    const entrada = this.entradaPuestaAlDia(b);
+    const plan = planDePuestaAlDia(entrada, await this.basePuestaAlDia(entrada.sucursalId));
+    return { referencia: plan.referencia, corte: plan.corte, resumen: plan.resumen, frenos: plan.frenos, avisos: plan.avisos };
+  }
+
+  // Vuelve a armar el plan con lo que hay en ese momento y lo aplica, todo o nada
+  // (función aplicar_puesta_al_dia de la base).
+  async aplicarPuestaAlDia(b: any, usuarioId?: string) {
+    const entrada = this.entradaPuestaAlDia(b);
+    const plan = planDePuestaAlDia(entrada, await this.basePuestaAlDia(entrada.sucursalId));
+    if (plan.frenos.length) throw new BadRequestException(plan.frenos.join(' '));
+    const { data, error } = await this.db.rpc('aplicar_puesta_al_dia', {
+      p_plan: {
+        sucursal_id: plan.sucursalId, referencia: plan.referencia, corte: plan.corte,
+        stock: plan.stock.map(({ producto_id, objetivo, antes }) => ({ producto_id, objetivo, antes })),
+        ventas: plan.ventas,
+      },
+      p_usuario: usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(error.message);
+    // el stock y las ventas cambiaron: la próxima lectura va a la base
+    invalidarAbastecimiento();
+    olvidarFrescura();
+    this.log.log(`puesta al día ${plan.referencia}: ${(data as any)?.stock_ajustes ?? 0} ajustes de stock, ${(data as any)?.ventas_renglones ?? 0} renglones de venta`);
+    return { ...(data as any), resumen: plan.resumen, avisos: plan.avisos };
   }
 
   // La lista de la pantalla y del agente: la fila de siempre más su contexto.

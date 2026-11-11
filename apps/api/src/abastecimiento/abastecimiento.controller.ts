@@ -41,6 +41,20 @@ export class AbastecimientoController {
     });
   }
 
+  // Poner al día el stock y las ventas de un local con los archivos de su
+  // sistema (11/11/2026). Cambia el stock de miles de productos: solo el dueño.
+  @Roles('dueno')
+  @Post('puesta-al-dia/simular')
+  simularPuestaAlDia(@Body() b: unknown) {
+    return this.abastecimiento.simularPuestaAlDia(b);
+  }
+
+  @Roles('dueno')
+  @Post('puesta-al-dia/aplicar')
+  aplicarPuestaAlDia(@Body() b: unknown, @Req() req: any) {
+    return this.abastecimiento.aplicarPuestaAlDia(b, req.usuario?.sub);
+  }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Post('charla')
   charla(@Body() b: { mensajes: MensajeAbastecimiento[] }, @Req() req: any) {

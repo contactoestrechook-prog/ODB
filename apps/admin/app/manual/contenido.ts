@@ -694,6 +694,49 @@ export const SECCIONES: Seccion[] = [
       },
     ],
   },
+  {
+    id: 'compras-poner-al-dia',
+    titulo: 'Poner al día el stock y las ventas de un local',
+    area: 'Compras',
+    roles: ['dueno'],
+    bajada: 'Mesa de compras → Qué comprar → "Poner al día". Para que el sistema sepa lo que hay y lo que se vende mientras el local siga con su sistema.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: 'Mientras un local venda con su sistema (Sant Thomas, con el Crack), NÚCLEO no se entera de cada venta: sabe lo que había el día de la última carga. Con cada día que pasa, lo que dice de stock, de faltantes y de qué comprar se aleja de la realidad. Esta pantalla lo pone al día en un minuto.',
+      },
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Bajá del sistema del local los archivos stock.csv y ventas.csv (los mismos de siempre; el de ventas trae el año entero, no importa).',
+          'En Mesa de compras → Qué comprar tocá "Poner al día" y elegí los dos archivos. El sistema reconoce de qué local son.',
+          'Mirá el resumen: cuántos productos cambian de stock, cuántos bajan, suben o quedan en cero, los cambios más grandes, y qué días de ventas se cargan. Todavía no se tocó nada.',
+          'Si está bien, "Aplicar" y confirmá. Se hace todo junto o nada. Arriba cambia la fecha del stock de ese local y se recalcula qué comprar.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cómo decide',
+        filas: [
+          ['Stock', 'Queda como dice el sistema del local, más lo que se cargó solo en NÚCLEO desde la última carga (las compras de administración, correcciones, traspasos). Si el local también cargó esa compra, no se cuenta dos veces.'],
+          ['Lo que el archivo no trae', 'No se toca.'],
+          ['Negativos', 'Un stock negativo del local queda en cero.'],
+          ['Ventas', 'Se cargan solo los días completos que faltaban. El día del corte, que está a medias, entra con la próxima carga.'],
+          ['Ritmo de venta', 'Qué comprar lo calcula con los últimos 28 días de ventas cargadas (70 %) y los 28 anteriores (30 %).'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Un archivo de antes de la última carga no se puede aplicar: hay que bajar uno nuevo.',
+          'Si avisa que "no trae nada" de un día en que el local abrió, el archivo de ventas está incompleto: no lo apliques y bajalo de nuevo.',
+          'Una compra cargada en NÚCLEO que nunca se carga en el sistema del local se conserva hasta la carga siguiente; después manda el stock del local.',
+          'Precios, productos nuevos, clientes, cuenta corriente y proveedores no entran por acá: siguen yendo con la carga completa del sistema del local.',
+          'Solo lo puede hacer un dueño. Queda registrado quién lo hizo y con qué archivo.',
+        ],
+      },
+    ],
+  },
   // 2/10/2026: el Analista ODB decía «no hay nada que comprar» porque calculaba
   // el ritmo solo con las ventas de la caja de ODB. Pasó al mismo cálculo de
   // Qué comprar y contesta por proveedor, con la Placa roja.

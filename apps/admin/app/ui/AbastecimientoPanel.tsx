@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
+import { PuestaAlDia } from './PuestaAlDia';
 import { Aviso, Boton, BotonLink, CLASES_ENTRADA, Cargando, Chips, Entrada, Etiqueta, FOCO, PlacaRoja, Tarjeta, TarjetaCabecera, Vacio, unir, type DetallePlaca } from './kit';
 import { fecha as fechaFmt, numero } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
@@ -20,7 +21,7 @@ type ResumenNecesidad = {
   proveedores: { proveedor: string; huecos: number; principales: number }[];
 };
 // De cuándo es el stock y hasta cuándo hay ventas de cada local (apps/api/src/abastecimiento/frescura.ts)
-type FrescuraLocal = { clave: string; sucursal: string; stockAl: string | null; ventasHasta: string | null; alDia: boolean; motivo: string | null };
+type FrescuraLocal = { clave: string; sucursalId: string; nombre: string; sucursal: string; stockAl: string | null; ventasHasta: string | null; alDia: boolean; motivo: string | null };
 type Resumen = {
   necesidad?: ResumenNecesidad | null;
   frescura?: FrescuraLocal[];
@@ -72,7 +73,7 @@ const SUGERENCIAS = [
   '¿A qué proveedores les falta cargar datos para poder comprarles?',
 ];
 
-export function AbastecimientoPanel() {
+export function AbastecimientoPanel({ esDueno = false }: { esDueno?: boolean }) {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -99,13 +100,15 @@ export function AbastecimientoPanel() {
     setYaPedidos((s) => new Set([...s, ...(o.pedidos ?? []).map((p) => `${o.sucursalId}:${p.sku}`)]));
   }, []);
 
+  const [recargar, setRecargar] = useState(0);
+  // el resumen se vuelve a pedir después de poner al día un local
+  const [recargarResumen, setRecargarResumen] = useState(0);
   useEffect(() => {
     fetch('/api/abastecimiento?que=resumen', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => (j ? setResumen(j) : setErrorResumen(true)))
       .catch(() => setErrorResumen(true));
-  }, []);
-  const [recargar, setRecargar] = useState(0);
+  }, [recargarResumen]);
   useEffect(() => {
     // si se cambia de sucursal antes de que llegue la respuesta, la vieja se descarta
     let vigente = true;
@@ -239,6 +242,11 @@ export function AbastecimientoPanel() {
           </p>
         )}
       </Tarjeta>
+
+      {/* cambia el stock de miles de productos: solo el dueño */}
+      {esDueno && resumen?.frescura && resumen.frescura.length > 0 && (
+        <PuestaAlDia locales={resumen.frescura} onAplicada={() => { setRecargarResumen((n) => n + 1); setRecargar((n) => n + 1); }} />
+      )}
 
       {resumen?.frenoTraspasos && (
         <Tarjeta className="space-y-1">
