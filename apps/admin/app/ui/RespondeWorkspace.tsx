@@ -16,10 +16,41 @@ import { hayVarias, TarjetasDeLineas, useLineasWhatsapp } from './LineasWhatsapp
 // (pausa SOLO ese número). Las charlas de todas las líneas están en la misma
 // app de RESPONDE (un solo tenant de ODB): lo que se contesta ahí sale por la
 // línea de esa charla.
+//
+// EL SELLO (11/11/2026). Leandro, sobre el de Il Molise: «más lindo, más
+// destacado, más centrado y que diga que somos proveedores oficiales de Meta» →
+// «quiero que eso lo traslademos a Car Cash y a ODB». El logo de RESPONDE by
+// MetoGroup y, debajo, alineada con la palabra (el isotipo ocupa 132 de 443 px
+// a 96 de alto), la credencial: MetoGroup está aprobado por Meta como proveedor
+// de tecnología (4/11/2026), que es el nombre del programa.
+const ALTO_SELLO = 40;
+function SelloResponde() {
+  return (
+    <div
+      className="inline-flex flex-col items-start leading-none"
+      title="Las charlas funcionan con RESPONDE, de MetoGroup, proveedor oficial de tecnología de Meta"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/responde-claro.png" alt="RESPONDE by MetoGroup" width={443} height={96} decoding="async" style={{ height: ALTO_SELLO, width: 'auto' }} className="block" />
+      <span
+        className="grid items-center whitespace-nowrap font-mono text-[9.5px] font-semibold uppercase leading-[1.35] tracking-[.14em] text-tinta/70"
+        style={{ gridTemplateColumns: '13px auto', columnGap: 7, marginTop: -2, marginLeft: (ALTO_SELLO * 132) / 96 - 20 }}
+      >
+        <svg viewBox="0 0 14 14" aria-hidden="true" width={13} height={13}>
+          <circle cx="7" cy="7" r="7" style={{ fill: 'var(--color-tinta)' }} />
+          <path d="M4 7.2 6.1 9.2 10 5" style={{ fill: 'none', stroke: 'var(--color-crema)', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }} />
+        </svg>
+        <span>Proveedor oficial<br />de tecnología de Meta</span>
+      </span>
+    </div>
+  );
+}
+
 export function RespondeWorkspace({ tokenResponde }: { tokenResponde?: string | null }) {
   const { lineas, cargar } = useLineasWhatsapp(15000);
   return (
     <div className="space-y-4">
+      <SelloResponde />
       <TarjetasDeLineas lineas={lineas} cargar={cargar} rotulo="Línea de WhatsApp" />
       {hayVarias(lineas) && (
         <p className="text-sm text-tinta/70">
