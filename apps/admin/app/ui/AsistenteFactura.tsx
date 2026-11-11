@@ -71,9 +71,13 @@ export type PropsAsistente = {
   releyendo?: boolean;
   /** la factura está recién leída, sin cambios de nadie: se le pasan las reglas del proveedor sin que nadie escriba */
   aplicarReglasSolo?: boolean;
+  /** recién leída y sin ningún cambio todavía, ni de la memoria */
+  recienLeida?: boolean;
+  /** la memoria del artículo: deja cada renglón como entró la última vez (11/11/2026) */
+  onMemoria?: () => Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[] } | null>;
 };
 
-export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false }: PropsAsistente) {
+export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false, recienLeida = false, onMemoria }: PropsAsistente) {
   const [vista, setVista] = useState<'chat' | 'cambios' | 'reglas'>('chat');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -89,6 +93,8 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   const [aprendida, setAprendida] = useState<{ id: string; regla: string } | null>(null);
   const [aplicandoReglas, setAplicandoReglas] = useState(false);
   const yaPasadas = useRef<Set<string>>(new Set());
+  // la memoria del artículo corre antes que las reglas: una promesa por factura y proveedor
+  const memoria = useRef<Map<string, Promise<unknown>>>(new Map());
   const fin = useRef<HTMLDivElement>(null);
 
   const cargarReglas = useCallback(async () => {
@@ -101,6 +107,30 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   useEffect(() => { cargarReglas(); }, [cargarReglas]);
   useEffect(() => { fin.current?.scrollIntoView({ block: 'nearest' }); }, [mensajes, pensando]);
 
+  // LA MEMORIA DEL ARTÍCULO (11/11/2026): factura recién leída + proveedor
+  // elegido → cada artículo que ya vino entra como la última vez. No usa IA y
+  // tarda un instante. Las reglas del proveedor (abajo) esperan a que termine.
+  useEffect(() => {
+    if (!recienLeida || !lecturaId || !proveedorId || !onMemoria) return;
+    const clave = `${lecturaId}:${proveedorId}`;
+    if (memoria.current.has(clave)) return;
+    memoria.current.set(clave, new Promise<void>((listo) => {
+      setTimeout(async () => {
+        try {
+          const r = await onMemoria();
+          if (r && (r.aplicados.length || r.noCierran.length)) {
+            const partes = [
+              r.aplicados.length ? `Cargué de memoria lo que ya vino de ${proveedorNombre ?? 'este proveedor'}: bultos, unidades y cómo entran, igual que la última vez.` : '',
+              r.noCierran.length ? `${r.noCierran.length === 1 ? `El renglón ${r.noCierran[0]} no lo toqué` : `Los renglones ${r.noCierran.join(', ')} no los toqué`}: con lo de la última vez la cuenta no da el importe impreso. Miralo${r.noCierran.length === 1 ? '' : 's'}.` : '',
+            ].filter(Boolean).join(' ');
+            setMensajes((xs) => [...xs, { rol: 'ia', texto: partes, cambios: r.aplicados, noAplicados: [] }]);
+          }
+        } catch { /* sin memoria, la factura queda como se leyó */ }
+        finally { listo(); }
+      }, 350);
+    }));
+  }, [recienLeida, lecturaId, proveedorId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // LAS REGLAS SE APLICAN SOLAS: factura recién leída + proveedor con reglas →
   // un turno automático, una vez por factura. Lo que cambia queda en «Cambios»
   // como cualquier cambio de la IA y se puede deshacer.
@@ -112,6 +142,8 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
     let vigente = true;
     // un respiro para que la tabla termine de armarse con lo que se leyó
     const t = setTimeout(async () => {
+      // primero la memoria del artículo: las reglas ven la tabla ya acomodada
+      await (memoria.current.get(clave) ?? Promise.resolve());
       const filas = tabla();
       if (!vigente || !filas.length) return;
       setAplicandoReglas(true);
@@ -306,7 +338,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
           {!cambios.length && <p className="text-sm text-tinta/70">Todavía no hay cambios. Cada cambio, tuyo o de la IA, queda acá con la hora y se puede deshacer. Al registrar la factura queda guardado quién cambió qué.</p>}
           {cambios.map((c) => (
             <div key={c.id} className={unir('grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl bg-crema-claro px-3 py-2 text-sm', c.deshecho && 'opacity-60')}>
-              <span className={unir('font-semibold', c.quien === 'IA' ? 'text-info' : 'text-tinta')}>{c.quien}</span>
+              <span className={unir('font-semibold', c.quien === 'IA' || c.quien === 'Memoria' ? 'text-info' : 'text-tinta')}>{c.quien}</span>
               <div className="min-w-0">
                 <p className="break-words text-tinta">{describirCambio(c)}</p>
                 {c.motivo && <p className="break-words text-xs text-tinta/70">{c.motivo}</p>}

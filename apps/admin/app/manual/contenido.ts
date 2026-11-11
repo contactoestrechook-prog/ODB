@@ -522,6 +522,17 @@ export const SECCIONES: Seccion[] = [
           ['El costo no coincide', 'Abajo está la cuenta escrita: de cuánto se leyó a cuánto quedó, y con qué impuestos. Si aparece un aviso amarillo, los renglones no suman el neto del pie y hay que revisarlo ANTES de registrar.'],
         ],
       },
+      {
+        tipo: 'pasos',
+        titulo: 'El sistema se acuerda de cómo entra cada producto',
+        pasos: [
+          'Cuando registrás una factura, queda guardado cómo vino y cómo entró cada artículo de ese proveedor: si la cantidad eran cajas o unidades, cuántas trae cada caja, si se arma en paquetes, si va por kilo.',
+          'La próxima factura de ese proveedor se acomoda sola al abrirla: los artículos que ya vinieron entran como la última vez. No hay que explicarlo de nuevo.',
+          'Lo que acomodó aparece en la pestaña "Cambios" a nombre de "Memoria", con la factura de la que lo tomó. Cada cambio se puede deshacer.',
+          'Solo lo hace si la cuenta del renglón sigue dando el importe impreso. Si no da, deja el renglón como se leyó y avisa cuál es para que lo mires.',
+          'Si esta vez el artículo entra distinto, corregilo como siempre: al registrar, la memoria se queda con lo último.',
+        ],
+      },
     ],
   },
   {

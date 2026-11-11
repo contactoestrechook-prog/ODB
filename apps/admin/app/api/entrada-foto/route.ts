@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const b = await req.json().catch(() => ({}) as any);
     // la factura editable (8/10/2026): chat con IA, constancia de cambios y
     // reglas del proveedor; llevan el cuerpo entero
-    const conCuerpo = ['chat', 'revision', 'regla', 'historial', 'borrador'].includes(b?.accion);
+    const conCuerpo = ['chat', 'revision', 'regla', 'historial', 'borrador', 'fichas'].includes(b?.accion);
     const id = encodeURIComponent(String(b?.id ?? 'sin-lectura'));
     const ruta =
       b?.accion === 'releer' ? `/compras/entrada-foto/${id}/releer`
@@ -29,6 +29,8 @@ export async function POST(req: Request) {
       // la factura a medio cargar se guarda sola (3/11/2026)
       : b?.accion === 'borrador' ? `/compras/entrada-foto/${id}/borrador`
       : b?.accion === 'regla' ? `/compras/proveedores/${encodeURIComponent(String(b?.proveedorId ?? ''))}/reglas-lectura`
+      // la ficha de cada artículo del proveedor: cómo vino y cómo entró la última vez (11/11/2026)
+      : b?.accion === 'fichas' ? `/compras/proveedores/${encodeURIComponent(String(b?.proveedorId ?? ''))}/fichas-articulo/buscar`
       : b?.accion === 'quitarRegla' ? `/compras/reglas-lectura/${id}/desactivar`
       : null;
     if (!ruta) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
+import { cambiosDeFichas } from '../lib/ficha-articulo';
 import { conversionSugerida } from '../lib/presentacion';
 import {
   alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades, precioYaEsDeLaUnidad,
@@ -1472,7 +1473,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const opciones = conTodo.length ? conTodo : items.filter((p) => mismaMarca(q, p.nombre));
     return { elegido: opciones.length === 1 ? opciones[0] : null, opciones };
   };
-  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false) => {
+  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false, quien = 'IA') => {
     const deProducto = (cambios ?? []).filter((c: any) => c?.campo === 'producto');
     cambios = (cambios ?? []).filter((c: any) => c?.campo !== 'producto');
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
@@ -1504,7 +1505,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     }
     if (pie.length) setFotoImp((x: any) => { const y = { ...x }; for (const c of pie) y[c.campo] = c.despues; return y; });
     const todos = [...r.registros, ...pie, ...reglas];
-    anotar('IA', todos);
+    anotar(quien, todos);
     const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
     setMarcados(tocados);
     if (tocados.length) setTimeout(() => setMarcados([]), 5000);
@@ -1539,6 +1540,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       aplicados.push(describirCambio(reg));
     }
     return { aplicados, noAplicados };
+  };
+  // LA MEMORIA DEL ARTÍCULO (11/11/2026). Leandro: «memoria para cada proveedor …
+  // para que no falle más». Factura recién leída: cada artículo que ya vino de
+  // este proveedor entra como la última vez (bultos, lo que trae cada uno, cómo
+  // entra, los kilos por pieza). Lo decide la cuenta, no la IA: se aplica solo
+  // si lo que entra es cantidad × el factor guardado y el renglón sigue dando el
+  // importe impreso. Queda en «Cambios» a nombre de «Memoria» y se deshace igual.
+  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[] } | null> => {
+    const pid = f?.proveedorId;
+    const pedidas = fotoItemsVivos.current;
+    if (!pid || !pedidas.length) return null;
+    try {
+      const r = await fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'fichas', proveedorId: pid, renglones: pedidas.map((i: any) => ({ descripcion: i.descripcion, sku: i.sku || null })) }),
+      });
+      if (!r.ok) return null;
+      const d = await r.json().catch(() => ({}));
+      const filas = fotoItemsVivos.current;
+      // si la tabla cambió mientras se pedían (otro proveedor, otra lectura), no se toca nada
+      if (filas.length !== pedidas.length || filas.some((x: any, k: number) => x.descripcion !== pedidas[k].descripcion)) return null;
+      const { cambios, yaEstaban, noCierran } = cambiosDeFichas(filas, Array.isArray(d?.fichas) ? d.fichas : [], esRenglonDescuento);
+      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran };
+      const res = await aplicarIA(cambios, [], true, 'Memoria');
+      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran };
+    } catch { return null; }
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
@@ -1635,6 +1663,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
       entraComo: i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
       cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : cantidadQueEntra(i) || null,
+      // lo facturado en unidades de stock, sin restar lo que faltó: de acá aprende la ficha del artículo (11/11/2026)
+      cantidadEntera: i._esDevolucion || i._esDescuento || soloPrecioDe(i) ? null : numImp(i.cantidad) || null,
       costoUnitario: !i._esDescuento && !i._esDevolucion && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
@@ -2639,7 +2669,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 sugerencias={sugerenciasChat}
                 onReleer={reLeerConAclaraciones}
                 releyendo={leyendoFoto}
-                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
+                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria') && !leyendoFoto && fotoItems.length > 0}
+                recienLeida={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
+                onMemoria={aplicarFichas}
               />
 
               <div className="grid gap-3 sm:grid-cols-2">
