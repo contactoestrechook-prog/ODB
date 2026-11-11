@@ -84,3 +84,18 @@ alter table responde_difusiones_destinatarios enable row level security;
 alter table responde_listas enable row level security;
 alter table responde_listas_miembros enable row level security;
 alter table ventas_cambios_pago enable row level security;
+
+-- ============================================================
+-- LOS ADJUNTOS DE CLIENTES, A LA CARPETA PRIVADA (mismo día; no es SQL: queda anotado)
+-- 2.085 fotos, audios y documentos que mandaron clientes por WhatsApp entre el
+-- 19/8 y el 21/9 estaban en la carpeta pública (publico/whatsapp/…): cualquiera
+-- con el enlace los abría para siempre. Se movieron a bot-adjuntos/whatsapp/…
+-- con la misma ruta (4 .PDF pasaron a .pdf) y se corrigieron los enlaces
+-- guardados: 50 charlas (bot_conversaciones), 69 notas (bot_notas_equipo), 70
+-- avisos (alertas_internas) y 2.089 mensajes de RESPONDE (responde.messages,
+-- en la base compartida). Los enlaces quedaron con la forma
+-- /object/sign/bot-adjuntos/…, que RESPONDE renueva sola. En la pública quedó
+-- solo whatsapp/simulada/fernet.png (una imagen de prueba).
+-- Además se borró la regla «publico lectura» de storage.objects: nadie puede
+-- listar la carpeta pública; los carteles y logos se siguen abriendo por su enlace.
+-- ============================================================
