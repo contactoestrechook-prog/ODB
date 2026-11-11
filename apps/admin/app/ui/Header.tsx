@@ -96,6 +96,7 @@ export const GRUPOS: Grupo[] = [
     items: [
       { href: '/productos', label: 'Productos', icono: 'productos', sub: 'Catálogo' },
       { href: '/precios', label: 'Precios', icono: 'productos', sub: 'Catálogo' },
+      { href: '/balanzas', label: 'Balanzas', icono: 'productos', sub: 'Catálogo' },
       { href: '/listas-venta', label: 'Listas de venta', icono: 'listas', sub: 'Catálogo' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones', sub: 'Catálogo' },
       { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube', sub: 'Catálogo' },
@@ -190,6 +191,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
   '/precios': { titulo: 'Precios', bajada: 'Escaneá y mirá el precio de góndola · imprimí la etiqueta' },
+  '/balanzas': { titulo: 'Balanzas', bajada: 'La lista de PLU con el precio de la caja, lista para cargar en las balanzas Kretz con iTegra' },
   '/stock': { titulo: 'Stock', bajada: 'Quiebres, reposición y vencimientos por sucursal' },
   '/inventario': { titulo: 'Inventario de producto', bajada: 'Buscá un producto y mirá cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra' },
   '/conteo': { titulo: 'Conteo de inventario', bajada: 'Contá el depósito y ajustá diferencias con autorización' },

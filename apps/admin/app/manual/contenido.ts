@@ -1222,6 +1222,56 @@ export const SECCIONES: Seccion[] = [
     ],
   },
   {
+    id: 'balanzas',
+    titulo: 'Balanzas: la lista de precios para las Kretz',
+    area: 'Salón y caja',
+    roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'Bajá la lista de PLU con el precio de la caja y cargala en las balanzas con iTegra.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          'La caja lee las etiquetas de la balanza: toma el PLU y los gramos, y cobra con la lista Minorista. Para que la etiqueta diga el mismo precio que el ticket, la balanza tiene que tener la misma lista. En Productos › Balanzas está esa lista armada: cada producto que se vende por peso, más los que se venden por unidad con etiqueta de balanza, con su PLU, el nombre como lo imprime la balanza (en mayúsculas y sin tildes) y el precio. Es la misma para las dos sucursales. La bajan depósito, administración, compras, gerencia y el dueño.',
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Bajar la lista',
+        pasos: [
+          'Arriba dice cuándo se bajó la última vez, quién la bajó y cuántos cambios hubo desde entonces.',
+          '"Bajar la lista completa" baja el archivo con todos los productos. La primera vez, bajá esa.',
+          'Después de la primera vez, "Bajar solo los N cambios" baja nada más que lo nuevo y lo que cambió de precio, nombre o si se vende por kilo o por unidad.',
+          'En "Desde la última vez" está cada cambio, con el precio de antes y el de ahora. Los que dicen "Ya no va" no se mandan: hay que borrarlos a mano de la balanza.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cargarla en iTegra',
+        pasos: [
+          'En iTegra: Archivo › Importar › Desde archivo, y elegí "PLU\'s". Elegí el archivo que bajaste.',
+          '"Importar desde la fila": 2. Separador: caracteres especiales, con el punto y coma (;).',
+          'Los campos, en este orden: Número de PLU, Código de PLU, Nombre de PLU, Tipo de PLU, Precio, Código de Departamento y Código de etiqueta.',
+          'Guardar e Importar, y después mandá la lista a las balanzas desde iTegra. Los mismos pasos están en la pantalla, en "Cómo se carga en iTegra".',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Productos por unidad (compras, administración, gerencia y dueño)',
+        pasos: [
+          'Los productos por peso van solos. Uno que se vende por unidad con etiqueta de la balanza (la torta matera, por ejemplo) se suma con "Sumar un producto por unidad": buscalo y tocá "Sumar".',
+          'Para sacarlo, tocá "Sacar" en su renglón. El producto sigue en el catálogo y en la caja.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'En "No entran en la lista" están los productos por peso que no pueden ir a la balanza: sin PLU, sin precio o con un PLU que tiene otro producto. Se corrigen en la ficha del producto.',
+          'Una balanza apagada cuando se mandó la lista queda con los precios viejos. La caja igual cobra bien, pero la etiqueta muestra otro precio.',
+          'Si alguien configura una balanza para que el código lleve el precio en vez del peso, la caja lo va a leer como gramos. El código tiene que seguir siendo 2, PLU de seis números y los gramos.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'bot',
     titulo: 'El bot de WhatsApp',
     area: 'WhatsApp',
