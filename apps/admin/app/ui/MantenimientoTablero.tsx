@@ -21,7 +21,9 @@ type Cotizacion = {
   automatica: boolean; estado: 'pendiente' | 'aprobada' | 'rechazada'; creada_en: string; decidida_en: string | null; motivo: string | null;
   firmante: { nombre: string } | null;
 };
-type Respuesta = { horasAbono: number; trabajos: Trabajo[]; cotizaciones: Cotizacion[] };
+// La medida de la carga de facturas (11/11/2026): una fila por semana (lunes).
+type SemanaLector = { semana: string; registradas: number; sin_tocar: number; mensajes_chat: number; cambios_memoria: number; cambios_chat: number; cambios_persona: number };
+type Respuesta = { horasAbono: number; trabajos: Trabajo[]; cotizaciones: Cotizacion[]; lectorFacturas?: SemanaLector[] };
 type Filtro = { tipo?: Tipo; area?: string; pidio?: string; dia?: string };
 
 const TIPOS: { tipo: Tipo; nombre: string; plural: string; fondo: string; texto: string; suave: string; borde: string; explica: string }[] = [
@@ -139,6 +141,8 @@ export function MantenimientoTablero() {
         <Calendario mes={mes} trabajos={delMes} dia={filtro.dia} elegir={(dia) => cambiar({ dia: filtro.dia === dia ? undefined : dia })} />
       </Tarjeta>
 
+      <LectorFacturas semanas={datos.lectorFacturas ?? []} />
+
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
         <Barras
           titulo="Sobre qué trabajamos"
@@ -177,6 +181,46 @@ export function MantenimientoTablero() {
         )}
       </section>
     </div>
+  );
+}
+
+// ---- la carga de facturas: cuántas entran sin tocar -----------------------
+// LA MEDIDA (Leandro, 11/11/2026: «para que no falle más»). Hasta hoy se sabía
+// que la carga andaba mal cuando administración avisaba. Acá está el número,
+// semana por semana, para ver si cada arreglo sirve de verdad.
+function LectorFacturas({ semanas }: { semanas: SemanaLector[] }) {
+  if (!semanas.length) return null;
+  const ult = semanas[semanas.length - 1];
+  const ant = semanas.length > 1 ? semanas[semanas.length - 2] : null;
+  const pct = (s: SemanaLector) => (s.registradas > 0 ? Math.round((s.sin_tocar / s.registradas) * 100) : 0);
+  const facturas = (n: number) => `${n} ${n === 1 ? 'factura' : 'facturas'}`;
+  return (
+    <Tarjeta>
+      <h2 className="text-base font-semibold text-tinta">Carga de facturas: cuántas entran sin tocar</h2>
+      <p className="mt-2 max-w-prose text-sm text-tinta/80">
+        En la semana del {fechaCorta(ult.semana)} se {ult.registradas === 1 ? 'registró' : 'registraron'} {facturas(ult.registradas)} y{' '}
+        <strong className="text-tinta">{ult.sin_tocar === 1 ? '1 entró' : `${ult.sin_tocar} entraron`} sin que nadie {ult.sin_tocar === 1 ? 'la' : 'las'} toque</strong> ({pct(ult)} %).
+        {' '}En las demás hubo que escribirle {ult.mensajes_chat} {ult.mensajes_chat === 1 ? 'vez' : 'veces'} al chat y cambiar {ult.cambios_persona} {ult.cambios_persona === 1 ? 'dato' : 'datos'} a mano.
+        {ult.cambios_memoria > 0 && ` La memoria acomodó sola ${ult.cambios_memoria} ${ult.cambios_memoria === 1 ? 'dato' : 'datos'}.`}
+        {ant && ` La semana anterior: ${ant.sin_tocar} de ${ant.registradas}.`}
+      </p>
+      <ul className="mt-4 space-y-2">
+        {semanas.slice(-8).map((s) => (
+          <li key={s.semana} className="text-sm">
+            <span className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span className="text-tinta">Semana del {fechaCorta(s.semana)}</span>
+              <span className="text-tinta/70">{s.sin_tocar} de {s.registradas} sin tocar · {s.mensajes_chat} al chat · {s.cambios_persona} a mano{s.cambios_memoria > 0 ? ` · ${s.cambios_memoria} de memoria` : ''}</span>
+            </span>
+            <span className="mt-1 flex h-2 overflow-hidden rounded-full bg-crema-hondo">
+              <span className="block h-full rounded-full bg-marca" style={{ width: `${pct(s)}%` }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-xs text-tinta/60">
+        «Sin tocar» es una factura registrada sin mensajes al chat y sin cambios a mano. Lo que acomoda la memoria de cada artículo o aplican solas las reglas del proveedor no cuenta: nadie tuvo que hacer nada. Se mide desde el 2/11/2026, cuando se empezó a anotar cada cambio.
+      </p>
+    </Tarjeta>
   );
 }
 

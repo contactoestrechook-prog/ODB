@@ -39,7 +39,11 @@ export class MantenimientoController {
       .select('id, mes, titulo, detalle, horas, precio_hora, moneda, automatica, estado, creada_en, decidida_en, motivo, firmante:usuarios!mantenimiento_cotizaciones_decidida_por_fkey(nombre)')
       .order('creada_en', { ascending: false });
     if (error) throw new BadRequestException(error.message);
-    return { horasAbono: HORAS_ABONO, trabajos, cotizaciones: cotizaciones ?? [] };
+    // LA MEDIDA DE LA CARGA DE FACTURAS (11/11/2026): cuántas entran sin que una
+    // persona las toque, semana por semana (db/migracion-lector-salud.sql). Si
+    // falla, la pantalla sigue: es un dato de más, no lo que vino a ver.
+    const { data: lector } = await this.db.rpc('compras_lector_salud').then((r) => r, () => ({ data: null }));
+    return { horasAbono: HORAS_ABONO, trabajos, cotizaciones: cotizaciones ?? [], lectorFacturas: Array.isArray(lector) ? lector : [] };
   }
 
   // Aprobar o rechazar una cotización. Firma el dueño, como en Aprobaciones.

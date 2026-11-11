@@ -531,6 +531,7 @@ export const SECCIONES: Seccion[] = [
           'Lo que acomodó aparece en la pestaña "Cambios" a nombre de "Memoria", con la factura de la que lo tomó. Cada cambio se puede deshacer.',
           'Solo lo hace si la cuenta del renglón sigue dando el importe impreso. Si no da, deja el renglón como se leyó y avisa cuál es para que lo mires.',
           'Si esta vez el artículo entra distinto, corregilo como siempre: al registrar, la memoria se queda con lo último.',
+          'En Administración › Mantenimiento se ve, semana por semana, cuántas facturas entraron sin que nadie las toque.',
         ],
       },
     ],

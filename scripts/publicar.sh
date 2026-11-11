@@ -59,6 +59,36 @@ if echo "$CAMBIADOS" | grep -qE '^apps/admin/app/(ui/.*\.tsx|.*/page\.tsx)$' \
   echo "AVISO MANUAL: cambiaron pantallas del panel y no el manual (apps/admin/app/manual/contenido.ts)."
   echo "  Si cambió cómo se usa algo, sumalo al manual en el próximo commit."
 fi
+# EL REPASO DE FACTURAS (11/11/2026): si cambió la carga de facturas, antes de
+# publicar se vuelven a pasar las facturas ya registradas por este código
+# (apps/api/scripts/repasar-fichas.ts: solo lee, sin IA, unos segundos). Frena
+# si la memoria del artículo deja MAL un renglón que venía bien. Si no se puede
+# correr (copia sin .env o sin dependencias), avisa y sigue.
+if echo "$CAMBIADOS" | grep -qE '^apps/(api/src/(compras|listas)/|api/scripts/repasar-fichas|admin/app/lib/|admin/app/ui/(ComprasWorkspace|TablaFactura|AsistenteFactura))'; then
+  RAIZ=$(pwd)
+  ENV_REPASO="$RAIZ/apps/api/.env"; [ -f "$ENV_REPASO" ] || ENV_REPASO="$HOME/Projects/odb/apps/api/.env"
+  NM_REPASO="$RAIZ/apps/api/node_modules"; [ -d "$NM_REPASO" ] || NM_REPASO="$HOME/Projects/odb/apps/api/node_modules"
+  if [ -f "$ENV_REPASO" ] && [ -x "$NM_REPASO/.bin/ts-node" ]; then
+    echo "Repasando las facturas registradas contra este código…"
+    SALIDA_REPASO="${TMPDIR:-/tmp}/odb-repaso-facturas.log"
+    set +e
+    (cd "$RAIZ/apps/api" && NODE_PATH="$NM_REPASO" "$NM_REPASO/.bin/ts-node" --transpile-only --skip-project \
+      --compiler-options '{"module":"commonjs","target":"es2021","esModuleInterop":true}' \
+      scripts/repasar-fichas.ts "$ENV_REPASO") > "$SALIDA_REPASO" 2>&1
+    REPASO=$?
+    set -e
+    grep -E "facturas registradas|entrarían solos|la ficha dejaría mal|LO DEJÓ MAL" "$SALIDA_REPASO" || true
+    if [ "$REPASO" -eq 1 ]; then
+      echo "CANDADO: con este código la memoria del artículo deja mal renglones que venían bien. No se publica."
+      grep -E "^  ! " "$SALIDA_REPASO" || true
+      echo "  (el repaso completo quedó en $SALIDA_REPASO)"
+      exit 1
+    fi
+    [ "$REPASO" -eq 0 ] || echo "AVISO: el repaso de facturas no se pudo correr (salida $REPASO): mirá $SALIDA_REPASO. La publicación sigue."
+  else
+    echo "AVISO: no se repasaron las facturas registradas (falta apps/api/.env o las dependencias de la API)."
+  fi
+fi
 echo "Publicando$SERVICIOS desde $COMMIT en el servidor propio: $MENSAJE"
 # manda el código (git archive del commit), compila con docker compose y levanta
 sh infra/servidor/publicar.sh $SERVICIOS
