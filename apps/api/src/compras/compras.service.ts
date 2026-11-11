@@ -1,3 +1,4 @@
+import { mismoNumero } from './numero-comprobante';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
@@ -418,15 +419,17 @@ export class ComprasService {
     // sumaron dos veces al stock. La carga manual ya lo frenaba; la entrada con
     // factura (la de la foto) no preguntaba. Se frena ANTES de tocar el stock.
     if (dto.factura?.numero && dto.proveedorId && !(dto.factura as any).permitirDuplicado) {
+      // todas las del proveedor, y se compara punto de venta y número: «06376-00001075»
+      // y «6376-1075» son la misma factura (11/11/2026, ver numero-comprobante.ts)
       const { data: dup } = await this.db
         .from('facturas_proveedor')
-        .select('id, creado_en')
+        .select('id, creado_en, numero')
         .eq('proveedor_id', dto.proveedorId)
-        .eq('numero', String(dto.factura.numero))
         .eq('tipo', 'factura')
         .neq('estado', 'anulada')
-        .limit(1);
-      const previa = (dup ?? [])[0] as any;
+        .order('creado_en', { ascending: false })
+        .limit(2000);
+      const previa = ((dup ?? []) as any[]).find((x) => mismoNumero(x.numero, dto.factura!.numero));
       if (previa) {
         const cuando = new Date(previa.creado_en).toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' });
         throw new BadRequestException(`La factura ${dto.factura.numero} de este proveedor ya se registró el ${cuando}: su mercadería ya sumó al stock. No se carga dos veces; si es otra factura, revisá el número.`);
@@ -1167,14 +1170,16 @@ export class ComprasService {
     }
     const tipo = ['factura', 'nota_credito', 'nota_debito'].includes(dto.tipo) ? dto.tipo : 'factura';
     // aviso de duplicado: mismo proveedor + mismo número (no bloquea NC sobre la misma numeración)
-    const { data: dup } = await this.db
+    const { data: delProveedor } = await this.db
       .from('facturas_proveedor')
-      .select('id')
+      .select('id, numero')
       .eq('proveedor_id', dto.proveedorId)
-      .eq('numero', String(dto.numero))
       .eq('tipo', tipo)
       .neq('estado', 'anulada')
-      .limit(1);
+      .order('creado_en', { ascending: false })
+      .limit(2000);
+    // el mismo punto de venta y número, aunque esté escrito distinto (11/11/2026)
+    const dup = ((delProveedor ?? []) as any[]).filter((x) => mismoNumero(x.numero, dto.numero));
     if (dup?.length && !dto.permitirDuplicado) {
       throw new BadRequestException('Ya existe un comprobante con ese número para este proveedor. Si es correcto, marcá "cargar igual".');
     }
