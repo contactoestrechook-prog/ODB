@@ -161,7 +161,7 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
 
   const fichas = [...memoria.values()].reduce((s, m) => s + m.size, 0);
   console.log(`\nREPASO DE LA FICHA DEL ARTÍCULO · ${new Date().toISOString().slice(0, 10)}`);
-  console.log(`${t.facturas} facturas registradas (${t.conLectura} con su lectura guardada) · ${historial.length} renglones · quedan ${fichas} fichas de ${memoria.size} proveedores`);
+  console.log(`${t.facturas} facturas registradas (${t.conLectura} con su lectura guardada) · ${historial.length} renglones · quedan ${fichas} fichas de ${[...memoria.values()].filter((m) => m.size > 0).length} proveedores`);
   console.log(`\nRenglones de mercadería comparables: ${t.renglones}`);
   console.log(`  sin ficha todavía (primera vez del artículo): ${t.sinFicha} · de esos, ${t.sinFichaMal} necesitaron corrección`);
   console.log(`  con ficha: ${t.conFicha}`);
