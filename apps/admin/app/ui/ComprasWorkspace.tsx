@@ -1673,6 +1673,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const registrarConConstancia = async (body: any) => {
     const renglones = renglonesParaHistorial();
     const d = await post(body);
+    // la mercadería entró pero la factura o sus renglones no se guardaron: se dice (11/11/2026, antes pasaba callado)
+    if (d?.facturaError) onAvisoTrasRegistrar?.(`La mercadería entró al stock, pero la factura no se pudo guardar (${d.facturaError}). Cargala desde Facturas de compra.`);
+    else if (d?.renglonesFacturaError) onAvisoTrasRegistrar?.(`La factura quedó registrada, pero no se pudo guardar el detalle de sus renglones (${d.renglonesFacturaError}). Avisale a MetoGroup.`);
     const sinRestar = (d?.devoluciones?.sinRestar ?? []) as { sku: string; cantidad: number; motivo: string }[];
     if (sinRestar.length) {
       onAvisoTrasRegistrar?.(`La entrada quedó registrada, pero estas devoluciones no se pudieron restar del stock: ${sinRestar.map((x) => `${x.sku} × ${x.cantidad} (${x.motivo})`).join(' · ')}. Ajustalas a mano desde Stock.`);
@@ -1878,7 +1881,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     if (i._esDescuento || i._esDevolucion || !descuentoDesmedido(i)) return s;
     return s + Math.abs(numImp(i._descuento)) * factorDe(i, idx);
   }, 0) + descuentosNoAplicados * (baseCosto != null && netoDoc ? baseCosto / netoDoc : factorRecon);
-  const cuenta = cuentaDeLaFactura({
+  // las mismas partes viajan al servidor al registrar: rehace la cuenta con el
+  // mismo código y no registra si no cierra (11/11/2026, cuenta-servidor.ts)
+  const entradaCuenta = {
     total: totalDoc,
     partes: partesCuenta,
     percepcionesFueraDelCosto: hayDatosFiscales && !percepcionesAlCosto ? percepciones : 0,
@@ -1886,7 +1891,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     excesoPercepciones: excesoPerc,
     descuentosNoAplicados: descuentosSinAplicar,
     aceptada: diferenciaAceptada,
-  });
+  };
+  const cuenta = cuentaDeLaFactura(entradaCuenta);
   // los costos fijados a mano: no cambian la plata, pero se dicen
   const costosAMano = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
@@ -2293,6 +2299,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 .map(({ sku, alicuota, origen }) => ({ sku, alicuota, origen })),
             } : {}),
             ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
+              cuenta: entradaCuenta,
               factura: {
                 numero: foto.comprobante?.numero ?? 's/n',
                 total: Number(fotoImp.total),
