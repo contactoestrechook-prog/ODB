@@ -11,7 +11,8 @@ import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 import { leerAbastecimiento } from './motor';
-import { claveNecesidad, contextoDeNecesidad, necesidadEnUnaLinea, ordenDeNivel, parteDeNecesidad, resumenDeNecesidad, type Necesidad, type ResumenNecesidad } from './necesidad';
+import { claveNecesidad, contextoDeNecesidad, necesidadEnUnaLinea, ordenDeNivel, parteDeNecesidad, resumenDeNecesidad, sinTraspasos, type Necesidad, type ResumenNecesidad } from './necesidad';
+import { frenoDeTraspasos, leerFrescura, type Frescura } from './frescura';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 
@@ -221,6 +222,7 @@ Cómo trabajás:
 - El plazo de entrega se aprende de las compras reales: cuando se aprueba o envía una orden y cuando entra. Si dice "sin confirmar: 7 días por defecto", decí que ese número es provisorio.
 - Si un producto no tiene proveedor habitual, preguntá a quién se le compra. Al armar la orden con ese proveedor, el sistema lo aprende para la próxima.
 - Si el ritmo viene del sistema viejo y el período terminó hace más de un mes, decilo una vez: las cantidades son orientativas hasta que se cargue el reporte de ventas reciente del sistema viejo.
+- Si ver_faltantes trae "datos_viejos", el stock de ese local es una foto vieja: decilo primero, tal cual, y no propongas compras ni traspasos para ese local con esos números.
 - Las propuestas de compra van SIEMPRE por proponer_compra: la pantalla las dibuja como nota de pedido para tildar, con stock, días que alcanza y costo, y el comprador la arma desde ahí. En tu texto NO repitas los productos ni sus números: una o dos líneas con lo que importa (qué es lo urgente, si el plazo es provisorio, qué le falta al proveedor).
 - armar_orden solo si el comprador te pide por escrito que la armes vos, con la propuesta exacta (proveedor, sucursal, productos y cantidades) ya acordada. Nunca armes una orden sin ese sí.
 - Proveedor bien cargado, sí o sí: para comprarle tiene que tener CUIT, razón social, teléfono o WhatsApp, condición de pago y plazo de entrega confirmado. Si le falta algo, decilo al proponer la compra. Si igual se arma la orden, queda a aprobar y frenada: administración ya recibe el pedido de completarlo y el sistema avisa cuando está.
@@ -293,6 +295,8 @@ export class AbastecimientoService {
       return null;
     });
     const filas = todas ? todas.filter((f) => f.alerta) : await this.situacion({ limite: 20000 });
+    const frescura = await this.frescura();
+    const freno = frenoDeTraspasos(frescura);
     const porSucursal: Record<string, Record<string, number>> = {};
     const porProveedor = new Map<string, { proveedor: string; urgentes: number; faltan: string[] }>();
     let sinProveedor = 0;
@@ -318,8 +322,24 @@ export class AbastecimientoService {
       ventasHasta: ritmoHasta,
       stockActualizado: (imp as any)?.creado_en ?? null,
       // lo mismo, mirado por necesidad (11/11/2026); null si no se pudo calcular
-      necesidad: todas ? this.resumenPorNecesidad(todas) : null,
+      necesidad: todas ? this.resumenPorNecesidad(todas, !!freno) : null,
+      // de cuándo es el stock y hasta cuándo hay ventas de cada local (frescura.ts);
+      // clave = la misma de porSucursal
+      frescura: frescura.map((f) => ({ ...f, clave: filaCorta({ sucursal: f.nombre }).sucursal })),
+      // por qué no se sugieren traspasos; null si se sugieren
+      frenoTraspasos: freno,
     };
+  }
+
+  // De cuándo es el stock de cada local. Si no se puede leer, lista vacía: sin
+  // ese dato no se sugieren traspasos.
+  private async frescura(): Promise<Frescura[]> {
+    try {
+      return await leerFrescura(this.db);
+    } catch (e: any) {
+      this.log.warn(`frescura: no pude leer de cuándo es el stock (${e?.message ?? e})`);
+      return [];
+    }
   }
 
   // ---------- la necesidad (necesidad.ts) ----------
@@ -329,17 +349,21 @@ export class AbastecimientoService {
   // todo sigue como antes, sin contexto.
   private async contexto(): Promise<Map<string, Necesidad>> {
     try {
-      return contextoDeNecesidad(await leerAbastecimiento(this.db));
+      const [filas, frescura] = await Promise.all([leerAbastecimiento(this.db), this.frescura()]);
+      const contexto = contextoDeNecesidad(filas);
+      // con el stock de algún local viejo no se sabe qué sobra: sin traspasos
+      return frenoDeTraspasos(frescura) ? sinTraspasos(contexto) : contexto;
     } catch (e: any) {
       this.log.warn(`necesidad: no se pudo calcular el contexto (${e?.message ?? e})`);
       return new Map();
     }
   }
 
-  private resumenPorNecesidad(filas: any[]): ResumenNecesidad | null {
+  private resumenPorNecesidad(filas: any[], sinPases: boolean): ResumenNecesidad | null {
     try {
+      const contexto = contextoDeNecesidad(filas);
       // las mismas claves de sucursal que porSucursal, para que la pantalla las cruce
-      return resumenDeNecesidad(filas, contextoDeNecesidad(filas), (s) => filaCorta({ sucursal: s }).sucursal);
+      return resumenDeNecesidad(filas, sinPases ? sinTraspasos(contexto) : contexto, (s) => filaCorta({ sucursal: s }).sucursal);
     } catch (e: any) {
       this.log.warn(`necesidad: no se pudo armar el resumen (${e?.message ?? e})`);
       return null;
@@ -385,7 +409,13 @@ export class AbastecimientoService {
     const totales: Record<string, number> = {};
     for (const f of filas) totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] = (totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] ?? 0) + 1;
     const limite = Math.max(1, Math.min(60, Number(input?.limite) || 25));
-    return { totales, mostrando: Math.min(limite, filas.length), de: filas.length, renglones: filas.slice(0, limite).map((f) => filaConContexto(f, contexto)) };
+    // si el stock de un local es una foto vieja, el agente lo tiene que decir antes de proponer
+    const viejos = (await this.frescura()).filter((f) => !f.alDia && (!sucursalId || f.sucursalId === sucursalId)).map((f) => f.motivo);
+    return {
+      totales, mostrando: Math.min(limite, filas.length), de: filas.length,
+      ...(viejos.length ? { datos_viejos: viejos } : {}),
+      renglones: filas.slice(0, limite).map((f) => filaConContexto(f, contexto)),
+    };
   }
 
   async verProducto(input: any) {
@@ -718,7 +748,7 @@ export class AbastecimientoService {
     // falta, lo que se puede traer del otro local y a quién pedirle primero);
     // los totales por producto de siempre quedan abajo. Sin contexto, sale el
     // aviso de antes.
-    const parte = r.necesidad ? parteDeNecesidad(r.necesidad) : { titulo: null, lineas: [] };
+    const parte = r.necesidad ? parteDeNecesidad(r.necesidad, r.frescura.filter((f) => !f.alDia)) : { titulo: null, lineas: [] };
     const detalle = [
       ...parte.lineas,
       ...(parte.titulo ? ['Por producto:'] : []),

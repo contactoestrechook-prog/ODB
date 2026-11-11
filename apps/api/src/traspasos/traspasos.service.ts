@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { traspasoPDF } from '../comun/documentos';
 import { diferenciaDe, sugerirTraspaso, valorDe, type FilaSugerencia } from './logica';
 import { leerAbastecimiento } from '../abastecimiento/motor';
+import { leerFrescura } from '../abastecimiento/frescura';
 
 // ============================================================
 // TRASPASOS ENTRE LOCALES (Leandro, 10/11/2026: «un módulo para traspaso de
@@ -57,7 +58,12 @@ export class TraspasosService {
       this.db.from('usuarios').select('id, nombre, rol, sucursal_id').eq('activo', true).in('rol', ['repartidor', 'cajero', 'deposito', 'gerente', 'administrativo', 'dueno']).order('nombre'),
     ]);
     const llevan = ((personas ?? []) as any[]).sort((a, b) => Number(b.rol === 'repartidor') - Number(a.rol === 'repartidor')).map((p) => ({ id: p.id, nombre: p.nombre, rol: p.rol }));
-    return { traspasos: mios, sucursales: sucursales ?? [], personas: llevan, miSucursal: u.sucursalId ?? null, rol: u.rol ?? null, veTodo: VEN_TODO.includes(String(u.rol)), decideDiferencias: ['gerente', 'dueno'].includes(String(u.rol)) };
+    // de cuándo es el stock de cada local (11/11/2026): la sugerencia de qué pedir
+    // vale lo que valga ese dato, y la pantalla lo dice
+    const stockViejo = await leerFrescura(this.db)
+      .then((fs) => fs.filter((f) => !f.alDia).map((f) => ({ sucursalId: f.sucursalId, motivo: f.motivo })))
+      .catch(() => [] as { sucursalId: string; motivo: string | null }[]);
+    return { stockViejo, traspasos: mios, sucursales: sucursales ?? [], personas: llevan, miSucursal: u.sucursalId ?? null, rol: u.rol ?? null, veTodo: VEN_TODO.includes(String(u.rol)), decideDiferencias: ['gerente', 'dueno'].includes(String(u.rol)) };
   }
 
   async uno(id: string) {

@@ -24,7 +24,7 @@ type Traspaso = {
   nota: string | null; notaRecepcion: string | null; motivoAnulacion: string | null;
   items: Item[]; valor: number; diferencias: number; sinResolver: number;
 };
-type Datos = { traspasos: Traspaso[]; sucursales: { id: string; nombre: string }[]; personas: { id: string; nombre: string; rol: string }[]; miSucursal: string | null; rol: string | null; veTodo: boolean; decideDiferencias: boolean };
+type Datos = { traspasos: Traspaso[]; sucursales: { id: string; nombre: string }[]; personas: { id: string; nombre: string; rol: string }[]; miSucursal: string | null; rol: string | null; veTodo: boolean; decideDiferencias: boolean; stockViejo?: { sucursalId: string; motivo: string | null }[] };
 type Renglon = { sku: string; nombre: string; cantidad: number; pedido?: number | null; nota?: string };
 type Vista = 'pedir' | 'mandar' | 'camino' | 'diferencias' | 'historial';
 
@@ -109,6 +109,12 @@ export function TraspasosWorkspace() {
       </div>
       {aviso && <Aviso tono="ok">{aviso}</Aviso>}
       {error && <Aviso tono="error">{error}</Aviso>}
+      {/* 11/11/2026: el stock de un local puede ser una foto vieja; lo que el sistema sugiere pedir vale lo que valga ese dato */}
+      {(datos.stockViejo ?? []).map((v) => (
+        <Aviso key={v.sucursalId} tono="atencion">
+          {v.motivo} Lo que el sistema sugiere pedir sale de ese stock: antes de pedir o mandar, confirmá con el otro local lo que hay.
+        </Aviso>
+      ))}
 
       {abierto ? (
         abierto.modo === 'recibir' && abierto.t ? (

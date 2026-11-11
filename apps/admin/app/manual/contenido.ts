@@ -659,6 +659,7 @@ export const SECCIONES: Seccion[] = [
           'Elegí la sucursal arriba a la derecha (Saint Thomas o Santa Inés).',
           'Arriba, cada local dice cuántos huecos tiene, cuántos principales en falta y cuántos productos tienen reemplazo; y qué es lo que más venta deja afuera.',
           'Si aparece "Antes de comprar: pasar entre locales", es mercadería que a un local le falta y al otro le sobra. "Pedir el traspaso" abre Traspasos con la lista ya buscada: se trae sin comprar.',
+          'Cada local dice de cuándo es su stock. Si un local no se actualiza hace más de 7 días, lo avisa en rojo: sus números son de ese día y no sirven para comprar. Mientras pase eso con algún local, no se sugieren traspasos (no se sabe qué le sobra ni qué le falta).',
           'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que deja más huecos y principales sin cubrir; después, el que tiene más urgencias.',
           'Para ir directo a uno, escribí su nombre en "Buscar proveedor" (no importan las tildes ni los errores de tipeo). Los filtros "Con urgentes" y "Les faltan datos" achican la lista.',
           'Si querés pedirle algo que no está sugerido, o a un proveedor que hoy no tiene nota, buscalo y tocá "Pedirle algo": se abre su lista para armarle el pedido.',

@@ -194,6 +194,19 @@ export function contextoDeNecesidad(filas: any[]): Map<string, Necesidad> {
   return salida;
 }
 
+// Cuando el stock de algún local es una foto vieja (frescura.ts) no se sabe qué
+// le sobra ni qué le falta: el contexto queda igual, sin sugerir traspasos.
+const SIN_TRASPASOS = new WeakMap<Map<string, Necesidad>, Map<string, Necesidad>>();
+
+export function sinTraspasos(contexto: Map<string, Necesidad>): Map<string, Necesidad> {
+  let limpio = SIN_TRASPASOS.get(contexto);
+  if (!limpio) {
+    limpio = new Map([...contexto].map(([k, v]): [string, Necesidad] => [k, v.traspaso ? { ...v, traspaso: null } : v]));
+    SIN_TRASPASOS.set(contexto, limpio);
+  }
+  return limpio;
+}
+
 // ---------- cómo se dice ----------
 
 const dec = (v: number) => v.toLocaleString('es-AR', { maximumFractionDigits: 1 });
@@ -316,14 +329,24 @@ export function resumenDeNecesidad(filas: any[], contexto = contextoDeNecesidad(
 }
 
 /** El título y las líneas del parte de la mañana. Sin título si no hay nada que decir. */
-export function parteDeNecesidad(r: ResumenNecesidad): { titulo: string | null; lineas: string[] } {
-  const locales = Object.entries(r.porSucursal);
-  if (!locales.length) return { titulo: null, lineas: [] };
+export function parteDeNecesidad(
+  r: ResumenNecesidad,
+  // los locales cuyo stock es una foto vieja (frescura.ts): en vez de sus números, se dice de cuándo son
+  viejos: { sucursal: string; motivo: string | null }[] = [],
+): { titulo: string | null; lineas: string[] } {
+  const motivoDe = new Map(viejos.map((v) => [v.sucursal, v.motivo ?? '']));
+  const todos = Object.entries(r.porSucursal);
+  if (!todos.length) return { titulo: null, lineas: [] };
+  const locales = todos.filter(([clave]) => !motivoDe.has(local(clave)));
   const huecos = locales.reduce((s, [, a]) => s + a.huecos, 0);
   const principales = locales.reduce((s, [, a]) => s + a.principales, 0);
   const lineas: string[] = [];
-  for (const [clave, a] of locales) {
+  for (const [clave, a] of todos) {
     const suc = local(clave);
+    if (motivoDe.has(suc)) {
+      lineas.push(`${motivoDe.get(suc)} Sus números no entran en este parte.`);
+      continue;
+    }
     lineas.push(`${suc}: ${a.huecos} huecos, no queda nada de lo mismo (${a.huecosSemanales} de venta semanal); ${a.principales} principales en falta (${a.principalesSemanales} de venta semanal); ${a.seVienen} huecos que se vienen; ${a.conReemplazo} que tienen reemplazo en el local.`);
     const top = r.destacados[clave] ?? [];
     if (top.length) lineas.push(`Lo que más venta deja afuera en ${suc}: ${top.join(', ')}.`);

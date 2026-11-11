@@ -19,8 +19,12 @@ type ResumenNecesidad = {
   traspasos: { desdeId: string; desde: string; haciaId: string; hacia: string; productos: number; unidades: number; ejemplos: { producto: string; cantidad: number }[] }[];
   proveedores: { proveedor: string; huecos: number; principales: number }[];
 };
+// De cuándo es el stock y hasta cuándo hay ventas de cada local (apps/api/src/abastecimiento/frescura.ts)
+type FrescuraLocal = { clave: string; sucursal: string; stockAl: string | null; ventasHasta: string | null; alDia: boolean; motivo: string | null };
 type Resumen = {
   necesidad?: ResumenNecesidad | null;
+  frescura?: FrescuraLocal[];
+  frenoTraspasos?: string | null;
   porSucursal: Record<string, { sin_stock?: number; no_llega?: number; menos_de_12?: number }>;
   proveedoresUrgentes: { proveedor: string; urgentes: number; faltan: string[] }[];
   sinProveedor: number;
@@ -179,9 +183,21 @@ export function AbastecimientoPanel() {
             ? Object.entries(resumen.porSucursal).map(([suc, a]) => {
                 const nec = resumen.necesidad?.porSucursal[suc];
                 const top = resumen.necesidad?.destacados[suc] ?? [];
+                const fresco = resumen.frescura?.find((f) => f.clave === suc);
+                const viejo = fresco && !fresco.alDia;
                 return (
                   <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
                     <p className="text-sm font-semibold text-tinta">{suc.replace(/^Santa Ines$/, 'Santa Inés')}</p>
+                    {viejo && (
+                      <p className="mt-1 text-sm font-medium leading-snug text-marca-hondo">
+                        {fresco.motivo} Los números de abajo son de ese día: no sirven para comprar.
+                      </p>
+                    )}
+                    {fresco && fresco.alDia && (
+                      <p className="mt-0.5 text-xs text-tinta/70">
+                        Stock al {fecha(fresco.stockAl)}{fresco.ventasHasta && <> · ventas hasta el {fecha(fresco.ventasHasta)}</>}
+                      </p>
+                    )}
                     {nec && (
                       <p className="mt-1 text-sm text-tinta">
                         <span className="importe font-semibold text-marca-hondo">{miles(nec.huecos)}</span> hueco{nec.huecos === 1 ? '' : 's'} ·{' '}
@@ -224,6 +240,14 @@ export function AbastecimientoPanel() {
         )}
       </Tarjeta>
 
+      {resumen?.frenoTraspasos && (
+        <Tarjeta className="space-y-1">
+          <p className="text-sm font-semibold text-tinta">Antes de comprar: pasar entre locales</p>
+          <p className="text-sm leading-snug text-tinta/80">Todavía no se sugieren traspasos. {resumen.frenoTraspasos}</p>
+          <p className="text-xs text-tinta/70">En cuanto se cargue el stock de ese local, acá aparece lo que conviene pasar de uno a otro antes de comprarlo.</p>
+        </Tarjeta>
+      )}
+
       {resumen?.necesidad && resumen.necesidad.traspasos.length > 0 && (
         <Tarjeta className="space-y-2.5">
           <div>
@@ -261,6 +285,13 @@ export function AbastecimientoPanel() {
             opciones={SUCURSALES.map((s) => ({ valor: s, etiqueta: s }))}
           />
         </div>
+
+        {/* si el stock del local elegido es una foto vieja, las notas de abajo también lo son */}
+        {resumen?.frescura?.filter((f) => f.sucursal === sucursal && !f.alDia).map((f) => (
+          <Aviso key={f.clave} tono="atencion">
+            {f.motivo} Estas notas están armadas con ese stock: antes de pedir, confirmá con el local lo que hay.
+          </Aviso>
+        ))}
 
         <div className="space-y-2">
           <Entrada
