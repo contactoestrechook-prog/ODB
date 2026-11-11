@@ -56,13 +56,19 @@ export function TraspasosWorkspace() {
   const [vista, setVista] = useState<Vista>('mandar');
   const [abierto, setAbierto] = useState<{ modo: 'mandar' | 'recibir' | 'nuevo'; t: Traspaso | null } | null>(null);
 
+  // Desde Compras («Pedir el traspaso», 11/11/2026): /traspasos?para=<local que
+  // lo necesita>. Abre directo en Pedir, parado en ese local y con la
+  // sugerencia ya buscada. Quien solo opera su local sigue en el suyo.
+  const [paraLocal] = useState(() => (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('para') ?? ''));
+
   const cargar = useCallback(async () => {
     try {
       const d: Datos = await api('');
       setDatos(d);
-      setLocal((l) => l || d.miSucursal || d.sucursales[0]?.id || '');
+      const pedido = (d.veTodo || !d.miSucursal) && d.sucursales.some((s) => s.id === paraLocal) ? paraLocal : '';
+      setLocal((l) => l || pedido || d.miSucursal || d.sucursales[0]?.id || '');
     } catch (e: any) { setError(e.message); }
-  }, []);
+  }, [paraLocal]);
   useEffect(() => { cargar(); }, [cargar]);
 
   const otros = useMemo(() => (datos?.sucursales ?? []).filter((s) => s.id !== local), [datos, local]);
@@ -77,6 +83,7 @@ export function TraspasosWorkspace() {
   useEffect(() => {
     // arranca donde hay algo que hacer
     if (!datos) return;
+    if (paraLocal && local === paraLocal) { setVista('pedir'); return; }
     if (paraMandar.length) setVista('mandar');
     else if (enCamino.some((t) => t.destino.id === local)) setVista('camino');
     else if (datos.decideDiferencias && conDif.length) setVista('diferencias');
@@ -127,7 +134,7 @@ export function TraspasosWorkspace() {
 
           {vista === 'pedir' && (
             <div className="space-y-4">
-              <Pedir local={local} otros={otros} listo={listo} setError={setError} />
+              <Pedir local={local} otros={otros} listo={listo} setError={setError} sugerirAlAbrir={!!paraLocal && local === paraLocal} />
               {misPedidos.length > 0 && (
                 <section className="space-y-2">
                   <p className={ROTULO}>Lo que ya pediste</p>
@@ -332,7 +339,7 @@ function useRenglones(inicial: Renglon[] = []) {
 
 // ---- pedir ---------------------------------------------------------------
 
-function Pedir({ local, otros, listo, setError }: { local: string; otros: Datos['sucursales']; listo: (s: string) => void; setError: (s: string) => void }) {
+function Pedir({ local, otros, listo, setError, sugerirAlAbrir }: { local: string; otros: Datos['sucursales']; listo: (s: string) => void; setError: (s: string) => void; sugerirAlAbrir?: boolean }) {
   const [origen, setOrigen] = useState(otros[0]?.id ?? '');
   const { renglones, set, agregar, cambiar, quitar } = useRenglones();
   const [sug, setSug] = useState<any[] | null>(null);
@@ -345,6 +352,8 @@ function Pedir({ local, otros, listo, setError }: { local: string; otros: Datos[
     setBuscando(true);
     try { setSug(await api(`sugerencias&origen=${origen}&destino=${local}`)); } catch (e: any) { setError(e.message); } finally { setBuscando(false); }
   };
+  // viniendo de Compras, la sugerencia ya está buscada al abrir
+  useEffect(() => { if (sugerirAlAbrir && origen) sugerir(); }, [sugerirAlAbrir]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Tarjeta className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -356,13 +365,13 @@ function Pedir({ local, otros, listo, setError }: { local: string; otros: Datos[
         <div className="rounded-xl bg-crema-claro p-3">
           {!sug.length ? <p className="text-sm text-tinta/70">No hay nada que te falte y al otro local le sobre.</p> : <>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="mr-auto text-sm text-tinta">{sug.length} producto{sug.length === 1 ? '' : 's'} que te faltan (para {14} días de venta o tu mínimo) y al otro le sobran.</p>
+              <p className="mr-auto text-sm text-tinta">{sug.length} producto{sug.length === 1 ? '' : 's'} que te faltan (para {14} días de venta o tu mínimo) y al otro le sobran. La venta es el ritmo que usa Compras.</p>
               <Boton variante="secundario" onClick={() => { for (const s of sug) if (!renglones.some((r) => r.sku === s.sku)) set((xs) => [...xs, { sku: s.sku, nombre: s.nombre, cantidad: s.sugerido }]); }}>Agregar todos</Boton>
             </div>
             <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto">
               {sug.map((s) => (
                 <li key={s.sku} className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="min-w-0 flex-1 text-tinta">{s.nombre}<span className="block text-xs text-tinta/60">Tenés {cant(s.stockDestino)}{s.diasCubiertosDestino != null ? ` (${cant(s.diasCubiertosDestino)} días)` : ''} · vendiste {cant(s.vendidas30Destino)} en 30 días · allá hay {cant(s.stockOrigen)}</span></span>
+                  <span className="min-w-0 flex-1 text-tinta">{s.nombre}<span className="block text-xs text-tinta/60">Tenés {cant(s.stockDestino)}{s.diasCubiertosDestino != null ? ` (${cant(s.diasCubiertosDestino)} días)` : ''} · vendés {cant(s.vendidas30Destino)} por mes · allá hay {cant(s.stockOrigen)}</span></span>
                   <b>{cant(s.sugerido)}</b>
                   <button type="button" disabled={renglones.some((r) => r.sku === s.sku)} onClick={() => set((xs) => [...xs, { sku: s.sku, nombre: s.nombre, cantidad: s.sugerido }])} className="text-xs font-medium text-marca disabled:text-tinta/40">{renglones.some((r) => r.sku === s.sku) ? 'agregado' : 'agregar'}</button>
                 </li>

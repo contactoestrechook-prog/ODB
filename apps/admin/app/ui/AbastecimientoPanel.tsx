@@ -12,7 +12,15 @@ import { filtrarPorBusqueda } from '../lib/busqueda';
 // entrega del proveedor (ver apps/api/src/abastecimiento).
 // detalle: los productos que el agente detalló, como Placa roja (el paquete gráfico de pedidos)
 type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[]; propuestas?: Propuesta[]; detalle?: DetallePlaca };
+// Lo mismo, mirado por necesidad (11/11/2026, apps/api/src/abastecimiento/necesidad.ts)
+type ResumenNecesidad = {
+  porSucursal: Record<string, { huecos: number; huecosSemanales?: number; seVienen: number; principales: number; principalesSemanales?: number; conReemplazo: number; sinVenta: number; traspasables: number }>;
+  destacados: Record<string, string[]>;
+  traspasos: { desdeId: string; desde: string; haciaId: string; hacia: string; productos: number; unidades: number; ejemplos: { producto: string; cantidad: number }[] }[];
+  proveedores: { proveedor: string; huecos: number; principales: number }[];
+};
 type Resumen = {
+  necesidad?: ResumenNecesidad | null;
   porSucursal: Record<string, { sin_stock?: number; no_llega?: number; menos_de_12?: number }>;
   proveedoresUrgentes: { proveedor: string; urgentes: number; faltan: string[] }[];
   sinProveedor: number;
@@ -168,20 +176,45 @@ export function AbastecimientoPanel() {
       <Tarjeta className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           {resumen
-            ? Object.entries(resumen.porSucursal).map(([suc, a]) => (
-                <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
-                  <p className="text-sm font-semibold text-tinta">{suc}</p>
-                  <p className="mt-1 text-xs text-tinta/70">
-                    <span className="importe font-semibold text-marca-hondo">{miles(a.sin_stock)}</span> sin stock ·{' '}
-                    <span className="importe font-semibold text-marca-hondo">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
-                    <span className="importe font-semibold text-tinta">{miles(a.menos_de_12)}</span> con menos de 12
-                  </p>
-                </div>
-              ))
+            ? Object.entries(resumen.porSucursal).map(([suc, a]) => {
+                const nec = resumen.necesidad?.porSucursal[suc];
+                const top = resumen.necesidad?.destacados[suc] ?? [];
+                return (
+                  <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
+                    <p className="text-sm font-semibold text-tinta">{suc.replace(/^Santa Ines$/, 'Santa Inés')}</p>
+                    {nec && (
+                      <p className="mt-1 text-sm text-tinta">
+                        <span className="importe font-semibold text-marca-hondo">{miles(nec.huecos)}</span> hueco{nec.huecos === 1 ? '' : 's'} ·{' '}
+                        <span className="importe font-semibold text-marca-hondo">{miles(nec.principales)}</span> principal{nec.principales === 1 ? '' : 'es'} en falta ·{' '}
+                        <span className="importe font-semibold">{miles(nec.conReemplazo)}</span> con reemplazo
+                      </p>
+                    )}
+                    {nec && nec.huecosSemanales != null && (
+                      <p className="mt-0.5 text-xs text-tinta/70">
+                        Se venden todas las semanas: {miles(nec.huecosSemanales)} de esos huecos y {miles(nec.principalesSemanales)} de esos principales
+                        {nec.seVienen > 0 && <> · {miles(nec.seVienen)} hueco{nec.seVienen === 1 ? '' : 's'} más se viene{nec.seVienen === 1 ? '' : 'n'}</>}.
+                      </p>
+                    )}
+                    {nec && top.length > 0 && <p className="mt-0.5 break-words text-xs text-tinta/70">Lo que más venta deja afuera: {top.join(', ')}.</p>}
+                    <p className="mt-1 text-xs text-tinta/70">
+                      {nec && 'Por producto: '}
+                      <span className="importe font-semibold text-marca-hondo">{miles(a.sin_stock)}</span> sin stock ·{' '}
+                      <span className="importe font-semibold text-marca-hondo">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
+                      <span className="importe font-semibold text-tinta">{miles(a.menos_de_12)}</span> con menos de 12
+                      {nec && nec.sinVenta > 0 && <> · {miles(nec.sinVenta)} de los sin stock no registran ventas</>}
+                    </p>
+                  </div>
+                );
+              })
             : errorResumen
               ? <p className="text-sm text-tinta/60">No pude calcular el resumen. Recargá la página para reintentar.</p>
               : <Cargando texto="Calculando…" />}
         </div>
+        {resumen?.necesidad && (
+          <p className="text-xs text-tinta/70">
+            <b className="font-semibold text-tinta">Hueco:</b> no queda nada de lo mismo con stock en el local. <b className="font-semibold text-tinta">Principal:</b> quedan otros, pero falta el que más se vende. <b className="font-semibold text-tinta">Con reemplazo:</b> lo cubre otro tamaño u otra marca que sí está.
+          </p>
+        )}
         {resumen && (
           <p className="text-xs text-tinta/70">
             Stock al {fecha(resumen.stockActualizado)} · ritmo de venta con datos hasta {fecha(resumen.ventasHasta)}
@@ -190,6 +223,30 @@ export function AbastecimientoPanel() {
           </p>
         )}
       </Tarjeta>
+
+      {resumen?.necesidad && resumen.necesidad.traspasos.length > 0 && (
+        <Tarjeta className="space-y-2.5">
+          <div>
+            <p className="text-sm font-semibold text-tinta">Antes de comprar: pasar entre locales</p>
+            <p className="mt-0.5 text-xs text-tinta/70">Lo que a un local le falta y al otro le sobra. El que manda se queda con 14 días de su venta; el que recibe, con 14 días de la suya.</p>
+          </div>
+          <ul className="space-y-2">
+            {resumen.necesidad.traspasos.map((t) => (
+              <li key={`${t.desdeId}>${t.haciaId}`} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <p className="mr-auto min-w-0 text-sm text-tinta">
+                    De {t.desde} a {t.hacia}: <span className="importe font-semibold">{miles(t.productos)}</span> producto{t.productos === 1 ? '' : 's'} · <span className="importe font-semibold">{miles(t.unidades)}</span> unidades
+                  </p>
+                  <BotonLink href={`/traspasos?para=${t.haciaId}`} variante="secundario" tamano="chico">Pedir el traspaso</BotonLink>
+                </div>
+                <p className="mt-1 break-words text-xs text-tinta/70">
+                  {t.ejemplos.map((e) => `${e.producto} (${miles(e.cantidad)})`).join(' · ')}{t.productos > t.ejemplos.length ? ` · y ${miles(t.productos - t.ejemplos.length)} más` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
+      )}
 
       <section aria-labelledby="sugerido" className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3 pt-2">

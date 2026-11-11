@@ -657,9 +657,12 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           'Elegí la sucursal arriba a la derecha (Saint Thomas o Santa Inés).',
-          'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que tiene más urgencias.',
+          'Arriba, cada local dice cuántos huecos tiene, cuántos principales en falta y cuántos productos tienen reemplazo; y qué es lo que más venta deja afuera.',
+          'Si aparece "Antes de comprar: pasar entre locales", es mercadería que a un local le falta y al otro le sobra. "Pedir el traspaso" abre Traspasos con la lista ya buscada: se trae sin comprar.',
+          'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que deja más huecos y principales sin cubrir; después, el que tiene más urgencias.',
           'Para ir directo a uno, escribí su nombre en "Buscar proveedor" (no importan las tildes ni los errores de tipeo). Los filtros "Con urgentes" y "Les faltan datos" achican la lista.',
           'Si querés pedirle algo que no está sugerido, o a un proveedor que hoy no tiene nota, buscalo y tocá "Pedirle algo": se abre su lista para armarle el pedido.',
+          'Dentro de cada nota, primero van los huecos, después los principales en falta, después lo que tiene reemplazo. Lo que no registra ventas queda al final.',
           'Lo urgente (sin stock o que no llega a tiempo) viene tildado. Lo que solo bajó de 12 queda sin tildar para que decidas vos.',
           'Tildá o destildá cada producto y corregí la cantidad con − y +. Si cambiás la cantidad, el producto se tilda solo.',
           'Abajo ves el total de lo tildado. "Armar pedido con lo tildado" crea la orden de compra y la deja esperando la firma del dueño en Aprobaciones.',
@@ -670,6 +673,11 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Qué dice cada renglón',
         filas: [
           ['Sin stock / No llega / Menos de 12', 'Por qué se sugiere. "No llega" es que se termina antes de que el proveedor pueda entregar.'],
+          ['Hueco / Se viene un hueco', 'No queda nada de lo mismo con stock en ese local: ni otro tamaño ni otra marca. Es lo primero que hay que resolver. "Se viene" es que todavía hay, pero se termina antes de que llegue el pedido.'],
+          ['Falta el principal', 'Quedan otros de lo mismo, pero este es el que más se vende (40 % o más de lo suyo). El renglón dice qué queda.'],
+          ['Hay reemplazo / Hay parecidos', 'Lo cubre otro que sí está: el mismo en otro tamaño, otra variedad u otra marca. El renglón dice cuál, cuánto stock tiene y para cuántos días alcanza. Puede esperar al próximo pedido de ese proveedor.'],
+          ['Sin venta registrada', 'Está sin stock pero no se vendió en el período: no urge.'],
+          ['En el otro local sobran…', 'Lo que se puede traer del otro local sin dejarlo corto. "Pedir el traspaso" lo abre en Traspasos.'],
           ['La barrita', 'Cuántos días le alcanza el stock. La marca negra es lo que tarda el proveedor: si la barra no llega a la marca, se queda sin stock antes de que llegue el pedido.'],
           ['Sugerido', 'La cantidad que cubre el plazo de entrega, un margen y 14 días más, según lo que se vende.'],
         ],
@@ -679,6 +687,7 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Si al proveedor le faltan datos (CUIT, teléfono, plazo de entrega…), la nota lo dice en rojo. El pedido se arma igual, pero queda frenado hasta que administración los complete.',
           'Mientras el ritmo de venta venga del sistema viejo, las cantidades son orientativas.',
+          'Qué es "lo mismo" sale del nombre del producto y de su categoría (el catálogo no tiene la marca cargada). Si un reemplazo no te parece tal, el renglón igual está en la nota y se pide como siempre: nada se saca de la lista.',
           'Para algo puntual (un rubro, un producto, a quién comprarle lo que no tiene proveedor) preguntale al agente de abajo: lo que propone aparece como otra nota para tildar.',
         ],
       },

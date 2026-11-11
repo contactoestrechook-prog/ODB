@@ -10,6 +10,8 @@ import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
+import { leerAbastecimiento } from './motor';
+import { claveNecesidad, contextoDeNecesidad, necesidadEnUnaLinea, ordenDeNivel, parteDeNecesidad, resumenDeNecesidad, type Necesidad, type ResumenNecesidad } from './necesidad';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 
@@ -102,11 +104,25 @@ export function filaCorta(f: any) {
   };
 }
 
+// La misma fila con su NECESIDAD en una línea (necesidad.ts): si deja un hueco,
+// si es el principal de lo suyo o si lo cubre otro que sí está, y lo que se
+// puede traer del otro local. Va aparte de filaCorta, que se usa en .map().
+export function filaConContexto(f: any, contexto: Map<string, Necesidad>) {
+  return { ...filaCorta(f), contexto: necesidadEnUnaLinea(contexto.get(claveNecesidad(f.producto_id, f.sucursal_id)), f.alerta) };
+}
+
+// Lo que deja la góndola vacía, arriba; dentro de cada grupo, el orden del motor.
+export function ordenarPorNecesidad<T extends { producto_id?: unknown; sucursal_id?: unknown }>(filas: T[], contexto: Map<string, Necesidad>): T[] {
+  if (!contexto.size) return filas;
+  const nivel = (f: T) => ordenDeNivel(contexto.get(claveNecesidad(f.producto_id, f.sucursal_id))?.nivel);
+  return filas.map((f, i) => ({ f, i, o: nivel(f) })).sort((a, b) => a.o - b.o || a.i - b.i).map((x) => x.f);
+}
+
 const HERRAMIENTAS: Anthropic.Tool[] = [
   {
     name: 'ver_faltantes',
     description:
-      'Lista priorizada de lo que hay que comprar (lo más urgente primero), con stock, en camino, ritmo de venta diario, días de cobertura, proveedor habitual, plazo de entrega y cantidad sugerida. Alertas: "sin_stock", "no_llega" (los días de cobertura no alcanzan para el plazo de entrega más un margen) y "menos_de_12". Filtrá por sucursal, alerta, proveedor o rubro para trabajar de a tandas; trae también los totales del filtro.',
+      'Lista priorizada de lo que hay que comprar (lo más urgente primero), con stock, en camino, ritmo de venta diario, días de cobertura, proveedor habitual, plazo de entrega y cantidad sugerida. Alertas: "sin_stock", "no_llega" (los días de cobertura no alcanzan para el plazo de entrega más un margen) y "menos_de_12". Cada renglón urgente trae "contexto": si deja un hueco (no queda nada de lo mismo en el local), si es el principal de lo suyo, si lo cubre otro producto que sí está, y cuánto se puede traer del otro local. Vienen primero los huecos y los principales. Filtrá por sucursal, alerta, proveedor o rubro para trabajar de a tandas; trae también los totales del filtro.',
     input_schema: {
       type: 'object',
       properties: {
@@ -199,6 +215,7 @@ Tu trabajo: que no falte lo que se vende y que no se compre de más. La clave es
 Cómo trabajás:
 - Todos los números salen de tus herramientas. Nunca inventes stock, ritmo, plazos, costos ni proveedores. Cuando contestás sin proponer una compra (un producto, un proveedor, una duda), citá los números que importan (stock, vende X por día, le quedan N días, el proveedor tarda M).
 - Prioridad: 1) sin stock de lo que se vende; 2) lo que no llega a tiempo (los días que le quedan no alcanzan para el plazo de entrega); 3) lo que quedó por debajo de 12. Lo que no se vende no se repone por reponer.
+- Antes de decir que algo falta, mirá su "contexto": no es lo mismo un hueco (no queda nada de lo mismo en el local) que un producto que tiene reemplazo en la góndola. Decilo así: "falta el azúcar Ledesma de 1 kg, pero queda Chango". Primero los huecos y los principales en falta; lo que tiene reemplazo puede esperar al próximo pedido de ese proveedor. Si el contexto dice que en el otro local sobra, avisá que se puede traer con un traspaso (Stock › Traspasos entre locales) antes de comprarlo.
 - Son miles de renglones: trabajá de a tandas y agrupá por proveedor, que es como se compra. Empezá por lo más urgente y preguntá si sigue.
 - La cantidad sugerida ya cubre el plazo de entrega, un margen y 14 días más. Podés ajustarla con criterio (bultos cerrados, la cantidad de la última compra, una tendencia fuerte); el porqué va en el motivo de ese renglón, no en el texto.
 - El plazo de entrega se aprende de las compras reales: cuando se aprueba o envía una orden y cuando entra. Si dice "sin confirmar: 7 días por defecto", decí que ese número es provisorio.
@@ -268,7 +285,14 @@ export class AbastecimientoService {
   // Totales por sucursal y alerta + de cuándo son los datos. Lo usan la pantalla,
   // el aviso diario y el contexto del agente.
   async resumen() {
-    const filas = await this.situacion({ limite: 20000 });
+    // 11/11/2026: una sola lectura completa del motor (la misma que comparten un
+    // minuto las notas y el Analista) da los avisos y su contexto. Si falla,
+    // los avisos de siempre, sin contexto.
+    const todas = await leerAbastecimiento(this.db).catch((e: any) => {
+      this.log.warn(`resumen: sin la lectura completa del motor (${e?.message ?? e})`);
+      return null;
+    });
+    const filas = todas ? todas.filter((f) => f.alerta) : await this.situacion({ limite: 20000 });
     const porSucursal: Record<string, Record<string, number>> = {};
     const porProveedor = new Map<string, { proveedor: string; urgentes: number; faltan: string[] }>();
     let sinProveedor = 0;
@@ -293,7 +317,39 @@ export class AbastecimientoService {
       sinProveedor,
       ventasHasta: ritmoHasta,
       stockActualizado: (imp as any)?.creado_en ?? null,
+      // lo mismo, mirado por necesidad (11/11/2026); null si no se pudo calcular
+      necesidad: todas ? this.resumenPorNecesidad(todas) : null,
     };
+  }
+
+  // ---------- la necesidad (necesidad.ts) ----------
+
+  // El contexto de cada aviso urgente: qué hay de lo mismo en el local y qué
+  // sobra en el otro. Es un agregado: si la lectura completa del motor falla,
+  // todo sigue como antes, sin contexto.
+  private async contexto(): Promise<Map<string, Necesidad>> {
+    try {
+      return contextoDeNecesidad(await leerAbastecimiento(this.db));
+    } catch (e: any) {
+      this.log.warn(`necesidad: no se pudo calcular el contexto (${e?.message ?? e})`);
+      return new Map();
+    }
+  }
+
+  private resumenPorNecesidad(filas: any[]): ResumenNecesidad | null {
+    try {
+      // las mismas claves de sucursal que porSucursal, para que la pantalla las cruce
+      return resumenDeNecesidad(filas, contextoDeNecesidad(filas), (s) => filaCorta({ sucursal: s }).sucursal);
+    } catch (e: any) {
+      this.log.warn(`necesidad: no se pudo armar el resumen (${e?.message ?? e})`);
+      return null;
+    }
+  }
+
+  // La lista de la pantalla y del agente: la fila de siempre más su contexto.
+  async listaCorta(filas: any[]) {
+    const contexto = await this.contexto();
+    return filas.map((f) => filaConContexto(f, contexto));
   }
 
   private async buscarProveedor(nombre: string) {
@@ -320,20 +376,23 @@ export class AbastecimientoService {
       if (provs.length !== 1) return { error: provs.length ? `Hay varios proveedores con "${input.proveedor}": ${provs.map((p) => p.razon_social).join(', ')}` : `No hay un proveedor activo con "${input.proveedor}"` };
       proveedorId = provs[0].id;
     }
-    let filas = await this.situacion({ sucursalId, proveedorId, limite: 20000 });
+    const [todas, contexto] = await Promise.all([this.situacion({ sucursalId, proveedorId, limite: 20000 }), this.contexto()]);
+    let filas = todas;
     if (input?.alerta && input.alerta !== 'todas') filas = filas.filter((f) => f.alerta === input.alerta);
     if (input?.rubro) filas = filtrarPorBusqueda(filas, input.rubro, (f) => f.categoria);
+    // arriba, lo que deja la góndola vacía: el agente solo lee los primeros renglones
+    filas = ordenarPorNecesidad(filas, contexto);
     const totales: Record<string, number> = {};
     for (const f of filas) totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] = (totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] ?? 0) + 1;
     const limite = Math.max(1, Math.min(60, Number(input?.limite) || 25));
-    return { totales, mostrando: Math.min(limite, filas.length), de: filas.length, renglones: filas.slice(0, limite).map(filaCorta) };
+    return { totales, mostrando: Math.min(limite, filas.length), de: filas.length, renglones: filas.slice(0, limite).map((f) => filaConContexto(f, contexto)) };
   }
 
   async verProducto(input: any) {
     const q = String(input?.busqueda ?? '').trim();
     if (q.length < 2) return { error: 'Buscá con al menos 2 letras' };
     const filas = await this.situacion({ soloAlertas: false, q, limite: 12 });
-    return filas.length ? { renglones: filas.map(filaCorta) } : { error: `No encontré "${q}" en el catálogo activo` };
+    return filas.length ? { renglones: await this.listaCorta(filas) } : { error: `No encontré "${q}" en el catálogo activo` };
   }
 
   async verProveedor(input: any) {
@@ -401,8 +460,8 @@ export class AbastecimientoService {
   }
 
   private async propuestasDe(filas: any[], pedidos?: Map<string, { cantidad: number; motivo?: string | null }>): Promise<Propuesta[]> {
-    const fotos = await this.conFoto(filas.map((f) => f.producto_id));
-    return armarPropuestas(filas, { pedidos, conFoto: fotos, urlFoto: (sku) => this.urlFoto(sku) });
+    const [fotos, necesidad] = await Promise.all([this.conFoto(filas.map((f) => f.producto_id)), this.contexto()]);
+    return armarPropuestas(filas, { pedidos, conFoto: fotos, urlFoto: (sku) => this.urlFoto(sku), necesidad: necesidad.size ? necesidad : undefined });
   }
 
   // Vista directa de "Qué comprar": todo lo que tiene sugerido y proveedor,
@@ -655,13 +714,20 @@ export class AbastecimientoService {
     const lineas = Object.entries(r.porSucursal).map(([suc, a]) =>
       `${suc}: ${a.sin_stock ?? 0} sin stock, ${a.no_llega ?? 0} no llegan a tiempo, ${a.menos_de_12 ?? 0} con menos de 12`);
     const urgentes = r.proveedoresUrgentes.slice(0, 5).map((p) => `${p.proveedor} (${p.urgentes})`).join(', ');
+    // 11/11/2026: el parte arranca por lo que importa (huecos, principales en
+    // falta, lo que se puede traer del otro local y a quién pedirle primero);
+    // los totales por producto de siempre quedan abajo. Sin contexto, sale el
+    // aviso de antes.
+    const parte = r.necesidad ? parteDeNecesidad(r.necesidad) : { titulo: null, lineas: [] };
     const detalle = [
+      ...parte.lineas,
+      ...(parte.titulo ? ['Por producto:'] : []),
       ...lineas,
-      urgentes ? `Proveedores con más urgencias: ${urgentes}.` : '',
+      urgentes && !parte.titulo ? `Proveedores con más urgencias: ${urgentes}.` : '',
       r.ventasHasta ? `Ritmo de venta con datos hasta ${new Date(r.ventasHasta).toLocaleDateString('es-AR')}.` : 'Sin datos de ventas cargados.',
     ].filter(Boolean).join('\n');
     const total = Object.values(r.porSucursal).reduce((s, a) => s + (a.sin_stock ?? 0) + (a.no_llega ?? 0), 0);
-    const titulo = `Compras: ${total} productos sin stock o que no llegan a tiempo`;
+    const titulo = parte.titulo ?? `Compras: ${total} productos sin stock o que no llegan a tiempo`;
     const referencia = { link: '/mesa-compras?tab=abastecer', fecha: new Date().toISOString().slice(0, 10) };
     const { data: previo } = await this.db.from('alertas_internas').select('id').eq('tipo', 'abastecimiento').is('leida_en', null).limit(1).maybeSingle();
     if (previo) await this.db.from('alertas_internas').update({ titulo, detalle, referencia, creada_en: new Date().toISOString() }).eq('id', (previo as any).id);

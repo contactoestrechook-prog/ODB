@@ -19,6 +19,17 @@ import { pesos } from '../lib/formato';
 // el stock contra cuántos tarda el proveedor (la marca negra). Si la barra no
 // llega a la marca, se queda sin stock antes de que llegue el pedido.
 
+// 11/11/2026: la NECESIDAD de cada renglón urgente (apps/api/src/abastecimiento/
+// necesidad.ts). «Falta azúcar de 500» no decía que había azúcar de 1 kilo o de
+// otra marca: ahora cada renglón dice si deja un hueco, si es el principal de
+// lo suyo o si lo cubre otro que sí está, y lo que se puede traer del otro local.
+export type NecesidadRenglon = {
+  nivel: 'hueco' | 'falta_principal' | 'falta_opcion' | 'sin_venta';
+  etiqueta: string;
+  explicacion: string;
+  traspaso: { desdeId: string; desde: string; sobra: number; cantidad: number } | null;
+};
+
 export type RenglonPropuesta = {
   sku: string;
   productoId: string;
@@ -34,6 +45,7 @@ export type RenglonPropuesta = {
   costo: number | null;
   motivo: string | null;
   tildado: boolean;
+  necesidad?: NecesidadRenglon;
 };
 
 export type Propuesta = {
@@ -48,6 +60,8 @@ export type Propuesta = {
   items: RenglonPropuesta[];
   urgentes: number;
   total: number;
+  huecos?: number;
+  principales?: number;
 };
 
 export type Armada = { numero: number | null; total: number; renglones: number; faltan: string[]; pedidos?: { sku: string; cantidad: number }[] };
@@ -70,6 +84,14 @@ const ETIQUETA: Record<string, { texto: string; tono: TonoEtiqueta }> = {
   sin_stock: { texto: 'Sin stock', tono: 'error' },
   no_llega: { texto: 'No llega', tono: 'atencion' },
   menos_de_12: { texto: 'Menos de 12', tono: 'neutro' },
+};
+
+// el hueco, en rojo; el principal, en atención; lo que tiene reemplazo, en verde
+const TONO_NECESIDAD: Record<NecesidadRenglon['nivel'], TonoEtiqueta> = {
+  hueco: 'error',
+  falta_principal: 'atencion',
+  falta_opcion: 'ok',
+  sin_venta: 'neutro',
 };
 
 const TILDE = (
@@ -150,6 +172,8 @@ export function NotaDePedido({
   const sinCosto = tildados.some((i) => i.costo == null);
   const todos = vivos.length > 0 && vivos.every((i) => i.tildado);
   const urgentes = vivos.filter((i) => i.alerta === 'sin_stock' || i.alerta === 'no_llega').length;
+  const huecos = vivos.filter((i) => i.necesidad?.nivel === 'hueco').length;
+  const principales = vivos.filter((i) => i.necesidad?.nivel === 'falta_principal').length;
   const visibles = verTodos ? vivos : vivos.slice(0, VISIBLES);
   const restantes = vivos.length - visibles.length;
   // lo tildado que queda escondido: se compra igual, así que se dice
@@ -215,7 +239,12 @@ export function NotaDePedido({
       clave: it.sku,
       cantidad: it.cantidad,
       nombre: <span className={unir('transition-opacity', apagado)}>{it.nombre}</span>,
-      etiqueta: etiqueta ? <Etiqueta tono={etiqueta.tono}>{etiqueta.texto}</Etiqueta> : undefined,
+      etiqueta: etiqueta || it.necesidad ? (
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          {etiqueta && <Etiqueta tono={etiqueta.tono}>{etiqueta.texto}</Etiqueta>}
+          {it.necesidad && <Etiqueta tono={TONO_NECESIDAD[it.necesidad.nivel]}>{it.necesidad.etiqueta}</Etiqueta>}
+        </span>
+      ) : undefined,
       importe: it.costo != null ? <span className={unir('transition-opacity', apagado)}>{pesos(it.costo * it.cantidad)}</span> : undefined,
       detalle: (
         <span className={unir('block transition-opacity', apagado)}>
@@ -226,6 +255,14 @@ export function NotaDePedido({
             {it.enCamino > 0 && <span className="tabular-nums">{dec(it.enCamino)} en camino</span>}
           </span>
           {it.motivo && <span className="mt-0.5 block text-xs italic">{it.motivo}</span>}
+          {/* qué queda de lo mismo en el local, y lo que le sobra al otro */}
+          {it.necesidad && <span className="mt-1 block text-xs leading-snug text-tinta/80">{it.necesidad.explicacion}</span>}
+          {it.necesidad?.traspaso && (
+            <span className="mt-0.5 block text-xs leading-snug text-tinta">
+              En {it.necesidad.traspaso.desde} sobran {dec(it.necesidad.traspaso.sobra)}: se pueden traer <b>{dec(it.necesidad.traspaso.cantidad)}</b> sin comprar.{' '}
+              <a href={`/traspasos?para=${propuesta.sucursalId}`} className={unir('rounded-sm font-medium text-marca-hondo underline underline-offset-2', FOCO)}>Pedir el traspaso</a>
+            </span>
+          )}
           {/* sin stock ya lo dice la etiqueta; la barra es para lo que todavía tiene */}
           {it.stock > 0 && <Alcance cobertura={it.coberturaDias} plazo={propuesta.plazoDias} stock={it.stock} />}
         </span>
@@ -332,6 +369,11 @@ export function NotaDePedido({
               {vivos.length} sugerido{vivos.length === 1 ? '' : 's'}
               {urgentes > 0 && ` · ${urgentes} urgente${urgentes === 1 ? '' : 's'}`}
               {plazo}
+              {(huecos > 0 || principales > 0) && (
+                <span className="block">
+                  {[huecos > 0 && `${huecos} hueco${huecos === 1 ? '' : 's'}`, principales > 0 && `${principales} principal${principales === 1 ? '' : 'es'} en falta`].filter(Boolean).join(' · ')}
+                </span>
+              )}
             </span>
           </>
         }

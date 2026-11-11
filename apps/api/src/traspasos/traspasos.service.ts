@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { traspasoPDF } from '../comun/documentos';
 import { diferenciaDe, sugerirTraspaso, valorDe, type FilaSugerencia } from './logica';
+import { leerAbastecimiento } from '../abastecimiento/motor';
 
 // ============================================================
 // TRASPASOS ENTRE LOCALES (Leandro, 10/11/2026: «un módulo para traspaso de
@@ -113,6 +114,19 @@ export class TraspasosService {
     const dest = new Map(stockD.map((s: any) => [s.producto_id, s]));
     const vendidas = new Map<string, number>();
     for (const v of ventas as any[]) vendidas.set(`${v.producto_id}|${v.sucursal_id}`, (vendidas.get(`${v.producto_id}|${v.sucursal_id}`) ?? 0) + Math.abs(Number(v.cantidad)));
+    // 11/11/2026: los locales venden con el sistema viejo, así que la caja de
+    // NÚCLEO casi no tiene ventas y, sin mínimos cargados, «Sugerir» no proponía
+    // nada. El ritmo de venta real es el del motor de abastecimiento (el mismo
+    // número que ve Compras): se toma el mayor de los dos.
+    try {
+      for (const f of await leerAbastecimiento(this.db)) {
+        const clave = `${f.producto_id}|${f.sucursal_id}`;
+        const delMotor = Math.round(Math.max(0, Number(f.ritmo_dia) || 0) * 300) / 10;
+        if (delMotor > (vendidas.get(clave) ?? 0)) vendidas.set(clave, delMotor);
+      }
+    } catch (e: any) {
+      this.log.warn(`traspasos: sin el ritmo del motor, la sugerencia sale solo con las ventas de la caja (${e?.message ?? e})`);
+    }
     const filas: FilaSugerencia[] = (stockO as any[]).map((s) => {
       const d: any = dest.get(s.producto_id);
       return {
