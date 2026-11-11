@@ -1,5 +1,6 @@
 import { mismoNumero } from './numero-comprobante';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { controlarCuenta } from './cuenta-servidor';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
@@ -97,6 +98,9 @@ export type EntradaDirectaDto = {
     // renglones que volvieron con el repartidor (pintados o anotados a mano)
     devueltos?: { descripcion: string; importe?: number | null }[];
   };
+  // las partes con las que la pantalla hizo la cuenta de la factura: el servidor
+  // la rehace antes de registrar (11/11/2026, cuenta-servidor.ts)
+  cuenta?: unknown;
 };
 
 // LO DEVUELTO SE PAGA RECIÉN CON LA NOTA DE CRÉDITO (Leandro, 4/11/2026): «la
@@ -113,6 +117,7 @@ export function esperaDeNotaCredito(devueltos?: { descripcion: string; importe?:
 
 @Injectable()
 export class ComprasService {
+  private readonly log = new Logger(ComprasService.name);
   // el freno de PIN errados (el mismo de la caja; las pruebas ponen uno propio)
   frenoPin: FrenoDePin = frenoDePin;
 
@@ -436,6 +441,15 @@ export class ComprasService {
       }
     }
 
+    // LA CUENTA, TAMBIÉN ACÁ (11/11/2026, cuenta-servidor.ts): la pantalla manda
+    // las partes con las que hizo la cuenta de la factura y el servidor la rehace
+    // con el mismo código contra el total que va a guardar. Si no cierra y nadie
+    // aceptó la diferencia, no se registra nada. Se frena ANTES de tocar el stock.
+    const controlCuenta = dto.factura?.numero && Number(dto.factura.total) > 0
+      ? controlarCuenta(dto.cuenta, Number(dto.factura.total), dto.items)
+      : null;
+    if (controlCuenta?.frena) throw new BadRequestException(controlCuenta.frena);
+
     // Los renglones se revisan ACÁ, uno por uno y nombrándolos. Antes bajaban
     // crudos a la RPC: una cantidad que no era número (el lector de facturas
     // devuelve "2 x 6", o alguien borra el casillero) reventaba contra la base y
@@ -594,12 +608,26 @@ export class ComprasService {
       if (!errF && dataF?.id) {
         // renglones de la factura con el precio LEÍDO del papel (no el costo
         // prorrateado): son la base del cruce contra remitos
-        await this.guardarItemsFactura(dataF.id, dto.items.map((i) => ({
+        // Si los renglones no se guardan, se dice (11/11/2026): antes el error se
+        // tragaba y la factura figuraba «guardada» sin detalle.
+        const errRenglones = await this.guardarItemsFactura(dataF.id, dto.items.map((i) => ({
           sku: i.sku,
           descripcion: i.descripcionLeida ?? i.sku,
           cantidad: i.cantidad,
           precio: (i as any).precioLeido ?? i.costo,
-        }))).catch(() => {});
+        }))).catch((e) => String(e?.message ?? e));
+        if (errRenglones) resultado.renglonesFacturaError = errRenglones;
+        // la cuenta con la que se registró queda escrita: qué entró, qué no y por qué cerró
+        if (controlCuenta) {
+          const c = controlCuenta.cuenta;
+          await this.db.from('auditoria').insert({
+            usuario_id: dto.usuarioId ?? null, accion: 'cuenta_factura', entidad: 'factura_proveedor', entidad_id: dataF.id,
+            datos_despues: { estado: c.estado, total: c.total, calculado: c.calculado, diferencia: c.diferencia, lineas: c.lineas, mensaje: c.mensaje, cruce: controlCuenta.cruce },
+          }).then(() => null, () => null);
+          if (!controlCuenta.cruce.coincide) {
+            this.log.warn(`cuenta de la factura ${f.numero}: la cuenta dice que entran ${controlCuenta.cruce.unidadesCuenta} unidades y al stock van ${controlCuenta.cruce.unidadesAlStock}`);
+          }
+        }
         // la factura que puso el precio queda en cada valorización
         if (resultado.valorizacion_ids?.length) {
           await this.db.from('valorizaciones_precio_cero').update({ factura_id: dataF.id }).in('id', resultado.valorizacion_ids).then(() => null, () => null);
@@ -1229,8 +1257,10 @@ export class ComprasService {
       .single();
     if (error) throw new BadRequestException(error.message);
     // renglones de la factura: alimentan el cruce contra remitos y el detalle
+    // si no se guardan, se dice en la respuesta (11/11/2026): antes se tragaba el error
+    let renglonesError: string | null = null;
     if (Array.isArray(dto.items) && dto.items.length) {
-      await this.guardarItemsFactura(data.id, dto.items);
+      renglonesError = await this.guardarItemsFactura(data.id, dto.items).catch((e) => String(e?.message ?? e));
     }
     // la mercadería ya entró con estos remitos (10/11/2026): la factura queda
     // conciliada con ellos, y las diferencias registradas para el reclamo
@@ -1239,7 +1269,7 @@ export class ComprasService {
     if (remitoIds.length && tipo === 'factura') {
       conciliacion = await this.confirmarConciliacion(data.id, remitoIds, usuarioId).catch((e) => ({ error: e?.message ?? String(e) }));
     }
-    return { ok: true, id: data.id, conciliacion };
+    return { ok: true, id: data.id, conciliacion, ...(renglonesError ? { renglonesFacturaError: renglonesError } : {}) };
   }
 
   // Listado completo con filtros para el back office
@@ -2073,8 +2103,10 @@ export class ComprasService {
   }
 
   // Guarda los renglones de la factura (para el cruce y el detalle)
-  private async guardarItemsFactura(facturaId: string, items: { sku?: string; descripcion?: string; cantidad: number; precio?: number }[]) {
-    if (!items?.length) return;
+  // Devuelve el error si no se pudieron guardar (null si salió bien): quien
+  // llama decide cómo avisarlo. Reintenta una vez antes de darse por vencido.
+  private async guardarItemsFactura(facturaId: string, items: { sku?: string; descripcion?: string; cantidad: number; precio?: number }[]): Promise<string | null> {
+    if (!items?.length) return null;
     const filas = await Promise.all(items.map(async (i) => ({
       factura_id: facturaId,
       producto_id: i.sku ? await this.productoIdPorSku(i.sku).catch(() => null) : null,
@@ -2082,7 +2114,10 @@ export class ComprasService {
       cantidad: Number(i.cantidad) || 1,
       precio: Number(i.precio) || 0,
     })));
-    await this.db.from('facturas_proveedor_items').insert(filas);
+    let { error } = await this.db.from('facturas_proveedor_items').insert(filas);
+    if (error) ({ error } = await this.db.from('facturas_proveedor_items').insert(filas));
+    if (error) this.log.error(`renglones de la factura ${facturaId} sin guardar: ${error.message}`);
+    return error ? error.message : null;
   }
 
   // 1) Crear orden de pago: queda PENDIENTE de aprobación del dueño (no paga todavía).
