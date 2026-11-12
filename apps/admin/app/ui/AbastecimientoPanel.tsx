@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
+import { PuestaAlDia } from './PuestaAlDia';
 import { Aviso, Boton, BotonLink, CLASES_ENTRADA, Cargando, Chips, Entrada, Etiqueta, FOCO, PlacaRoja, Tarjeta, TarjetaCabecera, Vacio, unir, type DetallePlaca } from './kit';
 import { fecha as fechaFmt, numero } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
@@ -12,7 +13,19 @@ import { filtrarPorBusqueda } from '../lib/busqueda';
 // entrega del proveedor (ver apps/api/src/abastecimiento).
 // detalle: los productos que el agente detalló, como Placa roja (el paquete gráfico de pedidos)
 type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[]; propuestas?: Propuesta[]; detalle?: DetallePlaca };
+// Lo mismo, mirado por necesidad (11/11/2026, apps/api/src/abastecimiento/necesidad.ts)
+type ResumenNecesidad = {
+  porSucursal: Record<string, { huecos: number; huecosSemanales?: number; seVienen: number; principales: number; principalesSemanales?: number; conReemplazo: number; sinVenta: number; traspasables: number }>;
+  destacados: Record<string, string[]>;
+  traspasos: { desdeId: string; desde: string; haciaId: string; hacia: string; productos: number; unidades: number; ejemplos: { producto: string; cantidad: number }[] }[];
+  proveedores: { proveedor: string; huecos: number; principales: number }[];
+};
+// De cuándo es el stock y hasta cuándo hay ventas de cada local (apps/api/src/abastecimiento/frescura.ts)
+type FrescuraLocal = { clave: string; sucursalId: string; nombre: string; sucursal: string; stockAl: string | null; ventasHasta: string | null; alDia: boolean; motivo: string | null };
 type Resumen = {
+  necesidad?: ResumenNecesidad | null;
+  frescura?: FrescuraLocal[];
+  frenoTraspasos?: string | null;
   porSucursal: Record<string, { sin_stock?: number; no_llega?: number; menos_de_12?: number }>;
   proveedoresUrgentes: { proveedor: string; urgentes: number; faltan: string[] }[];
   sinProveedor: number;
@@ -60,7 +73,7 @@ const SUGERENCIAS = [
   '¿A qué proveedores les falta cargar datos para poder comprarles?',
 ];
 
-export function AbastecimientoPanel() {
+export function AbastecimientoPanel({ esDueno = false }: { esDueno?: boolean }) {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -87,13 +100,15 @@ export function AbastecimientoPanel() {
     setYaPedidos((s) => new Set([...s, ...(o.pedidos ?? []).map((p) => `${o.sucursalId}:${p.sku}`)]));
   }, []);
 
+  const [recargar, setRecargar] = useState(0);
+  // el resumen se vuelve a pedir después de poner al día un local
+  const [recargarResumen, setRecargarResumen] = useState(0);
   useEffect(() => {
     fetch('/api/abastecimiento?que=resumen', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => (j ? setResumen(j) : setErrorResumen(true)))
       .catch(() => setErrorResumen(true));
-  }, []);
-  const [recargar, setRecargar] = useState(0);
+  }, [recargarResumen]);
   useEffect(() => {
     // si se cambia de sucursal antes de que llegue la respuesta, la vieja se descarta
     let vigente = true;
@@ -168,20 +183,57 @@ export function AbastecimientoPanel() {
       <Tarjeta className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           {resumen
-            ? Object.entries(resumen.porSucursal).map(([suc, a]) => (
-                <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
-                  <p className="text-sm font-semibold text-tinta">{suc}</p>
-                  <p className="mt-1 text-xs text-tinta/70">
-                    <span className="importe font-semibold text-marca-hondo">{miles(a.sin_stock)}</span> sin stock ·{' '}
-                    <span className="importe font-semibold text-marca-hondo">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
-                    <span className="importe font-semibold text-tinta">{miles(a.menos_de_12)}</span> con menos de 12
-                  </p>
-                </div>
-              ))
+            ? Object.entries(resumen.porSucursal).map(([suc, a]) => {
+                const nec = resumen.necesidad?.porSucursal[suc];
+                const top = resumen.necesidad?.destacados[suc] ?? [];
+                const fresco = resumen.frescura?.find((f) => f.clave === suc);
+                const viejo = fresco && !fresco.alDia;
+                return (
+                  <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
+                    <p className="text-sm font-semibold text-tinta">{suc.replace(/^Santa Ines$/, 'Santa Inés')}</p>
+                    {viejo && (
+                      <p className="mt-1 text-sm font-medium leading-snug text-marca-hondo">
+                        {fresco.motivo} Los números de abajo son de ese día: no sirven para comprar.
+                      </p>
+                    )}
+                    {fresco && fresco.alDia && (
+                      <p className="mt-0.5 text-xs text-tinta/70">
+                        Stock al {fecha(fresco.stockAl)}{fresco.ventasHasta && <> · ventas hasta el {fecha(fresco.ventasHasta)}</>}
+                      </p>
+                    )}
+                    {nec && (
+                      <p className="mt-1 text-sm text-tinta">
+                        <span className="importe font-semibold text-marca-hondo">{miles(nec.huecos)}</span> hueco{nec.huecos === 1 ? '' : 's'} ·{' '}
+                        <span className="importe font-semibold text-marca-hondo">{miles(nec.principales)}</span> principal{nec.principales === 1 ? '' : 'es'} en falta ·{' '}
+                        <span className="importe font-semibold">{miles(nec.conReemplazo)}</span> con reemplazo
+                      </p>
+                    )}
+                    {nec && nec.huecosSemanales != null && (
+                      <p className="mt-0.5 text-xs text-tinta/70">
+                        Se venden todas las semanas: {miles(nec.huecosSemanales)} de esos huecos y {miles(nec.principalesSemanales)} de esos principales
+                        {nec.seVienen > 0 && <> · {miles(nec.seVienen)} hueco{nec.seVienen === 1 ? '' : 's'} más se viene{nec.seVienen === 1 ? '' : 'n'}</>}.
+                      </p>
+                    )}
+                    {nec && top.length > 0 && <p className="mt-0.5 break-words text-xs text-tinta/70">Lo que más venta deja afuera: {top.join(', ')}.</p>}
+                    <p className="mt-1 text-xs text-tinta/70">
+                      {nec && 'Por producto: '}
+                      <span className="importe font-semibold text-marca-hondo">{miles(a.sin_stock)}</span> sin stock ·{' '}
+                      <span className="importe font-semibold text-marca-hondo">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
+                      <span className="importe font-semibold text-tinta">{miles(a.menos_de_12)}</span> con menos de 12
+                      {nec && nec.sinVenta > 0 && <> · {miles(nec.sinVenta)} de los sin stock no registran ventas</>}
+                    </p>
+                  </div>
+                );
+              })
             : errorResumen
               ? <p className="text-sm text-tinta/60">No pude calcular el resumen. Recargá la página para reintentar.</p>
               : <Cargando texto="Calculando…" />}
         </div>
+        {resumen?.necesidad && (
+          <p className="text-xs text-tinta/70">
+            <b className="font-semibold text-tinta">Hueco:</b> no queda nada de lo mismo con stock en el local. <b className="font-semibold text-tinta">Principal:</b> quedan otros, pero falta el que más se vende. <b className="font-semibold text-tinta">Con reemplazo:</b> lo cubre otro tamaño u otra marca que sí está.
+          </p>
+        )}
         {resumen && (
           <p className="text-xs text-tinta/70">
             Stock al {fecha(resumen.stockActualizado)} · ritmo de venta con datos hasta {fecha(resumen.ventasHasta)}
@@ -190,6 +242,43 @@ export function AbastecimientoPanel() {
           </p>
         )}
       </Tarjeta>
+
+      {/* cambia el stock de miles de productos: solo el dueño */}
+      {esDueno && resumen?.frescura && resumen.frescura.length > 0 && (
+        <PuestaAlDia locales={resumen.frescura} onAplicada={() => { setRecargarResumen((n) => n + 1); setRecargar((n) => n + 1); }} />
+      )}
+
+      {resumen?.frenoTraspasos && (
+        <Tarjeta className="space-y-1">
+          <p className="text-sm font-semibold text-tinta">Antes de comprar: pasar entre locales</p>
+          <p className="text-sm leading-snug text-tinta/80">Todavía no se sugieren traspasos. {resumen.frenoTraspasos}</p>
+          <p className="text-xs text-tinta/70">En cuanto se cargue el stock de ese local, acá aparece lo que conviene pasar de uno a otro antes de comprarlo.</p>
+        </Tarjeta>
+      )}
+
+      {resumen?.necesidad && resumen.necesidad.traspasos.length > 0 && (
+        <Tarjeta className="space-y-2.5">
+          <div>
+            <p className="text-sm font-semibold text-tinta">Antes de comprar: pasar entre locales</p>
+            <p className="mt-0.5 text-xs text-tinta/70">Lo que a un local le falta y al otro le sobra. El que manda se queda con 14 días de su venta; el que recibe, con 14 días de la suya.</p>
+          </div>
+          <ul className="space-y-2">
+            {resumen.necesidad.traspasos.map((t) => (
+              <li key={`${t.desdeId}>${t.haciaId}`} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <p className="mr-auto min-w-0 text-sm text-tinta">
+                    De {t.desde} a {t.hacia}: <span className="importe font-semibold">{miles(t.productos)}</span> producto{t.productos === 1 ? '' : 's'} · <span className="importe font-semibold">{miles(t.unidades)}</span> unidades
+                  </p>
+                  <BotonLink href={`/traspasos?para=${t.haciaId}`} variante="secundario" tamano="chico">Pedir el traspaso</BotonLink>
+                </div>
+                <p className="mt-1 break-words text-xs text-tinta/70">
+                  {t.ejemplos.map((e) => `${e.producto} (${miles(e.cantidad)})`).join(' · ')}{t.productos > t.ejemplos.length ? ` · y ${miles(t.productos - t.ejemplos.length)} más` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
+      )}
 
       <section aria-labelledby="sugerido" className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
@@ -204,6 +293,13 @@ export function AbastecimientoPanel() {
             opciones={SUCURSALES.map((s) => ({ valor: s, etiqueta: s }))}
           />
         </div>
+
+        {/* si el stock del local elegido es una foto vieja, las notas de abajo también lo son */}
+        {resumen?.frescura?.filter((f) => f.sucursal === sucursal && !f.alDia).map((f) => (
+          <Aviso key={f.clave} tono="atencion">
+            {f.motivo} Estas notas están armadas con ese stock: antes de pedir, confirmá con el local lo que hay.
+          </Aviso>
+        ))}
 
         <div className="space-y-2">
           <Entrada

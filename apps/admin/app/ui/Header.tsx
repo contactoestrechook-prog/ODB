@@ -60,7 +60,8 @@ export const ICONOS: Record<string, string> = {
 // cierran, con subcategorías adentro. «Clientes» junta las sucursales, la
 // base, la agenda y las cuentas corrientes; «Compras» y «Administración»
 // tienen todo lo suyo adentro. Una entrada nueva va en su grupo y su `sub`.
-const GRUPOS: Grupo[] = [
+// exportados: el manual pregunta con estas mismas pantallas (app/api/manual)
+export const GRUPOS: Grupo[] = [
   { titulo: 'Inicio', icono: 'inicio', items: [{ href: '/inicio', label: 'Inicio', icono: 'inicio' }] },
   {
     titulo: 'Ventas y caja',
@@ -78,6 +79,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Depósito y reparto',
     icono: 'deposito',
     items: [
+      { href: '/traspasos', label: 'Traspasos entre locales', icono: 'reparto' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/salon', label: 'Salón', icono: 'pedidos' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
@@ -95,6 +97,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/productos', label: 'Productos', icono: 'productos', sub: 'Catálogo' },
       { href: '/precios', label: 'Precios', icono: 'productos', sub: 'Catálogo' },
+      { href: '/balanzas', label: 'Balanzas', icono: 'productos', sub: 'Catálogo' },
       { href: '/listas-venta', label: 'Listas de venta', icono: 'listas', sub: 'Catálogo' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones', sub: 'Catálogo' },
       { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube', sub: 'Catálogo' },
@@ -165,11 +168,12 @@ const GRUPOS: Grupo[] = [
       { href: '/reportes', label: 'Reportes del equipo', icono: 'usuarios', sub: 'Equipo' },
       { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia', sub: 'Equipo' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios', sub: 'Equipo' },
+      { href: '/mantenimiento', label: 'Mantenimiento', icono: 'informe', sub: 'Sistema' },
     ],
   },
 ];
 
-const TITULOS: Record<string, { titulo: string; bajada: string }> = {
+export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/inicio': { titulo: 'Inicio', bajada: 'El negocio de un vistazo: hoy, alertas y accesos' },
   '/ventas': { titulo: 'Ventas', bajada: 'Tickets del día y últimas operaciones de las dos sucursales' },
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },
@@ -188,6 +192,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
   '/precios': { titulo: 'Precios', bajada: 'Escaneá y mirá el precio de góndola · imprimí la etiqueta' },
+  '/balanzas': { titulo: 'Balanzas', bajada: 'La lista de PLU con el precio de la caja, lista para cargar en las balanzas Kretz con iTegra' },
   '/stock': { titulo: 'Stock', bajada: 'Quiebres, reposición y vencimientos por sucursal' },
   '/inventario': { titulo: 'Inventario de producto', bajada: 'Buscá un producto y mirá cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra' },
   '/conteo': { titulo: 'Conteo de inventario', bajada: 'Contá el depósito y ajustá diferencias con autorización' },
@@ -202,6 +207,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/proveedores': { titulo: 'Proveedores', bajada: 'La ficha de cada proveedor: datos, WhatsApp, personas, condiciones y catálogos' },
   '/comparador': { titulo: 'Comparador de precios', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
+  '/traspasos': { titulo: 'Traspasos entre locales', bajada: 'Pedir, mandar y recibir mercadería entre Sant Thomas y Santa Inés, con remito y diferencias' },
   '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y tus entregas, en un solo lugar' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
@@ -225,6 +231,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
   '/actividad': { titulo: 'Actividad del equipo', bajada: 'Quién hizo cada cosa: pedidos, compras, caja, stock, cobros y avisos' },
+  '/mantenimiento': { titulo: 'Mantenimiento del sistema', bajada: 'Lo que hizo MetoGroup cada mes: bugs, arreglos, mejoras y propuestas, quién lo pidió y cuánto tiempo llevó' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
   '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },

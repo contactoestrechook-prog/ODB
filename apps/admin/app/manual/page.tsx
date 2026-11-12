@@ -2,6 +2,9 @@ import { cookies } from 'next/headers';
 import { Pantalla } from '../ui/kit/Pantalla';
 import { Manual } from '../ui/Manual';
 import { rolDesdeToken } from '../lib/permisos';
+import { GRUPOS } from '../ui/Header';
+import { apiFetch } from '../../lib/api';
+import type { Novedad } from '../ui/ManualAsistente';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,9 +13,18 @@ export const dynamic = 'force-dynamic';
 // es el orden — arriba va lo del área de quien lo abre.
 export default async function ManualPage() {
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
+  // lo nuevo sale solo de cada publicación; sin la API, el manual anda igual
+  let novedades: Novedad[] = [];
+  try {
+    const r = await apiFetch('/manual/novedades');
+    if (r.ok) novedades = await r.json();
+  } catch {
+    // sin novedades
+  }
+  const pantallas = Object.fromEntries(GRUPOS.flatMap((g) => g.items.map((i) => [i.href, i.label])));
   return (
     <Pantalla activo="/manual" ancho="angosto">
-      <Manual rol={rol} />
+      <Manual rol={rol} pantallas={pantallas} novedades={novedades} />
     </Pantalla>
   );
 }

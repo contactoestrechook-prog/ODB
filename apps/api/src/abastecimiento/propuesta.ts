@@ -8,6 +8,12 @@
 //
 // Todos los números salen de abastecimiento() (la base); acá solo se agrupa y se
 // ordena. El agente elige productos y cantidades, nunca stock ni ritmo.
+//
+// 11/11/2026: cada renglón urgente lleva además su NECESIDAD (necesidad.ts): si
+// es un hueco, si falta el principal o si lo cubre otro que sí está, y lo que
+// se puede traer del otro local. Arriba va lo que deja la góndola vacía.
+
+import { claveNecesidad, necesidadParaPantalla, ordenDeNivel, type Necesidad, type NecesidadEnPantalla } from './necesidad';
 
 export type RenglonPropuesta = {
   sku: string;
@@ -25,6 +31,8 @@ export type RenglonPropuesta = {
   costo: number | null;
   motivo: string | null;
   tildado: boolean;
+  // qué hay de lo mismo en el local y en el otro (solo en lo urgente)
+  necesidad?: NecesidadEnPantalla;
 };
 
 export type Propuesta = {
@@ -40,6 +48,9 @@ export type Propuesta = {
   items: RenglonPropuesta[];
   urgentes: number;
   total: number;
+  // de los urgentes, cuántos dejan un hueco y cuántos son el principal de lo suyo
+  huecos?: number;
+  principales?: number;
 };
 
 const ORDEN_ALERTA: Record<string, number> = { sin_stock: 0, no_llega: 1, menos_de_12: 2 };
@@ -64,6 +75,8 @@ export function armarPropuestas(
     pedidos?: Map<string, { cantidad: number; motivo?: string | null }>;
     conFoto?: Set<string>;
     urlFoto?: (sku: string) => string;
+    // el contexto de cada aviso (contextoDeNecesidad). Sin esto, todo queda como antes.
+    necesidad?: Map<string, Necesidad>;
   } = {},
 ): Propuesta[] {
   const grupos = new Map<string, Propuesta>();
@@ -95,12 +108,16 @@ export function armarPropuestas(
     // en la vista directa vienen tildados los urgentes; lo que solo bajó de 12
     // queda para que el comprador decida. Lo que propone el agente viene tildado.
     const tildado = pedido ? true : urgente;
+    const nc = opciones.necesidad?.get(claveNecesidad(f.producto_id, f.sucursal_id));
+    if (nc?.nivel === 'hueco') g.huecos = (g.huecos ?? 0) + 1;
+    if (nc?.nivel === 'falta_principal') g.principales = (g.principales ?? 0) + 1;
     g.items.push({
       sku: f.sku, productoId: f.producto_id, nombre: f.nombre ?? f.sku,
       foto: opciones.conFoto?.has(f.producto_id) && opciones.urlFoto ? opciones.urlFoto(f.sku) : null,
       stock: num(f.stock), enCamino: num(f.en_camino), ritmoDia: num(f.ritmo_dia),
       coberturaDias: Number(f.ritmo_dia) > 0 && f.cobertura_dias != null ? num(f.cobertura_dias, 1) : null,
       alerta, sugerido, cantidad, costo, motivo: pedido?.motivo?.trim() || null, tildado,
+      ...(nc ? { necesidad: necesidadParaPantalla(nc, alerta) } : {}),
     });
     if (urgente) g.urgentes++;
     if (tildado) g.total += (costo ?? 0) * cantidad;
@@ -109,11 +126,15 @@ export function armarPropuestas(
   const lista = [...grupos.values()];
   for (const g of lista) {
     g.items.sort((a, b) =>
-      (ORDEN_ALERTA[a.alerta ?? ''] ?? 3) - (ORDEN_ALERTA[b.alerta ?? ''] ?? 3)
+      // con contexto: primero el hueco, después el principal, después lo que tiene reemplazo
+      (opciones.necesidad ? ordenDeNivel(a.necesidad?.nivel) - ordenDeNivel(b.necesidad?.nivel) : 0)
+      || (ORDEN_ALERTA[a.alerta ?? ''] ?? 3) - (ORDEN_ALERTA[b.alerta ?? ''] ?? 3)
       || (a.coberturaDias ?? 9999) - (b.coberturaDias ?? 9999)
       || b.ritmoDia - a.ritmoDia
       || a.nombre.localeCompare(b.nombre));
   }
-  // arriba el proveedor con más urgencias; a igualdad, el que más plata mueve
-  return lista.sort((a, b) => b.urgentes - a.urgentes || b.total - a.total || a.proveedor.localeCompare(b.proveedor));
+  // arriba el proveedor que deja más huecos y principales sin cubrir; después,
+  // como siempre: el que tiene más urgencias y, a igualdad, el que más plata mueve
+  const fuertes = (p: Propuesta) => (p.huecos ?? 0) + (p.principales ?? 0);
+  return lista.sort((a, b) => fuertes(b) - fuertes(a) || b.urgentes - a.urgentes || b.total - a.total || a.proveedor.localeCompare(b.proveedor));
 }

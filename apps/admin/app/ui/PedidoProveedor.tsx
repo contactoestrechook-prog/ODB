@@ -5,6 +5,7 @@ import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTR
 import { fecha, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 import { ParecidosProducto } from './ParecidosProducto';
+import { NotaSinProveedor } from './NotaSinProveedor';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
 //
@@ -118,6 +119,8 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [parecidosDe, setParecidosDe] = useState<Item | null>(null);
   // el renglón que tiene abierta la cuenta del sugerido (plegada por defecto: pantalla limpia)
   const [explicado, setExplicado] = useState<string | null>(null);
+  // la nota de pedido sin proveedor (10/11/2026): el proveedor se elige después
+  const [notaSinProveedor, setNotaSinProveedor] = useState(false);
 
   // ---- el pedido guardado solo ----
   const [guardado, setGuardado] = useState<EstadoGuardado>('');
@@ -309,8 +312,10 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const buscarEnCatalogo = async (q: string) => {
     setBuscaCatalogo(q);
     if (q.trim().length < 3) { setResultados([]); return; }
-    const r = await fetch(`/api/pos-buscar?q=${encodeURIComponent(q.trim())}`);
-    setResultados(r.ok ? (await r.json()).slice(0, 8) : []);
+    // el buscador de compras (10/11/2026): el de la caja devuelve { items } y
+    // no lo puede usar el comprador, así que esta lista nunca traía nada
+    const r = await fetch(`/api/compras?recurso=faltantes-nota&sucursalId=${encodeURIComponent(sucursalId)}&q=${encodeURIComponent(q.trim())}`);
+    setResultados(r.ok ? ((await r.json()).items ?? []).slice(0, 8) : []);
   };
 
   const sumarALista = async (sku: string) => {
@@ -366,12 +371,25 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
     }
   };
 
+  if (notaSinProveedor && !proveedor) {
+    return <NotaSinProveedor sucursales={sucursales} proveedores={proveedores} sucursalInicial={sucursalId} onVolver={() => setNotaSinProveedor(false)} />;
+  }
+
   // ---- paso 1: elegir proveedor ----
   if (!proveedor) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-tinta/60">Elegí a quién le vas a pedir. Después armás el pedido con su lista de productos.</p>
         {error && <Aviso tono="error">{error}</Aviso>}
+        {/* sin proveedor todavía: se arma con cualquier producto y se asigna después, o se exporta así */}
+        <button type="button" onClick={() => setNotaSinProveedor(true)}
+          className={unir('flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-marca/50 bg-white px-4 py-3 text-left transition-colors hover:bg-marca-suave', FOCO)}>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-marca-hondo">Nota de pedido sin proveedor</span>
+            <span className="text-xs text-tinta/60">Armala con cualquier producto; el proveedor lo elegís después, o la exportás así.</span>
+          </span>
+          <IconoFlechaAbajo className="size-5 shrink-0 -rotate-90 text-marca-hondo" />
+        </button>
         <Entrada
           aria-label="Buscar proveedor"
           value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar proveedor"

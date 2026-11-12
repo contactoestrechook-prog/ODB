@@ -23,6 +23,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/inventario', // inventario de un producto: cuánto hay, cómo se movió, ventas y costos (5/11/2026)
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
+    '/balanzas', // la lista de PLU con precio para las balanzas Kretz (11/11/2026)
     '/conteo', // conteos de inventario
     '/arqueo', // arqueo de stock: cuenta desde el celular (24/10/2026)
     '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
@@ -34,6 +35,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/pedidos', // los pedidos que llegan: tomarlos y seguirlos
     '/deposito', // cola de preparación
     '/salon', // armado en el salón
+    '/traspasos', // traspasos entre locales: ve y opera todo (10/11/2026)
     '/avisos', // avisos al celular: «Completá el proveedor» (6/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
@@ -64,6 +66,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/repartidor',
     '/fraccionar', // armar docenas y abrir maples en el local (el API ya se lo permitía), 21/10/2026
     '/arqueo', // contar en el arqueo de stock desde el celular (24/10/2026)
+    '/traspasos', // pedir, mandar y recibir mercadería entre locales (10/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -86,6 +89,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/analista',
     '/productos', // catálogo
     '/inventario', // inventario de un producto (5/11/2026)
+    '/balanzas', // la lista de PLU con precio para las balanzas Kretz (11/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -104,6 +108,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
     '/salon', // armado asignado, stock con ubicación y puerta de depósito (5/11/2026)
     '/frio', // temperatura de cámaras y heladeras (3/11/2026)
+    '/balanzas', // bajar la lista de PLU con precio para iTegra (11/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -137,7 +142,7 @@ const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
 // llevaría un 403 del API al entrar: el menú tiene que ofrecer lo que se puede
 // abrir de verdad.
 // La agenda tiene el teléfono de todos los que escribieron (24/10/2026).
-const RUTAS_DIRECCION = ['/aprobaciones', '/actividad', '/agenda'];
+const RUTAS_DIRECCION = ['/aprobaciones', '/actividad', '/agenda', '/mantenimiento'];
 
 /**
  * Cargar repartidores (Reparto › Repartidores, gestion/repartidores en el API)

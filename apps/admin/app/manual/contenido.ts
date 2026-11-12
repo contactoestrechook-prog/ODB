@@ -349,6 +349,48 @@ export const SECCIONES: Seccion[] = [
     ],
   },
   {
+    id: 'stock-productos',
+    titulo: 'Stock: buscar, filtrar y exportar',
+    area: 'Depósito',
+    roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'La lista de todos los productos con su stock, que se filtra por rubro, marca, proveedor, sucursal, estado y más.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cómo se usa',
+        pasos: [
+          'Entrá a Productos › Stock. Abre en la pestaña «Productos».',
+          'Arriba buscás por nombre, SKU o código, y elegís la sucursal (sin elegir, suma las dos).',
+          'Tocá un estado (Sin stock, Bajo mínimo, Se termina, Sin movimiento, Sobra…) o un rubro para filtrar. Se pueden prender varios a la vez; cada uno dice cuántos productos tiene.',
+          'En «Más filtros» están marca, proveedor, por peso o por unidad, con o sin código de barras, activos o inactivos, y los rangos de stock, valor y lo vendido en 30 días.',
+          'Tocá el encabezado de una columna para ordenar por ella; tocarlo otra vez da vuelta el orden.',
+          'Tocá un producto para abrir su ficha de inventario. «Volver al stock» te deja como estabas, con los mismos filtros.',
+          '«Exportar a Excel» baja todo lo filtrado, no solo la página que se ve.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Qué quiere decir cada estado',
+        filas: [
+          ['Sin stock', 'No queda nada.'],
+          ['Negativo', 'Se vendió más de lo que había cargado: hay que contarlo.'],
+          ['Bajo mínimo', 'Quedó por debajo del mínimo o del punto de reposición.'],
+          ['Se termina', 'Al ritmo de venta, alcanza para 7 días o menos.'],
+          ['Sin movimiento', 'Hay stock y no se vendió nada en 30 días: plata parada.'],
+          ['Sobra', 'Alcanza para más de 90 días.'],
+          ['Normal', 'Entre 7 y 90 días de venta.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Los filtros quedan en la dirección de la página: copiala y mandala, y el otro ve la misma lista.',
+          'La venta de 30 días suma lo vendido en el sistema y lo que vino del sistema anterior.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'deposito-stock',
     titulo: 'Stock, conteos, ajustes y mermas',
     area: 'Depósito',
@@ -491,6 +533,18 @@ export const SECCIONES: Seccion[] = [
           ['El costo no coincide', 'Abajo está la cuenta escrita: de cuánto se leyó a cuánto quedó, y con qué impuestos. Si aparece un aviso amarillo, los renglones no suman el neto del pie y hay que revisarlo ANTES de registrar.'],
         ],
       },
+      {
+        tipo: 'pasos',
+        titulo: 'El sistema se acuerda de cómo entra cada producto',
+        pasos: [
+          'Cuando registrás una factura, queda guardado cómo vino y cómo entró cada artículo de ese proveedor: si la cantidad eran cajas o unidades, cuántas trae cada caja, si se arma en paquetes, si va por kilo.',
+          'La próxima factura de ese proveedor se acomoda sola al abrirla: los artículos que ya vinieron entran como la última vez. No hay que explicarlo de nuevo.',
+          'Lo que acomodó aparece en la pestaña "Cambios" a nombre de "Memoria", con la factura de la que lo tomó. Cada cambio se puede deshacer.',
+          'Solo lo hace si la cuenta del renglón sigue dando el importe impreso. Si no da, deja el renglón como se leyó y avisa cuál es para que lo mires.',
+          'Si esta vez el artículo entra distinto, corregilo como siempre: al registrar, la memoria se queda con lo último.',
+          'En Administración › Mantenimiento se ve, semana por semana, cuántas facturas entraron sin que nadie las toque.',
+        ],
+      },
     ],
   },
   {
@@ -614,9 +668,13 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           'Elegí la sucursal arriba a la derecha (Saint Thomas o Santa Inés).',
-          'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que tiene más urgencias.',
+          'Arriba, cada local dice cuántos huecos tiene, cuántos principales en falta y cuántos productos tienen reemplazo; y qué es lo que más venta deja afuera.',
+          'Si aparece "Antes de comprar: pasar entre locales", es mercadería que a un local le falta y al otro le sobra. "Pedir el traspaso" abre Traspasos con la lista ya buscada: se trae sin comprar.',
+          'Cada local dice de cuándo es su stock. Si un local no se actualiza hace más de 7 días, lo avisa en rojo: sus números son de ese día y no sirven para comprar. Mientras pase eso con algún local, no se sugieren traspasos (no se sabe qué le sobra ni qué le falta).',
+          'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que deja más huecos y principales sin cubrir; después, el que tiene más urgencias.',
           'Para ir directo a uno, escribí su nombre en "Buscar proveedor" (no importan las tildes ni los errores de tipeo). Los filtros "Con urgentes" y "Les faltan datos" achican la lista.',
           'Si querés pedirle algo que no está sugerido, o a un proveedor que hoy no tiene nota, buscalo y tocá "Pedirle algo": se abre su lista para armarle el pedido.',
+          'Dentro de cada nota, primero van los huecos, después los principales en falta, después lo que tiene reemplazo. Lo que no registra ventas queda al final.',
           'Lo urgente (sin stock o que no llega a tiempo) viene tildado. Lo que solo bajó de 12 queda sin tildar para que decidas vos.',
           'Tildá o destildá cada producto y corregí la cantidad con − y +. Si cambiás la cantidad, el producto se tilda solo.',
           'Abajo ves el total de lo tildado. "Armar pedido con lo tildado" crea la orden de compra y la deja esperando la firma del dueño en Aprobaciones.',
@@ -627,6 +685,11 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Qué dice cada renglón',
         filas: [
           ['Sin stock / No llega / Menos de 12', 'Por qué se sugiere. "No llega" es que se termina antes de que el proveedor pueda entregar.'],
+          ['Hueco / Se viene un hueco', 'No queda nada de lo mismo con stock en ese local: ni otro tamaño ni otra marca. Es lo primero que hay que resolver. "Se viene" es que todavía hay, pero se termina antes de que llegue el pedido.'],
+          ['Falta el principal', 'Quedan otros de lo mismo, pero este es el que más se vende (40 % o más de lo suyo). El renglón dice qué queda.'],
+          ['Hay reemplazo / Hay parecidos', 'Lo cubre otro que sí está: el mismo en otro tamaño, otra variedad u otra marca. El renglón dice cuál, cuánto stock tiene y para cuántos días alcanza. Puede esperar al próximo pedido de ese proveedor.'],
+          ['Sin venta registrada', 'Está sin stock pero no se vendió en el período: no urge.'],
+          ['En el otro local sobran…', 'Lo que se puede traer del otro local sin dejarlo corto. "Pedir el traspaso" lo abre en Traspasos.'],
           ['La barrita', 'Cuántos días le alcanza el stock. La marca negra es lo que tarda el proveedor: si la barra no llega a la marca, se queda sin stock antes de que llegue el pedido.'],
           ['Sugerido', 'La cantidad que cubre el plazo de entrega, un margen y 14 días más, según lo que se vende.'],
         ],
@@ -636,7 +699,51 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Si al proveedor le faltan datos (CUIT, teléfono, plazo de entrega…), la nota lo dice en rojo. El pedido se arma igual, pero queda frenado hasta que administración los complete.',
           'Mientras el ritmo de venta venga del sistema viejo, las cantidades son orientativas.',
+          'Qué es "lo mismo" sale del nombre del producto y de su categoría (el catálogo no tiene la marca cargada). Si un reemplazo no te parece tal, el renglón igual está en la nota y se pide como siempre: nada se saca de la lista.',
           'Para algo puntual (un rubro, un producto, a quién comprarle lo que no tiene proveedor) preguntale al agente de abajo: lo que propone aparece como otra nota para tildar.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'compras-poner-al-dia',
+    titulo: 'Poner al día el stock y las ventas de un local',
+    area: 'Compras',
+    roles: ['dueno'],
+    bajada: 'Mesa de compras → Qué comprar → "Poner al día". Para que el sistema sepa lo que hay y lo que se vende mientras el local siga con su sistema.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: 'Mientras un local venda con su sistema (Sant Thomas, con el Crack), NÚCLEO no se entera de cada venta: sabe lo que había el día de la última carga. Con cada día que pasa, lo que dice de stock, de faltantes y de qué comprar se aleja de la realidad. Esta pantalla lo pone al día en un minuto.',
+      },
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Bajá del sistema del local los archivos stock.csv y ventas.csv (los mismos de siempre; el de ventas trae el año entero, no importa).',
+          'En Mesa de compras → Qué comprar tocá "Poner al día" y elegí los dos archivos. El sistema reconoce de qué local son.',
+          'Mirá el resumen: cuántos productos cambian de stock, cuántos bajan, suben o quedan en cero, los cambios más grandes, y qué días de ventas se cargan. Todavía no se tocó nada.',
+          'Si está bien, "Aplicar" y confirmá. Se hace todo junto o nada. Arriba cambia la fecha del stock de ese local y se recalcula qué comprar.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cómo decide',
+        filas: [
+          ['Stock', 'Queda como dice el sistema del local, más lo que se cargó solo en NÚCLEO desde la última carga (las compras de administración, correcciones, traspasos). Si el local también cargó esa compra, no se cuenta dos veces.'],
+          ['Lo que el archivo no trae', 'No se toca.'],
+          ['Negativos', 'Un stock negativo del local queda en cero.'],
+          ['Ventas', 'Se cargan solo los días completos que faltaban. El día del corte, que está a medias, entra con la próxima carga.'],
+          ['Ritmo de venta', 'Qué comprar lo calcula con los últimos 28 días de ventas cargadas (70 %) y los 28 anteriores (30 %).'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Un archivo de antes de la última carga no se puede aplicar: hay que bajar uno nuevo.',
+          'Si avisa que "no trae nada" de un día en que el local abrió, el archivo de ventas está incompleto: no lo apliques y bajalo de nuevo.',
+          'Una compra cargada en NÚCLEO que nunca se carga en el sistema del local se conserva hasta la carga siguiente; después manda el stock del local.',
+          'Precios, productos nuevos, clientes, cuenta corriente y proveedores no entran por acá: siguen yendo con la carga completa del sistema del local.',
+          'Solo lo puede hacer un dueño. Queda registrado quién lo hizo y con qué archivo.',
         ],
       },
     ],
@@ -1174,6 +1281,56 @@ export const SECCIONES: Seccion[] = [
           'Abajo de todo está el historial de la sucursal: qué se armó, se abrió o se cargó al pozo, con quién y cuándo. Los movimientos completos están en Stock › Movimientos.',
           'Una presentación no puede ser pozo de otra (no hay cadenas) y un producto que se vende por kilo no puede ser presentación: las presentaciones se venden por paquete.',
           'Mientras Sant Thomas siga vendiendo con el sistema viejo, lo que trae su planilla (el maple, la media docena, los quesos x fracción) no se arma, no se abre ni se carga ahí: la carga siguiente de la planilla lo pisaría y los huevos quedarían contados dos veces o perdidos. La pantalla lo avisa.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'balanzas',
+    titulo: 'Balanzas: la lista de precios para las Kretz',
+    area: 'Salón y caja',
+    roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'Bajá la lista de PLU con el precio de la caja y cargala en las balanzas con iTegra.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          'La caja lee las etiquetas de la balanza: toma el PLU y los gramos, y cobra con la lista Minorista. Para que la etiqueta diga el mismo precio que el ticket, la balanza tiene que tener la misma lista. En Productos › Balanzas está esa lista armada: cada producto que se vende por peso, más los que se venden por unidad con etiqueta de balanza, con su PLU, el nombre como lo imprime la balanza (en mayúsculas y sin tildes) y el precio. Es la misma para las dos sucursales. La bajan depósito, administración, compras, gerencia y el dueño.',
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Bajar la lista',
+        pasos: [
+          'Arriba dice cuándo se bajó la última vez, quién la bajó y cuántos cambios hubo desde entonces.',
+          '"Bajar la lista completa" baja el archivo con todos los productos. La primera vez, bajá esa.',
+          'Después de la primera vez, "Bajar solo los N cambios" baja nada más que lo nuevo y lo que cambió de precio, nombre o si se vende por kilo o por unidad.',
+          'En "Desde la última vez" está cada cambio, con el precio de antes y el de ahora. Los que dicen "Ya no va" no se mandan: hay que borrarlos a mano de la balanza.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cargarla en iTegra',
+        pasos: [
+          'En iTegra: Archivo › Importar › Desde archivo, y elegí "PLU\'s". Elegí el archivo que bajaste.',
+          '"Importar desde la fila": 2. Separador: caracteres especiales, con el punto y coma (;).',
+          'Los campos, en este orden: Número de PLU, Código de PLU, Nombre de PLU, Tipo de PLU, Precio, Código de Departamento y Código de etiqueta.',
+          'Guardar e Importar, y después mandá la lista a las balanzas desde iTegra. Los mismos pasos están en la pantalla, en "Cómo se carga en iTegra".',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Productos por unidad (compras, administración, gerencia y dueño)',
+        pasos: [
+          'Los productos por peso van solos. Uno que se vende por unidad con etiqueta de la balanza (la torta matera, por ejemplo) se suma con "Sumar un producto por unidad": buscalo y tocá "Sumar".',
+          'Para sacarlo, tocá "Sacar" en su renglón. El producto sigue en el catálogo y en la caja.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'En "No entran en la lista" están los productos por peso que no pueden ir a la balanza: sin PLU, sin precio o con un PLU que tiene otro producto. Se corrigen en la ficha del producto.',
+          'Una balanza apagada cuando se mandó la lista queda con los precios viejos. La caja igual cobra bien, pero la etiqueta muestra otro precio.',
+          'Si alguien configura una balanza para que el código lleve el precio en vez del peso, la caja lo va a leer como gramos. El código tiene que seguir siendo 2, PLU de seis números y los gramos.',
         ],
       },
     ],

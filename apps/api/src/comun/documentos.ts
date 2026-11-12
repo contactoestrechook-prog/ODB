@@ -710,6 +710,71 @@ export async function remitoRecepcionPDF(d: DatosRemito): Promise<Buffer> {
   return h.cerrar();
 }
 
+export type DatosTraspaso = {
+  folio: string;
+  emitidoEn?: string;
+  numero: number | string;
+  origen: string;
+  destino: string;
+  estado: string;
+  pedidoPor?: string | null;
+  enviadoPor?: string | null;
+  enviadoEn?: string | null;
+  lleva?: string | null;
+  recibidoPor?: string | null;
+  recibidoEn?: string | null;
+  nota?: string | null;
+  items: { nombre: string; sku?: string | null; pedido?: number | null; enviado: number; recibido?: number | null; costo?: number | null; nota?: string | null }[];
+};
+
+// REMITO DE TRASPASO (10/11/2026): el papel que viaja con la mercadería de un
+// local al otro. Interno, sin ARCA (lo decidió Leandro), valorizado al costo.
+// En el círculo va lo ENVIADO (lo que salió del stock del origen); a la
+// derecha lo pedido y, cuando ya se recibió, lo recibido y la diferencia.
+export async function traspasoPDF(d: DatosTraspaso): Promise<Buffer> {
+  const h = await HojaPlacaRoja.abrir('REMITO DE TRASPASO', d.folio, `${d.folio} · Traspaso #${d.numero} · Emitido ${fecha(d.emitidoEn ?? new Date().toISOString())}`);
+  const y0 = h.datos({ rotulo: 'DE', nombre: d.origen, detalle: `A: ${d.destino}` }, [
+    ['Traspaso', `#${d.numero}`],
+    ['Estado', d.estado],
+    ['Salió', d.enviadoEn ? fecha(d.enviadoEn) : '—'],
+    ['Lo lleva', d.lleva ?? '—'],
+  ]);
+  const recibido = d.items.some((it) => it.recibido != null);
+  let diferencias = 0;
+  let valor = 0;
+  const filas: RenglonPlaca[] = d.items.map((it) => {
+    const env = Number(it.enviado) || 0;
+    const rec = it.recibido == null ? null : Number(it.recibido);
+    const dif = rec == null ? 0 : Math.round((rec - env) * 1000) / 1000;
+    if (dif !== 0) diferencias++;
+    valor += env * (Number(it.costo) || 0);
+    const gris = [it.sku ? `SKU ${it.sku}` : null, it.costo ? `costo ${importe(it.costo)}` : null, it.nota].filter(Boolean).join(' · ');
+    const columnas: RenglonPlaca['columnas'] = [it.pedido == null ? { texto: '—', color: GRIS, letra: 'normal' } : { texto: cantidad(it.pedido) }];
+    if (recibido) {
+      columnas.push(rec == null ? { texto: '—', color: GRIS, letra: 'normal' } : { texto: cantidad(rec) });
+      columnas.push(dif === 0 ? { texto: '—', color: GRIS, letra: 'normal' } : { texto: dif > 0 ? `+${cantidad(dif)}` : `-${cantidad(-dif)}`, color: ROJO, letra: 'fuerte' });
+    }
+    return { cantidad: env, nombre: it.nombre, gris: gris || null, columnas };
+  });
+  const estado: [string, string] = !recibido
+    ? ['En camino', `Valor al costo: ${importe(valor)}. Al llegar, el local que recibe cuenta y firma.`]
+    : diferencias
+      ? [`${diferencias} renglón/es con diferencia`, `Valor enviado al costo: ${importe(valor)}. Las diferencias las resuelve gerencia.`]
+      : ['Recibido completo', `Valor al costo: ${importe(valor)}. Llegó todo lo que salió.`];
+  const obs = d.nota ? h.partir(d.nota, { letra: 'normal', tam: 9 }, ANCHO - 32, MAX_OBS) : [];
+  const altoCierre = 4 + h.altoRecuadro([estado[1]]) + (obs.length ? 10 + h.altoRecuadro(obs) : 0) + 26;
+  const cierre = h.renglones(filas, { desde: y0 + 12, altoCierre, rotuloCirculo: 'ENVIADO', columnas: recibido ? ['PEDIDO', 'RECIBIDO', 'DIF.'] : ['PEDIDO'] });
+  let y = cierre.y + 4;
+  y += h.recuadro(y, estado[0], [estado[1]], diferencias ? ROJO : NEGRO);
+  if (obs.length) y += 10 + h.recuadro(y + 10, 'Observaciones', obs);
+  h.firmas(y + 20, ['Preparó y envió:', d.enviadoPor ?? '—'], ['Recibió y contó:', d.recibidoPor ?? '______________________']);
+  h.pie([
+    { texto: RAZON_SOCIAL, letra: 'normal', tam: 7.5, color: GRIS },
+    { texto: 'Remito interno entre locales: no es comprobante fiscal. Las cantidades enviadas salieron del stock del origen; las recibidas entraron al del destino.', letra: 'cursiva', tam: 7.5, color: GRIS },
+  ]);
+  return h.cerrar();
+}
+
 export type DatosOrdenPago = {
   folio: string;
   emitidoEn?: string;

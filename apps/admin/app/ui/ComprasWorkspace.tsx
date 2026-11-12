@@ -7,18 +7,24 @@ import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
+import { cambiosDeFichas } from '../lib/ficha-articulo';
 import { conversionSugerida } from '../lib/presentacion';
 import {
   alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades, precioYaEsDeLaUnidad,
   variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
+import { CamaraCodigo } from './CamaraCodigo';
 import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
+import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
+import { revisarAntesDeRegistrar } from '../lib/revision-factura';
+import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
+import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
@@ -421,7 +427,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // distinto al de siempre es una promoción y vale solo para esta entrada.
   const [fijarSku, setFijarSku] = useState<Record<string, boolean>>({});
   // para preguntar antes de una conversión que deja el costo por el piso (6/10/2026)
-  const { confirmar, dialogo } = useConfirmar();
+  const { confirmar, pedirTexto, dialogo } = useConfirmar();
 
   const traerRemarcacion = useCallback(async (proveedorId: string, skus: string[]) => {
     const faltan = skus.filter((sku) => sku && !(sku in remarca));
@@ -526,6 +532,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [soloFactura, setSoloFactura] = useState(false);
   // la persona miró contra el papel los renglones que no cierran y los deja así
   const [sinCierreRevisado, setSinCierreRevisado] = useState(false);
+  // la diferencia de la cuenta de la factura que aceptó una persona (o el chat en su nombre), con su motivo
+  const [diferenciaAceptada, setDiferenciaAceptada] = useState<{ monto: number; motivo: string } | null>(null);
+  // lo que el control antes de registrar avisó y una persona dijo «está bien» (por el texto: si cambian los números, se vuelve a preguntar)
+  const [revisionOk, setRevisionOk] = useState<string[]>([]);
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): el
   // renglón que coincide le pone el costo a esa entrada y no suma stock.
   // soloPrecio[sku] === false = el usuario lo destildó y entra como compra normal.
@@ -542,6 +552,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       .catch(() => { /* sin el dato, la factura entra como siempre */ });
     return () => { vigente = false; };
   }, [modal?.tipo, f.proveedorId]);
+  // LOS REMITOS DE ESTE PROVEEDOR QUE ESPERAN SU FACTURA (10/11/2026): si esta
+  // factura es la de uno de ellos, la mercadería ya entró con el remito y se
+  // carga solo la factura, conciliada (lib/remito-factura.ts).
+  const [remitosEsperando, setRemitosEsperando] = useState<{ remitos: RemitoEsperando[]; puerta: number }>({ remitos: [], puerta: 0 });
+  const [remitoNoEs, setRemitoNoEs] = useState<string | null>(null);
+  useEffect(() => {
+    setRemitosEsperando({ remitos: [], puerta: 0 }); setRemitoNoEs(null);
+    if (modal?.tipo !== 'entradaFoto' || !f.proveedorId) return;
+    let vigente = true;
+    fetch(`/api/compras?recurso=remitos-esperando&proveedorId=${encodeURIComponent(f.proveedorId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (vigente && d && Array.isArray(d.remitos)) setRemitosEsperando({ remitos: d.remitos, puerta: Number(d.puerta) || 0 }); })
+      .catch(() => { /* sin el dato, la factura entra como siempre */ });
+    return () => { vigente = false; };
+  }, [modal?.tipo, f.proveedorId]);
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
   // Renglón al que administración le está cargando los kilos a mano (ver pasarAPesoManual)
@@ -551,6 +576,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [avisoCatalogo, setAvisoCatalogo] = useState<{ idx: number; texto: string; error?: boolean } | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
+  // POR CÓDIGO DE BARRAS (9/11/2026, Leandro: «que se pueda cargar y vincular
+  // por el código de barras también ahí»): la pistola escribe el código y da
+  // Enter, o la cámara del celular lo lee. Si el código es de un producto, se
+  // vincula solo; si no está en el catálogo, se recuerda y queda guardado en el
+  // producto que se elija a mano (o en el alta), así la próxima vez lo encuentra.
+  const [camaraPara, setCamaraPara] = useState<null | { idx: number; para: 'vincular' | 'alta' }>(null);
+  const [codigoSinProducto, setCodigoSinProducto] = useState<string | null>(null);
+  const [avisoCodigo, setAvisoCodigo] = useState('');
+  // PASAR LOS PRODUCTOS POR LA PISTOLA (10/11/2026, Leandro: «que en la carga de
+  // factura se pueda pasar el código de barra»): sin abrir cada renglón. El
+  // código trae el producto exacto; si ya hay un renglón con ese producto, queda
+  // marcado como escaneado; si no, se elige a qué renglón va y se vincula. Así
+  // un vínculo adivinado por el nombre (Jorgito → Cachafaz, 9/11) no pasa.
+  const [codigoPasado, setCodigoPasado] = useState('');
+  const [escaneados, setEscaneados] = useState<number[]>([]);
+  const [aUbicar, setAUbicar] = useState<null | { codigo: string; producto: any | null }>(null);
+  const [avisoPasado, setAvisoPasado] = useState<{ tono: 'ok' | 'atencion'; texto: string } | null>(null);
+  const [camaraPasar, setCamaraPasar] = useState(false);
 
   // Primera lectura: comprime la foto en el navegador (las de celular pesan
   // 10-20 MB) y la guarda por si hay que volver a leerla con aclaraciones. El PDF
@@ -695,6 +738,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           alicuotaIva: i.alicuotaIva ?? r.alicuotaDeducida ?? null,
           alicuotaCatalogo: i.match?.alicuotaCatalogo ?? null,
           costoCatalogo: i.match?.costoActual ?? null,
+          precioActual: i.match?.precioActual ?? null,
           alicuotaElegida: null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
@@ -1414,11 +1458,44 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
   // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
   // seguir editando mientras la IA pensaba)
-  const aplicarIA = (cambios: any[], cambiosPie: any[], automatico = false) => {
+  // EL CHAT CAMBIA EL PRODUCTO (10/11/2026): «el 4 es Jorgito tubo chocolate».
+  // Se busca con el buscador de siempre; vale si queda UNO que tenga todas las
+  // palabras que dijo la persona (y su marca). Si hay varios, se le devuelven.
+  const productoDelChat = async (texto: string): Promise<{ elegido: any | null; opciones: any[] }> => {
+    const q = String(texto ?? '').trim();
+    if (!q) return { elegido: null, opciones: [] };
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(esCodigoBarras(q) ? q.replace(/\D/g, '') : q)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    if (esCodigoBarras(q)) return { elegido: items.length === 1 ? items[0] : null, opciones: items };
+    const norm = (t: string) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const palabras = norm(q).split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    const conTodo = items.filter((p) => palabras.every((w) => norm(p.nombre).includes(w)) && mismaMarca(q, p.nombre));
+    const opciones = conTodo.length ? conTodo : items.filter((p) => mismaMarca(q, p.nombre));
+    return { elegido: opciones.length === 1 ? opciones[0] : null, opciones };
+  };
+  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false, quien = 'IA') => {
+    const deProducto = (cambios ?? []).filter((c: any) => c?.campo === 'producto');
+    cambios = (cambios ?? []).filter((c: any) => c?.campo !== 'producto');
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
     const r = { ...r0, items: freno.items, registros: freno.registros };
+    // las reglas de la cuenta (9/11/2026): el chat puede aceptar la diferencia
+    // con un motivo y decidir si las percepciones van al costo
+    const reglas: { renglon: null; campo: string; antes: unknown; despues: unknown; motivo: string }[] = [];
+    for (const c of cambiosPie ?? []) {
+      const motivo = String(c?.motivo ?? '').slice(0, 300);
+      if (c?.campo === 'aceptarDiferencia') {
+        const monto = c.valor == null || Number(c.valor) === 0 ? null : Math.abs(Number(c.valor));
+        if (monto != null && (!Number.isFinite(monto) || !motivo.trim())) continue;
+        reglas.push({ renglon: null, campo: 'aceptarDiferencia', antes: diferenciaAceptada?.monto ?? null, despues: monto, motivo });
+        setDiferenciaAceptada(monto == null ? null : { monto, motivo });
+      } else if (c?.campo === 'percepcionesAlCosto') {
+        const si = Number(c.valor) !== 0 && c.valor !== false;
+        reglas.push({ renglon: null, campo: 'percepcionesAlCosto', antes: percepcionesAlCosto, despues: si, motivo });
+        setPercepcionesAlCosto(si);
+      }
+    }
     const pie = (cambiosPie ?? [])
       .filter((c: any) => CAMPOS_PIE.includes(c?.campo) && (c.valor == null || (Number.isFinite(Number(c.valor)) && Number(c.valor) >= 0)))
       .map((c: any) => ({ renglon: null, campo: String(c.campo), antes: fotoImpVivo.current?.[c.campo] ?? null, despues: c.valor == null ? null : Number(c.valor), motivo: String(c.motivo ?? '').slice(0, 300) }));
@@ -1427,8 +1504,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       setFotoItems(r.items.map((x, j) => (conIva.has(j) ? { ...x, alicuotaElegida: null } : x)));
     }
     if (pie.length) setFotoImp((x: any) => { const y = { ...x }; for (const c of pie) y[c.campo] = c.despues; return y; });
-    const todos = [...r.registros, ...pie];
-    anotar('IA', todos);
+    const todos = [...r.registros, ...pie, ...reglas];
+    anotar(quien, todos);
     const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
     setMarcados(tocados);
     if (tocados.length) setTimeout(() => setMarcados([]), 5000);
@@ -1443,11 +1520,62 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
     });
     for (const n of freno.frenados) noAplicados.push(`Renglón ${n}: la regla lo dejaba a un costo muy lejos del que tiene el producto en el catálogo, así que quedó como se leyó`);
-    return { aplicados: todos.map((c) => describirCambio(c)), noAplicados };
+    const aplicados = todos.map((c) => describirCambio(c));
+    // un turno automático (las reglas del proveedor) no cambia productos: eso lo pide una persona
+    for (const c of automatico ? [] : deProducto) {
+      const k = Math.round(Number(c?.renglon)) - 1;
+      const fila = fotoItemsVivos.current[k];
+      if (!fila || esRenglonDescuento(fila)) { noAplicados.push(`Renglón ${c?.renglon ?? '?'} · producto: ese renglón no existe o es un descuento`); continue; }
+      const { elegido, opciones } = await productoDelChat(String(c.valor ?? ''));
+      if (!elegido) {
+        noAplicados.push(opciones.length
+          ? `Renglón ${k + 1} · producto: hay ${opciones.length} que pueden ser «${c.valor}»: ${opciones.slice(0, 5).map((p) => p.nombre).join(' · ')}. Decí cuál.`
+          : `Renglón ${k + 1} · producto: no encontré «${c.valor}» en el catálogo. Buscalo en el renglón o dalo de alta.`);
+        continue;
+      }
+      const antes = fila.nombre ?? null;
+      vincularProducto(k, elegido);
+      const reg = { renglon: k + 1, campo: 'producto', antes, despues: elegido.nombre, motivo: String(c.motivo ?? '').slice(0, 300) };
+      anotar('IA', [reg]);
+      aplicados.push(describirCambio(reg));
+    }
+    return { aplicados, noAplicados };
+  };
+  // LA MEMORIA DEL ARTÍCULO (11/11/2026). Leandro: «memoria para cada proveedor …
+  // para que no falle más». Factura recién leída: cada artículo que ya vino de
+  // este proveedor entra como la última vez (bultos, lo que trae cada uno, cómo
+  // entra, los kilos por pieza). Lo decide la cuenta, no la IA: se aplica solo
+  // si lo que entra es cantidad × el factor guardado y el renglón sigue dando el
+  // importe impreso. Queda en «Cambios» a nombre de «Memoria» y se deshace igual.
+  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[] } | null> => {
+    const pid = f?.proveedorId;
+    const pedidas = fotoItemsVivos.current;
+    if (!pid || !pedidas.length) return null;
+    try {
+      const r = await fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'fichas', proveedorId: pid, renglones: pedidas.map((i: any) => ({ descripcion: i.descripcion, sku: i.sku || null })) }),
+      });
+      if (!r.ok) return null;
+      const d = await r.json().catch(() => ({}));
+      const filas = fotoItemsVivos.current;
+      // si la tabla cambió mientras se pedían (otro proveedor, otra lectura), no se toca nada
+      if (filas.length !== pedidas.length || filas.some((x: any, k: number) => x.descripcion !== pedidas[k].descripcion)) return null;
+      const { cambios, yaEstaban, noCierran } = cambiosDeFichas(filas, Array.isArray(d?.fichas) ? d.fichas : [], esRenglonDescuento);
+      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran };
+      const res = await aplicarIA(cambios, [], true, 'Memoria');
+      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran };
+    } catch { return null; }
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
-    if (c.renglon == null) {
+    if (c.campo === 'revisado') setRevisionOk((xs) => xs.filter((t) => t !== c.motivo));
+    if (c.renglon == null && c.campo === 'aceptarDiferencia') {
+      setDiferenciaAceptada(c.antes == null ? null : { monto: Number(c.antes), motivo: 'vuelta atrás' });
+    } else if (c.renglon == null && c.campo === 'percepcionesAlCosto') {
+      setPercepcionesAlCosto(!!c.antes);
+    } else if (c.renglon == null) {
       setFotoImp((x: any) => ({ ...x, [c.campo]: c.antes }));
     } else {
       const k = c.renglon - 1;
@@ -1459,6 +1587,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (c.campo === 'recibidas') return { ...x, recibidoAMano: c.antes == null || c.antes === '' ? null : Number(c.antes) };
         if (c.campo === 'llevaInternos') return { ...x, llevaInternos: c.antes == null || c.antes === '' ? null : !!c.antes };
         if (c.campo === 'costoFinal') return { ...x, costoManual: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        // el producto que cambió el chat: el renglón vuelve a quedar sin vincular (se elige de nuevo)
+        if (c.campo === 'producto') return { ...x, sku: '', nombre: null, incluir: false, sugerido: false, costoCatalogo: null, precioActual: null };
+        if (c.campo === 'revisado') return x;
         if (c.campo === 'impuestoInternoUnitario') {
           if (c.antes == null || c.antes === '') return { ...x, fraccionNeta: null, netoDelPapel: null, internosDelPapel: null };
           return conInternoDelPapel(x, Number(c.antes)) ?? x;
@@ -1507,6 +1638,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     impuestosInternos: impIntDoc > 0 ? textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1) : null,
     // una percepción con base menor que el neto, aplicada entera a todos los renglones (5/11/2026)
     percepciones: ivaConAlicuotas && cargaPerc.enteras.length ? textoPercepcionesEnteras(cargaPerc, pesos) : null,
+    // LA cuenta de la factura (9/11/2026): la misma que ve la persona y la única que traba por plata
+    cuentaDeLaFactura: cuentaParaIA(cuenta),
+    // lo que el control antes de registrar todavía frena (10/11/2026): el chat lo explica y lo corrige si la persona lo pide
+    antesDeRegistrar: revisionPendiente.map((a) => a.texto),
+    percepcionesAlCosto,
+    diferenciaAceptada,
   });
   // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
   // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
@@ -1526,6 +1663,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
       entraComo: i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
       cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : cantidadQueEntra(i) || null,
+      // lo facturado en unidades de stock, sin restar lo que faltó: de acá aprende la ficha del artículo (11/11/2026)
+      cantidadEntera: i._esDevolucion || i._esDescuento || soloPrecioDe(i) ? null : numImp(i.cantidad) || null,
       costoUnitario: !i._esDescuento && !i._esDevolucion && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
@@ -1534,6 +1673,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const registrarConConstancia = async (body: any) => {
     const renglones = renglonesParaHistorial();
     const d = await post(body);
+    // la mercadería entró pero la factura o sus renglones no se guardaron: se dice (11/11/2026, antes pasaba callado)
+    if (d?.facturaError) onAvisoTrasRegistrar?.(`La mercadería entró al stock, pero la factura no se pudo guardar (${d.facturaError}). Cargala desde Facturas de compra.`);
+    else if (d?.renglonesFacturaError) onAvisoTrasRegistrar?.(`La factura quedó registrada, pero no se pudo guardar el detalle de sus renglones (${d.renglonesFacturaError}). Avisale a MetoGroup.`);
     const sinRestar = (d?.devoluciones?.sinRestar ?? []) as { sku: string; cantidad: number; motivo: string }[];
     if (sinRestar.length) {
       onAvisoTrasRegistrar?.(`La entrada quedó registrada, pero estas devoluciones no se pudieron restar del stock: ${sinRestar.map((x) => `${x.sku} × ${x.cantidad} (${x.motivo})`).join(' · ')}. Ajustalas a mano desde Stock.`);
@@ -1598,14 +1740,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       })),
   ];
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
-  const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   // lo que los costos dan de más por aplicar una percepción entera a todos los
   // renglones (5/11/2026): está explicado en un cartel y no traba el registro
   const excesoPerc = ivaConAlicuotas ? cargaPerc.exceso : 0;
-  const techoMerc = (baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity)) + excesoPerc;
-  const excedeMerc = sumaCostos > techoMerc * 1.005;
-  const excedeTotal = totalDoc != null && sumaCostos > (totalDoc + excesoPerc) * 1.005;
-  const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
   // Si los renglones leídos no suman el neto del pie, la IA leyó otra columna
   // (la de con IVA, o el total del renglón en vez del unitario). El factor sale
   // de dividir el pie por esa suma, así que un renglón mal leído ensucia el
@@ -1690,11 +1827,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   // entradas a $0 que esta factura valoriza, una por producto (10/10/2026)
-  const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
+  const esFacturaFoto = !!foto?.comprobante?.tipo?.startsWith('factura');
+  const cruceRemito = esFacturaFoto && remitosEsperando.remitos.length
+    ? remitoDeLaFactura(itemsCalc.filter((i: any) => i.sku && !i._esDescuento && !i._esDevolucion).map((i: any) => ({ sku: i.sku, cantidad: cantidadQueEntra(i) })), remitosEsperando.remitos)
+    : null;
+  const remitoAplicado = cruceRemito && cruceRemito.remito.id !== remitoNoEs ? cruceRemito : null;
+  // solo se carga la factura si alguien lo tildó O si es la de un remito que ya entró
+  const soloLaFactura = soloFactura || !!remitoAplicado;
+  const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloLaFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
   const soloPrecioDe = (i: any): PendientePrecioCero | null =>
     i?.sku && i.incluir && !i._esDescuento && !i._esDevolucion && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
-  const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
+  const lecturaIncompleta = fotoItems.some((i) => (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
   // internos sin destino: no se registra hasta marcar qué productos los pagan (3/11/2026)
   const internosBloquea = !internosResueltos && inclItems.length > 0;
   // EL CONTROL FINAL (Leandro, 4/11/2026: «no tiene lógica, necesito más y más
@@ -1704,7 +1848,83 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // factura no se registra hasta que alguien lo mire contra el papel.
   const renglonesSinCierre = noCierranTabla.filter(({ i }) => i.incluir && i.sku);
   const sinCierreBloquea = renglonesSinCierre.length > 0 && !sinCierreRevisado;
-  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea;
+  // ============================================================
+  // LA CUENTA DE LA FACTURA (9/11/2026): una sola, la del papel. Lo que cobra
+  // la factura = lo que entra + lo que no entra + lo que volvió o faltó − lo
+  // devuelto + lo del pie que no es de ningún renglón. Reemplaza los tres
+  // controles sueltos de antes («supera la mercadería», «supera el total», «no
+  // alcanza»), que comparaban contra bases distintas. Ver lib/cuenta-factura.ts.
+  // Cada renglón vale lo que dice la factura: si una persona fijó el costo a
+  // mano, al stock entra el suyo, pero la plata de la factura no cambia.
+  // ============================================================
+  const costoSegunFactura = (i: any, idx: number) => costoFinal({ ...i, costoManual: null }, idx);
+  const partesCuenta: ParteRenglon[] = [];
+  itemsCalc.forEach((i: any, idx: number) => {
+    if (i._esDescuento) return;
+    const renglon = idx + 1;
+    const descripcion = String(i.descripcion ?? '');
+    if (i._esDevolucion) {
+      partesCuenta.push({ renglon, descripcion, tipo: 'devuelto', valor: netoDelRenglon(i) * factorDe(i, idx) });
+      return;
+    }
+    const cant = numImp(i.cantidad);
+    if (!(netoDelRenglon(i) > 0) || !(cant > 0)) return;
+    const unidad = costoSegunFactura(i, idx);
+    if (!(i.incluir && i.sku)) { partesCuenta.push({ renglon, descripcion, tipo: i.devueltoAMano ? 'volvio' : 'no_entra', valor: cant * unidad, unidades: cant }); return; }
+    if (soloPrecioDe(i)) { partesCuenta.push({ renglon, descripcion, tipo: 'solo_precio', valor: cant * unidad, unidades: cant }); return; }
+    const entra = cantidadQueEntra(i);
+    partesCuenta.push({ renglon, descripcion, tipo: 'entra', valor: entra * unidad, unidades: entra });
+    if (cant - entra > 0) partesCuenta.push({ renglon, descripcion, tipo: 'falto', valor: (cant - entra) * unidad, unidades: Math.round((cant - entra) * 1000) / 1000 });
+  });
+  // un descuento que no se aplicó: el renglón cuesta lo de lista y el pie cobra con la rebaja
+  const descuentosSinAplicar = itemsCalc.reduce((s: number, i: any, idx: number) => {
+    if (i._esDescuento || i._esDevolucion || !descuentoDesmedido(i)) return s;
+    return s + Math.abs(numImp(i._descuento)) * factorDe(i, idx);
+  }, 0) + descuentosNoAplicados * (baseCosto != null && netoDoc ? baseCosto / netoDoc : factorRecon);
+  // las mismas partes viajan al servidor al registrar: rehace la cuenta con el
+  // mismo código y no registra si no cierra (11/11/2026, cuenta-servidor.ts)
+  const entradaCuenta = {
+    total: totalDoc,
+    partes: partesCuenta,
+    percepcionesFueraDelCosto: hayDatosFiscales && !percepcionesAlCosto ? percepciones : 0,
+    otrosDelPie: otrosDoc,
+    excesoPercepciones: excesoPerc,
+    descuentosNoAplicados: descuentosSinAplicar,
+    aceptada: diferenciaAceptada,
+  };
+  const cuenta = cuentaDeLaFactura(entradaCuenta);
+  // los costos fijados a mano: no cambian la plata, pero se dicen
+  const costosAMano = itemsCalc
+    .map((i: any, idx: number) => ({ i, idx }))
+    .filter(({ i }) => !i._esDescuento && !i._esDevolucion && numImp(i.costoManual) > 0 && i.incluir && i.sku);
+  const aceptarDiferencia = (quien: string, monto: number | null, motivo: string) => {
+    const antes = diferenciaAceptada?.monto ?? null;
+    setDiferenciaAceptada(monto == null ? null : { monto: Math.abs(monto), motivo });
+    anotar(quien, [{ renglon: null, campo: 'aceptarDiferencia', antes, despues: monto == null ? null : Math.abs(monto), motivo }]);
+  };
+  const cuentaBloquea = cuenta.estado === 'no_cierra';
+  // ANTES DE REGISTRAR (10/11/2026, lib/revision-factura.ts): otra marca, una
+  // cantidad partida, un costo o un precio de venta muy lejos del de hoy. Frena
+  // hasta que una persona lo mira y dice «está bien».
+  const revision = revisarAntesDeRegistrar(itemsCalc.map((i: any, idx: number) => ({
+    renglon: idx + 1,
+    descripcion: String(i.descripcion ?? ''),
+    producto: i.sku ? String(i.nombre ?? i.sku) : null,
+    entra: !!(i.incluir && i.sku) && !i._esDescuento && !i._esDevolucion && !soloPrecioDe(i),
+    cantidad: cantidadQueEntra(i),
+    porPeso: !!i.porPeso,
+    costoNuevo: i._esDescuento || i._esDevolucion ? null : costoFinal(i, idx),
+    costoCatalogo: numImp(i.costoCatalogo) || null,
+    precioNuevo: i._esDescuento || i._esDevolucion || i.margenPct === '' || i.margenPct == null ? null : redondearPrecio(costoFinal(i, idx) * (1 + Number(i.margenPct) / 100)),
+    precioActual: numImp(i.precioActual) || null,
+  })));
+  const revisionPendiente = revision.filter((a) => !revisionOk.includes(a.texto));
+  const revisionBloquea = revisionPendiente.length > 0;
+  const confirmarRevision = (a: { renglon: number; texto: string }) => {
+    setRevisionOk((xs) => [...xs, a.texto]);
+    anotar('Vos', [{ renglon: a.renglon, campo: 'revisado', antes: null, despues: 'está bien', motivo: a.texto }]);
+  };
+  const costoBloquea = cuentaBloquea || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea || revisionBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -1775,11 +1995,90 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     return () => clearTimeout(t);
   }, [vinculaBusca, vinculaIdx]);
 
+  const esCodigoBarras = (t: string) => /^\d{6,14}$/.test(String(t ?? '').replace(/\s/g, ''));
+  // busca el código ya mismo (sin esperar el autocompletar) y, si es de UN producto, vincula
+  const vincularPorCodigo = async (idx: number, crudo: string) => {
+    const codigo = String(crudo ?? '').replace(/\D/g, '');
+    setVinculaIdx(idx); setVinculaBusca(codigo); setAvisoCodigo('');
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(codigo)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    const exactos = items.filter((p) => String(p.codigo ?? '').replace(/\D/g, '') === codigo);
+    const elegido = exactos.length === 1 ? exactos[0] : items.length === 1 ? items[0] : null;
+    if (elegido) { setCodigoSinProducto(null); vincularProducto(idx, elegido); setEscaneados((xs) => [...new Set([...xs, idx])]); setAvisoCodigo(`Código ${codigo}: ${elegido.nombre}.`); return; }
+    setVinculaSug(items);
+    if (!items.length) {
+      setCodigoSinProducto(codigo);
+      setAvisoCodigo(`El código ${codigo} no está en el catálogo: buscá el producto por nombre y queda guardado en él, o dalo de alta.`);
+    }
+  };
+
+  const verRenglon = (idx: number) => {
+    setMarcados([idx]); setTimeout(() => setMarcados([]), 2500);
+    document.getElementById(`renglon-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const pasarCodigo = async (crudo: string) => {
+    const codigo = String(crudo ?? '').replace(/\D/g, '');
+    setCodigoPasado(''); setAUbicar(null);
+    if (!esCodigoBarras(codigo)) { setAvisoPasado({ tono: 'atencion', texto: 'Eso no parece un código de barras (tiene que tener entre 6 y 14 números).' }); return; }
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(codigo)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    const producto = items.find((p) => String(p.codigo ?? '').replace(/\D/g, '') === codigo) ?? (items.length === 1 ? items[0] : null);
+    if (producto) {
+      const ya = fotoItems.map((x: any, k: number) => (x.sku === producto.sku && !esRenglonDescuento(x) ? k : -1)).filter((k) => k >= 0);
+      if (ya.length) {
+        setEscaneados((xs) => [...new Set([...xs, ...ya])]);
+        setAvisoPasado({ tono: 'ok', texto: `${producto.nombre}: renglón ${ya.map((k) => k + 1).join(' y ')}, bien vinculado.` });
+        verRenglon(ya[0]);
+        return;
+      }
+    }
+    // no hay renglón con ese producto (o el código no está en el catálogo): ¿a cuál va?
+    setAUbicar({ codigo, producto });
+    setAvisoPasado(null);
+  };
+  // se eligió el renglón del producto pasado por la pistola
+  const ubicarEn = (idx: number) => {
+    if (!aUbicar) return;
+    const { codigo, producto } = aUbicar;
+    setAUbicar(null);
+    if (producto) {
+      vincularProducto(idx, producto);
+      setEscaneados((xs) => [...new Set([...xs, idx])]);
+      setAvisoPasado({ tono: 'ok', texto: `Renglón ${idx + 1} vinculado a ${producto.nombre} por el código de barras.` });
+    } else {
+      // el código no está en el catálogo: se busca el producto en ese renglón y el código queda guardado en él
+      setCodigoSinProducto(codigo);
+      setVinculaIdx(idx); setVinculaBusca(''); setVinculaSug([]);
+      setAvisoCodigo(`El código ${codigo} no está en el catálogo: buscá el producto por nombre y queda guardado en él, o dalo de alta.`);
+      setAvisoPasado({ tono: 'atencion', texto: `Código ${codigo}: elegí el producto en el renglón ${idx + 1}.` });
+    }
+    verRenglon(idx);
+  };
+  // los renglones que puede ser, los más parecidos primero (por las palabras del nombre)
+  const candidatosDe = (producto: any | null) => {
+    const palabras = (t: string) => new Set(String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+    const b = palabras(producto?.nombre ?? '');
+    return fotoItems
+      .map((x: any, k: number) => ({ x, k, parecido: [...palabras(x.descripcion)].filter((w) => b.has(w)).length }))
+      .filter(({ x }) => !esRenglonDescuento(x) && !x.esDevolucion)
+      .sort((a, c) => (escaneados.includes(a.k) ? 1 : 0) - (escaneados.includes(c.k) ? 1 : 0) || c.parecido - a.parecido || a.k - c.k);
+  };
+
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
+    // otro producto a mano: lo escaneado de ese renglón ya no vale (si fue por código, se vuelve a marcar)
+    setEscaneados((xs) => xs.filter((k) => k !== idx));
+    // el código que se escaneó y no estaba: queda en el producto elegido
+    if (codigoSinProducto && p?.sku) {
+      const codigo = codigoSinProducto;
+      setCodigoSinProducto(null);
+      fetch('/api/pos-vincular', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku: p.sku, codigo }) })
+        .then(async (r) => { const d = await r.json().catch(() => ({})); setAvisoCodigo(r.ok ? `El código ${codigo} quedó guardado en ${p.nombre}.` : `No guardé el código ${codigo}: ${d?.message ?? 'error'}`); })
+        .catch(() => setAvisoCodigo(`No guardé el código ${codigo}.`));
+    }
     setFotoItems((xs) => xs.map((x, j) => {
       if (j !== idx) return x;
-      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
+      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null, precioActual: p.precio ?? null };
       // otro producto: lo que el lector decidió del «×N» con el costo del anterior ya no vale
       return x.sku === p.sku ? nuevo : alCambiarVinculo(nuevo);
     }));
@@ -1802,8 +2101,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       nombre: (i.descripcion ?? '').trim(),
       rubro: '',
       marca: '',
-      codigoBarras: (i.codigo ?? '').toString().trim(),
+      // el código escaneado que no estaba en el catálogo va directo al alta
+      codigoBarras: codigoSinProducto ?? (i.codigo ?? '').toString().trim(),
     });
+    setCodigoSinProducto(null);
     setVinculaIdx(null);
   };
 
@@ -1946,7 +2247,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       ) : foto.error ? (
         <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
       ) : (
-        soloFactura || esNotaCredito ? (
+        soloLaFactura || esNotaCredito ? (
           <Acciones
             cerrar={cerrar}
             okLabel={esNotaCredito ? (foto.ncPara ? `Registrar nota de crédito y liberar la factura ${foto.ncPara.numero}` : 'Registrar nota de crédito') : 'Registrar factura para conciliar'}
@@ -1954,6 +2255,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             onOk={() => registrarConConstancia({
               accion: 'factura',
               proveedorId: f.proveedorId,
+              // la mercadería ya entró con este remito: la factura queda conciliada con él (10/11/2026)
+              ...(remitoAplicado ? { remitoIds: [remitoAplicado.remito.id] } : {}),
               sucursalId: f.sucursalId || undefined,
               // la NC no mueve stock: lo devuelto ya no entró (4/11/2026)
               tipo: esNotaCredito ? 'nota_credito' : 'factura',
@@ -1996,6 +2299,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 .map(({ sku, alicuota, origen }) => ({ sku, alicuota, origen })),
             } : {}),
             ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
+              cuenta: entradaCuenta,
               factura: {
                 numero: foto.comprobante?.numero ?? 's/n',
                 total: Number(fotoImp.total),
@@ -2372,7 +2676,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 sugerencias={sugerenciasChat}
                 onReleer={reLeerConAclaraciones}
                 releyendo={leyendoFoto}
-                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
+                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria') && !leyendoFoto && fotoItems.length > 0}
+                recienLeida={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
+                onMemoria={aplicarFichas}
               />
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -2417,6 +2723,42 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
               <CabeceraFactura items={itemsCalc} />
 
+              {/* PASAR LOS PRODUCTOS POR LA PISTOLA (10/11/2026) */}
+              <div className="rounded-xl border border-black/[0.06] bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="pasar-codigo" className="text-sm font-semibold text-tinta">Pasá el código de barras</label>
+                  <span className="text-xs text-tinta/60">
+                    {(() => { const total = fotoItems.filter((x: any) => !esRenglonDescuento(x) && !x.esDevolucion).length; return `${escaneados.length} de ${total} renglones escaneados`; })()}
+                  </span>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="pasar-codigo" value={codigoPasado} onChange={(e) => setCodigoPasado(e.target.value)} inputMode="numeric" autoComplete="off"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); pasarCodigo(codigoPasado); } }}
+                    placeholder="Con la pistola: escaneá el producto y listo" aria-label="Código de barras del producto"
+                    className={unir(input, 'min-w-0 flex-1 font-mono')}
+                  />
+                  <Boton variante="secundario" onClick={() => setCamaraPasar(true)}>Escanear</Boton>
+                </div>
+                {avisoPasado && <p className={unir('mt-2 text-sm', avisoPasado.tono === 'ok' ? 'text-ok' : 'text-atencion')}>{avisoPasado.texto}</p>}
+                {aUbicar && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-sm text-tinta">
+                      {aUbicar.producto ? <>«<b>{aUbicar.producto.nombre}</b>» no está en ningún renglón. ¿A cuál va?</> : <>El código {aUbicar.codigo} no está en el catálogo. ¿De qué renglón es?</>}
+                    </p>
+                    <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+                      {candidatosDe(aUbicar.producto).map(({ x, k }) => (
+                        <button key={k} type="button" onClick={() => ubicarEn(k)} className="min-h-10 rounded-xl border border-black/[0.06] px-3 py-1.5 text-left text-sm hover:bg-crema-claro">
+                          <span className="text-tinta/60">Renglón {k + 1} · </span><span className="font-mono text-tinta">{x.descripcion}</span>
+                          {x.nombre && <span className="text-xs text-tinta/60"> → hoy: {x.nombre}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setAUbicar(null)} className={unir(ENLACE, 'text-xs text-tinta/70')}>No es de esta factura</button>
+                  </div>
+                )}
+              </div>
+
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
               <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">
@@ -2426,7 +2768,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
-                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
+                <div key={idx} id={`renglon-${idx}`} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
+                  {escaneados.includes(idx) && <p className="mb-1 text-xs font-semibold text-ok">Escaneado: el código de barras confirma el producto</p>}
                   {i._esDevolucion ? (
                     // DEVOLUCIÓN al proveedor (3/11/2026): sale del stock y su plata, que
                     // el pie ya descontó, no se reparte sobre los demás costos
@@ -2786,7 +3129,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 2 bis · entró a $0 hace poco: esta factura le pone el precio (10/10/2026) */}
-                      {!soloFactura && i.incluir && i.sku && !i._esDescuento && asignadosPrecioCero[i.sku] && (() => {
+                      {!soloLaFactura && i.incluir && i.sku && !i._esDescuento && asignadosPrecioCero[i.sku] && (() => {
                         const p = asignadosPrecioCero[i.sku];
                         const tildado = soloPrecio[i.sku] !== false;
                         const dif = diferenciaPrecioCero(p, Number(itemsFusionados.find((x) => x.sku === i.sku)?.cantidad ?? 0));
@@ -2952,7 +3295,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   {/* buscador para vincular el producto a este renglón */}
                   {!i._esDescuento && vinculaIdx === idx && (
                     <div className="relative mt-2 sm:ml-6">
-                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" aria-label="Buscar el producto por nombre, código o PLU" className={input} />
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)}
+                          // la pistola escribe el código y da Enter: se vincula solo
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            if (esCodigoBarras(vinculaBusca)) vincularPorCodigo(idx, vinculaBusca);
+                            else if (vinculaSug.length === 1) vincularProducto(idx, vinculaSug[0]);
+                          }}
+                          placeholder="Nombre, código de barras (pistola) o PLU…" aria-label="Buscar el producto por nombre, código de barras o PLU" className={unir(input, 'min-w-0 flex-1')}
+                        />
+                        <Boton variante="secundario" onClick={() => setCamaraPara({ idx, para: 'vincular' })}>Escanear</Boton>
+                      </div>
+                      {avisoCodigo && <p className="mt-1.5 text-xs text-tinta/70">{avisoCodigo}</p>}
                       {/* El vínculo puede estar mal y el producto correcto no existir todavía
                           (té Marolio vinculado al paté Marolio, 15/9/2026): el alta tiene que
                           estar acá también, no solo en los renglones sin vincular. */}
@@ -2997,7 +3354,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <input value={altaForm.rubro} onChange={(e) => setAltaForm((x: any) => ({ ...x, rubro: e.target.value }))} placeholder="Rubro" aria-label="Rubro" list="rubros-alta" className={CAMPO_BLANCO} />
                         <datalist id="rubros-alta">{categorias.map((c: any) => <option key={c.id} value={c.nombre} />)}</datalist>
                         <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" aria-label="Marca" className={CAMPO_BLANCO} />
-                        <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" aria-label="Código de barras" className={unir(CAMPO_BLANCO, 'font-mono')} />
+                        <div className="flex gap-2">
+                          <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" aria-label="Código de barras" className={unir(CAMPO_BLANCO, 'min-w-0 flex-1 font-mono')} />
+                          <Boton variante="secundario" tamano="chico" onClick={() => setCamaraPara({ idx, para: 'alta' })}>Escanear</Boton>
+                        </div>
                       </div>
                       {altaError && <p className="text-xs text-marca-hondo">{altaError}</p>}
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3043,8 +3403,32 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
               </div>
 
+              {revisionPendiente.length > 0 && (
+                <div className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
+                  <p className="font-semibold text-atencion">Antes de registrar, mirá {revisionPendiente.length === 1 ? 'esto' : `estas ${revisionPendiente.length} cosas`}</p>
+                  <ul className="mt-2 space-y-2">
+                    {revisionPendiente.map((a) => (
+                      <li key={a.texto} className="flex flex-wrap items-start gap-2">
+                        <span className="min-w-0 flex-1">{a.texto}</span>
+                        <button type="button" onClick={() => verRenglon(a.renglon - 1)} className={unir(ENLACE, 'text-xs text-tinta/70')}>ver el renglón</button>
+                        <Boton variante="secundario" tamano="chico" onClick={() => confirmarRevision(a)}>Está bien</Boton>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-tinta/60">Si no está bien, corregilo en el renglón o pedíselo al chat. Mientras tanto no se puede registrar.</p>
+                </div>
+              )}
+
+              <CuentaDeLaFactura
+                cuenta={cuenta}
+                costosAMano={costosAMano.map(({ i, idx }) => ({ renglon: idx + 1, aMano: numImp(i.costoManual), segunFactura: costoSegunFactura(i, idx) }))}
+                aceptar={(motivo) => aceptarDiferencia('Vos', cuenta.diferencia, motivo)}
+                desaceptar={() => aceptarDiferencia('Vos', null, 'se volvió a pedir que cierre')}
+                pedirTexto={pedirTexto}
+              />
+
               {/* Reconciliación del costo vs la mercadería de la factura */}
-              <div className={'rounded-xl px-3 py-2.5 text-xs ' + (excedeMerc || excedeTotal ? 'bg-marca-suave border border-marca text-marca-hondo' : subCosteo ? 'bg-atencion-suave border border-atencion/30 text-atencion' : 'bg-crema-claro text-tinta/70')}>
+              <div className="rounded-xl bg-crema-claro px-3 py-2.5 text-xs text-tinta/70">
                 <p className="importe whitespace-normal">Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
@@ -3131,9 +3515,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     Comprobante sin IVA discriminado: el precio ya lo trae adentro. Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b>
                     {percepcionesAlCosto && percepciones > 0 ? ` (incluye percepciones ${pesos(percepciones)})` : ''}.
                   </p>
-                )}
-                {(excedeMerc || excedeTotal) && (
-                  <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
                 )}
                 {/* una percepción cobrada sobre una base menor que el neto se aplica entera a
                     todos los renglones: el costo da más que la factura y se dice por qué (5/11/2026) */}
@@ -3228,9 +3609,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     Corregilo antes de registrar: el costo de todos los renglones sale de esa proporción.
                   </p>
                 )}
-                {subCosteo && !excedeMerc && !excedeTotal && (
-                  <p className="mt-1">El costo quedó por debajo de lo esperado para los renglones tildados; revisá que no falte ninguno.</p>
-                )}
                 {!hayDatosFiscales && (
                   <p className="mt-1 text-tinta/60">Sin datos fiscales para verificar el costo: se toma el precio leído {sumarIva ? '+ IVA' : 'tal cual'}.</p>
                 )}
@@ -3260,8 +3638,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
               {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Nota manuscrita: {foto.notasManuscritas}</p>}
 
+              {/* ES LA FACTURA DE UN REMITO QUE YA ENTRÓ (10/11/2026): solo la factura, conciliada */}
+              {remitoAplicado && (
+                <Aviso tono="info">
+                  <p className="font-semibold">Esta factura es la del remito {remitoAplicado.remito.numero || 's/n'} del {fecha(remitoAplicado.remito.fecha)}: la mercadería ya entró con ese remito.</p>
+                  <p className="mt-1">
+                    {remitoAplicado.coinciden} de {remitoAplicado.enRemito} productos coinciden{remitoAplicado.mismasCantidades ? ', con las mismas cantidades' : ', con alguna cantidad distinta'}. Se carga solo la factura (no suma stock otra vez) y queda conciliada con el remito; las diferencias quedan anotadas para el reclamo.
+                  </p>
+                  {remitoAplicado.soloFactura.length > 0 && <p className="mt-1">En la factura y no en el remito: {itemsCalc.filter((i: any) => remitoAplicado.soloFactura.includes(i.sku)).map((i: any) => i.nombre ?? i.descripcion).join(', ')}. Si entraron, sumalos con Recepción.</p>}
+                  {remitoAplicado.soloRemito.length > 0 && <p className="mt-1">En el remito y no en la factura: {remitoAplicado.soloRemito.join(', ')}.</p>}
+                  <button type="button" onClick={() => setRemitoNoEs(remitoAplicado.remito.id)} className="mt-2 text-xs font-semibold underline underline-offset-2">No es ese remito: cargar la mercadería con esta factura</button>
+                </Aviso>
+              )}
+              {remitosEsperando.puerta > 0 && esFacturaFoto && (
+                <p className="text-xs text-tinta/70">
+                  Hay {remitosEsperando.puerta} ingreso{remitosEsperando.puerta === 1 ? '' : 's'} por la puerta de depósito de este proveedor esperando factura. Si es esta, confirmalo en <a href="/puerta-deposito" className="font-semibold underline">Puerta de depósito</a> con su número.
+                </p>
+              )}
+
               {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
-              {foto.comprobante?.tipo?.startsWith('factura') && (
+              {foto.comprobante?.tipo?.startsWith('factura') && !remitoAplicado && (
                 <label className="flex min-h-9 items-start gap-2 text-xs text-tinta">
                   <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="mt-px size-4 shrink-0 accent-marca" />
                   La mercadería ya fue recibida con la pistola — solo cargar la factura (va a Conciliación, no mueve stock)
@@ -3330,6 +3726,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         </>)}
       </div>
       {dialogo}
+      {camaraPasar && <CamaraCodigo onCerrar={() => setCamaraPasar(false)} onCodigo={(c) => { setCamaraPasar(false); pasarCodigo(c); }} />}
+      {camaraPara && (
+        <CamaraCodigo
+          onCerrar={() => setCamaraPara(null)}
+          onCodigo={(c) => {
+            const { idx, para } = camaraPara;
+            setCamaraPara(null);
+            if (para === 'alta') setAltaForm((x: any) => ({ ...x, codigoBarras: c }));
+            else vincularPorCodigo(idx, c);
+          }}
+        />
+      )}
     </Ventana>
   );
 }
@@ -3680,5 +4088,81 @@ function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario' }: an
       <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
       <Boton variante={variante} onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled} cargando={cargando}>{okLabel}</Boton>
     </>
+  );
+}
+
+// ============================================================
+// LA CUENTA DE LA FACTURA, A LA VISTA (9/11/2026): cada línea con su plata, la
+// suma contra el total impreso y una sola conclusión. Es lo único que traba el
+// registro por plata; la diferencia se puede aceptar con un motivo.
+// ============================================================
+function CuentaDeLaFactura({ cuenta, costosAMano, aceptar, desaceptar, pedirTexto }: {
+  cuenta: ReturnType<typeof cuentaDeLaFactura>;
+  costosAMano: { renglon: number; aMano: number; segunFactura: number }[];
+  aceptar: (motivo: string) => void;
+  desaceptar: () => void;
+  pedirTexto: (op: any) => Promise<string | null>;
+}) {
+  const tono = cuenta.estado === 'no_cierra' ? 'border-marca bg-marca-suave text-marca-hondo'
+    : cuenta.estado === 'aceptada' ? 'border-atencion/30 bg-atencion-suave text-atencion'
+    : cuenta.estado === 'sin_total' ? 'border-black/10 bg-crema-claro text-tinta/70'
+    : 'border-ok/20 bg-ok-suave text-ok';
+  const titulo = cuenta.estado === 'cierra' ? 'La cuenta de la factura cierra'
+    : cuenta.estado === 'aceptada' ? 'No cierra, con la diferencia aceptada'
+    : cuenta.estado === 'sin_total' ? 'Falta el total de la factura'
+    : `No cierra por ${pesos(Math.abs(cuenta.diferencia ?? 0))}`;
+  return (
+    <div className={'rounded-xl border px-3 py-3 text-sm ' + tono}>
+      <p className="font-semibold">{titulo}</p>
+      <table className="mt-2 w-full text-xs text-tinta">
+        <tbody>
+          {cuenta.lineas.map((l) => (
+            <tr key={l.clave} className="border-b border-black/[0.06] last:border-0">
+              <td className="py-1 pr-2">
+                {l.texto}
+                {l.renglones.length > 0 && <span className="text-tinta/60"> · {l.renglones.length === 1 ? `renglón ${l.renglones[0]}` : `${l.renglones.length} renglones`}{l.unidades != null && l.clave !== 'entra' ? ` · ${l.unidades.toLocaleString('es-AR', { maximumFractionDigits: 3 })} u.` : ''}</span>}
+              </td>
+              <td className="importe py-1 text-right font-medium">{l.monto < 0 ? '− ' : ''}{pesos(Math.abs(l.monto))}</td>
+            </tr>
+          ))}
+          <tr className="border-t-2 border-black/15">
+            <td className="py-1 pr-2 font-semibold">Suma</td>
+            <td className="importe py-1 text-right font-semibold">{pesos(cuenta.calculado)}</td>
+          </tr>
+          {cuenta.total != null && (
+            <tr>
+              <td className="py-1 pr-2 font-semibold">Total de la factura</td>
+              <td className="importe py-1 text-right font-semibold">{pesos(cuenta.total)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs">{cuenta.mensaje}{cuenta.estado === 'no_cierra' ? ' No se puede registrar hasta que cierre o se acepte la diferencia.' : ''}</p>
+      {costosAMano.map((c) => (
+        <p key={c.renglon} className="mt-1 text-xs text-tinta/70">
+          Renglón {c.renglon}: al stock entra a {pesos(c.aMano)} por unidad (lo fijó una persona); según la factura sería {pesos(c.segunFactura)}. La plata de la factura no cambia.
+        </p>
+      ))}
+      {cuenta.estado === 'no_cierra' && (
+        <button
+          type="button"
+          onClick={async () => {
+            const motivo = await pedirTexto({
+              titulo: `Aceptar la diferencia de ${pesos(Math.abs(cuenta.diferencia ?? 0))}`,
+              texto: 'Se registra igual y queda escrito por qué. Si después cambia algún renglón, hay que volver a aceptarla.',
+              campo: { etiqueta: '¿Por qué no cierra?', obligatorio: true, multilinea: true },
+              textoConfirmar: 'Aceptar y seguir',
+            });
+            if (motivo && motivo.trim()) aceptar(motivo.trim());
+          }}
+          className="mt-2 text-xs font-semibold underline underline-offset-2"
+        >
+          Aceptar la diferencia con un motivo
+        </button>
+      )}
+      {cuenta.estado === 'aceptada' && (
+        <button type="button" onClick={desaceptar} className="mt-2 text-xs font-semibold underline underline-offset-2">Ya no la acepto</button>
+      )}
+    </div>
   );
 }

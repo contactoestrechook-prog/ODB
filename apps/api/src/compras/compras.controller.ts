@@ -117,6 +117,14 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // Los remitos de este proveedor que esperan su factura (10/11/2026): la carga
+  // de facturas los cruza solos y carga solo la factura, sin sumar stock otra vez
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/remitos-esperando')
+  remitosEsperando(@Query('proveedorId') proveedorId: string) {
+    return this.compras.remitosEsperando(proveedorId);
+  }
+
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): la carga
   // de facturas lo ofrece como «solo precio, no suma stock»
   @Roles('comprador', 'deposito', 'gerente', 'dueno')
@@ -169,6 +177,38 @@ export class ComprasController {
   @Post('compras/proveedores/:id/borrador')
   guardarBorradorPedido(@Param('id') id: string, @Body() b: { sucursalId?: string; items?: unknown }, @Req() req: any) {
     return this.compras.guardarBorradorPedido(id, String(b?.sucursalId ?? ''), b?.items, req.usuario?.sub);
+  }
+
+  // Nota de pedido sin proveedor (10/11/2026): se arma primero, el proveedor
+  // se asigna después renglón por renglón (cada uno es una orden de siempre)
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/notas-pedido')
+  notasPedido() {
+    return this.compras.notasPedido();
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/notas-pedido/productos')
+  faltantesNota(@Query('sucursalId') sucursalId?: string, @Query('q') q?: string) {
+    return this.compras.faltantesNota(String(sucursalId ?? ''), q);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido')
+  guardarNotaPedido(@Body() b: { id?: string; sucursalId?: string; titulo?: string; renglones?: unknown }, @Req() req: any) {
+    return this.compras.guardarNotaPedido(b ?? {}, req.usuario?.sub);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido/:id/asignar')
+  asignarProveedorNota(@Param('id') id: string, @Body() b: { proveedorId?: string; skus?: string[] }, @Req() req: any) {
+    return this.compras.asignarProveedorNota(id, b ?? {}, req.usuario?.sub);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido/:id/anular')
+  anularNotaPedido(@Param('id') id: string, @Req() req: any) {
+    return this.compras.anularNotaPedido(id, req.usuario?.sub);
   }
 
   // Parecidos (4/11/2026): qué hay de lo mismo —otra marca, otro tamaño— y

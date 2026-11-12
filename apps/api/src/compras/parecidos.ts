@@ -26,7 +26,7 @@ const NEXO = new Set(['de', 'del', 'en', 'para', 'al', 'a', 'la']);
 // las erratas que más se repiten en el catálogo
 const ERRATAS: Record<string, string> = { ligth: 'light', ligt: 'light', premiun: 'premium', clasica: 'clasico', comun: 'comun' };
 
-const singular = (t: string) => (t.length > 4 && t.endsWith('s') && !t.endsWith('ss') ? t.slice(0, -1) : t);
+export const singular = (t: string) => (t.length > 4 && t.endsWith('s') && !t.endsWith('ss') ? t.slice(0, -1) : t);
 
 /** Las palabras que dicen qué producto es: sin tamaño, sin envase, sin relleno. */
 export function palabrasDelNombre(nombre: string): string[] {

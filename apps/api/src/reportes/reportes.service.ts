@@ -54,6 +54,35 @@ export class ReportesService {
     return { id: fila.id, tipo: clasif.tipo, respuesta: clasif.respuesta_usuario, resumen: clasif.resumen };
   }
 
+  // Lo que alguien le preguntó al manual y el sistema no tiene, pedido a
+  // MetoGroup con un toque (10/11/2026). Ya se sabe que es algo a programar: no
+  // pasa por la clasificación, va derecho como «sistema» y avisa igual que
+  // «Esto está mal».
+  async pedidoDelManual(pregunta: string, respuestaManual: string, usuarioId?: string) {
+    const mensaje = `Pedido desde el manual: «${pregunta}»`;
+    const clasif = {
+      tipo: 'sistema' as const,
+      resumen: `No existe en el sistema: ${pregunta.slice(0, 200)}`,
+      pasos: [] as string[],
+      respuesta_usuario: 'Listo, le llegó a MetoGroup. Cuando lo vean te avisan por la campanita.',
+    };
+    const { data: fila, error } = await this.db
+      .from('reportes_sistema')
+      .insert({
+        usuario_id: usuarioId ?? null, pantalla: 'Manual', url: '/manual', mensaje,
+        contexto: { origen: 'manual', respuesta_manual: respuestaManual },
+        tipo: 'sistema', clasificacion: clasif, respuesta_ia: clasif.respuesta_usuario, estado: 'nuevo',
+      })
+      .select('id')
+      .single();
+    if (error || !fila) throw new BadRequestException(`No se pudo mandar el pedido: ${error?.message ?? 'sin datos'}`);
+    const { data: quien } = usuarioId
+      ? await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle()
+      : { data: null as any };
+    await this.avisarSistema(fila.id, mensaje, 'Manual', quien?.nombre ?? 'Alguien del equipo', clasif);
+    return { id: fila.id, respuesta: clasif.respuesta_usuario };
+  }
+
   private async clasificar(mensaje: string, pantalla: string, contexto: Record<string, unknown>, rol: string | null) {
     const porDefecto = {
       tipo: 'sistema' as const,

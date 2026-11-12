@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { filtrarPorBusqueda } from '../comun/busqueda';
 import { codigoDeLaCasa, precioNeto, resumirProveedor, type DatosProducto, type RenglonHistorial, type VinculoProveedor } from './historial-compras';
+import { FichaArticuloService } from './ficha-articulo.service';
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const num = (v: unknown): number | null => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -15,6 +16,8 @@ type RenglonEntrante = {
   bultos?: number | null; unidadesPorBulto?: number | null; sueltas?: number | null; unidades?: number | null;
   precio?: number | null; bonificacionPct?: number | null; alicuotaIva?: number | null; importe?: number | null;
   entraComo?: string | null; cantidadStock?: number | null; costoUnitario?: number | null;
+  // lo facturado en unidades de stock, sin restar lo que faltó: para la ficha del artículo (11/11/2026)
+  cantidadEntera?: number | null;
   incluido?: boolean; esDescuento?: boolean;
 };
 
@@ -22,7 +25,7 @@ type RenglonEntrante = {
 @Injectable()
 export class HistorialComprasService {
   private readonly log = new Logger(HistorialComprasService.name);
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient, private readonly fichas: FichaArticuloService) {}
 
   /**
    * Guarda TODOS los renglones de una factura registrada, también los que no se
@@ -80,6 +83,17 @@ export class HistorialComprasService {
       const unicos = [...new Map(nuevos.map((n) => [n.producto_id, n])).values()];
       if (unicos.length) await this.db.from('proveedor_productos').upsert(unicos, { onConflict: 'proveedor_id,producto_id' }).then(({ error: e }) => e && this.log.warn(`código del proveedor: ${e.message}`));
     }
+    // LA FICHA DEL ARTÍCULO (11/11/2026): lo que se acaba de confirmar al
+    // registrar es cómo viene y cómo entra cada artículo la próxima vez.
+    await this.fichas.aprender(b.proveedorId, renglones.map((r) => {
+      const sku = texto(r.sku, 40);
+      return {
+        descripcion: r.descripcion, codigoProveedor: r.codigoProveedor, productoId: sku ? idDe.get(sku) ?? null : null,
+        bultos: num(r.bultos), unidadesPorBulto: num(r.unidadesPorBulto), sueltas: num(r.sueltas),
+        entraComo: r.entraComo, cantidadStock: num(r.cantidadStock), cantidadEntera: num(r.cantidadEntera), importe: num(r.importe),
+        incluido: !!r.incluido, esDescuento: !!r.esDescuento,
+      };
+    }), { numero, fecha, lecturaId, usuarioId });
     return { ok: true, guardados: filas.length };
   }
 

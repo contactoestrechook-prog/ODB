@@ -16,6 +16,7 @@ function subDe(token?: string): string | null {
 const GET_RECURSOS: Record<string, string> = {
   resumen: '/compras/resumen', ordenes: '/compras/ordenes', sugerencias: '/compras/sugerencias',
   deuda: '/compras/deuda', 'ordenes-pago': '/compras/ordenes-pago', proveedores: '/proveedores',
+  'notas-pedido': '/compras/notas-pedido', // nota de pedido sin proveedor (10/11/2026)
 };
 
 export async function GET(req: Request) {
@@ -30,6 +31,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'remarcacion') {
     // qué % de remarcación usar para estos productos con este proveedor
     ruta = `/compras/remarcacion?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&skus=${encodeURIComponent(url.searchParams.get('skus') ?? '')}`;
+  } else if (recurso === 'remitos-esperando') {
+    // los remitos de este proveedor que esperan su factura (10/11/2026)
+    ruta = `/compras/remitos-esperando?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}`;
   } else if (recurso === 'precio-cero') {
     // lo que entró a $0 de este proveedor y espera precio (10/10/2026)
     ruta = `/compras/precio-cero?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}`;
@@ -70,6 +74,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'borrador-pedido' && url.searchParams.get('proveedorId')) {
     // el pedido a medio cargar de ese proveedor y sucursal (4/11/2026)
     ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/borrador?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}`;
+  } else if (recurso === 'faltantes-nota') {
+    // nota de pedido sin proveedor: lo que falta en la sucursal, o el buscador (10/11/2026)
+    ruta = `/compras/notas-pedido/productos?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}&q=${encodeURIComponent(url.searchParams.get('q') ?? '')}`;
   } else if (recurso === 'parecidos' && url.searchParams.get('sku')) {
     // lo mismo en otra marca o tamaño, con el stock de cada sucursal (4/11/2026)
     const params = new URLSearchParams(url.searchParams);
@@ -117,6 +124,9 @@ export async function POST(req: Request) {
     case 'corregirIngreso': ruta = `/compras/ordenes/${d.id}/corregir-ingreso`; body = { renglones: d.renglones, motivo: d.motivo }; break;
     case 'autorizarProrrateo': ruta = '/compras/autorizar-prorrateo'; break;
     case 'agregarALista': ruta = `/compras/proveedores/${d.proveedorId}/catalogo`; body = { sku: d.sku, codigoProveedor: d.codigoProveedor }; break;
+    case 'guardarNotaPedido': ruta = '/compras/notas-pedido'; body = { id: d.id, sucursalId: d.sucursalId, titulo: d.titulo, renglones: d.renglones }; break;
+    case 'asignarProveedorNota': ruta = `/compras/notas-pedido/${d.id}/asignar`; body = { proveedorId: d.proveedorId, skus: d.skus }; break;
+    case 'anularNotaPedido': ruta = `/compras/notas-pedido/${d.id}/anular`; body = {}; break;
     case 'guardarBorradorPedido': ruta = `/compras/proveedores/${d.proveedorId}/borrador`; body = { sucursalId: d.sucursalId, items: d.items }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;

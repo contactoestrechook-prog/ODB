@@ -48,3 +48,47 @@ Cargas hechas: 12/6, 20/6, 21/7, 11/8, 16/9 (scripts sueltos, ya borrados) y
   reutilizados con otro nombre, precios basura (0, 0,01, menos de $100) y saltos de
   más de ±60%.
 - Lo que ODB tiene y la planilla no trae, no se toca.
+
+## Carga desde los CSV del Crack (10/11/2026, auditoría 1062 + 1065, referencia `export-1011`)
+
+Desde octubre el Crack exporta nueve CSV (`articulos`, `clientes`, `codigobarras`,
+`ctacte_clientes`, `listadeprecios`, `productosxproveedor`, `proveedores`, `stock`,
+`ventas`), en Windows-1252.
+
+1. Pasarlos a UTF-8 con Python (`decode('cp1252', errors='replace')`), NO con
+   `iconv`: el 10/11 `iconv` cortó `ventas.csv` en el 3/11 sin avisar y la
+   simulación daba la mitad de los cambios. Contar líneas antes y después.
+2. `python3 simular-csv.py <carpeta>`: solo lee y arma `plan.json`, `revision.json`
+   y `resumen.txt`. Arriba del archivo van `T_ULTIMA` (la carga anterior) y `CORTE`.
+   `python3 excel-csv.py <carpeta>` arma el Excel para el dueño.
+3. Guardar `plan.json` en una fila de `auditoria` (accion `importacion_sistema_viejo`)
+   y correr `aplicar-csv.sql` con el id de esa fila: primero `__ENSAYO__ = true`.
+4. Historiales: `importar-ctacte-clientes.mjs` y `importar-compras-clientes.mjs` con
+   origen nuevo; después borrar lo viejo superpuesto (toda la cuenta corriente vieja;
+   las compras viejas desde la primera fecha del export nuevo).
+5. Volver a simular: tiene que dar todo en 0 (salvo redondeo de los por peso). Y el
+   libro: `stock.cantidad` = suma de `movimientos_stock`.
+
+Criterio (lo nuevo del 10/11):
+- **Stock de Sant Thomas = Crack + lo que entró o salió SOLO en NÚCLEO desde la carga
+  anterior** (compras de Ana, correcciones, traspasos, reservas), producto por
+  producto: si el Crack también tuvo esa compra (su stock subió), no se cuenta dos
+  veces. Las ventas de prueba de NÚCLEO no cuentan. Se aplica como diferencia sobre
+  el stock del momento: lo que se mueva entre la simulación y la aplicación se conserva.
+- Precios: la lista 1 del Crack, salvo que NÚCLEO la haya remarcado después de la carga
+  anterior (NÚCLEO es más nuevo: esa lista se le pasa al dueño para la caja del Crack).
+- Costo e IVA: los de NÚCLEO no se pisan (vienen de sus facturas); solo se completa lo vacío.
+- Clientes: altas solo con saldo, cuenta corriente o compras en el último año.
+- Cuenta corriente: el saldo del Crack manda (contra `clientes.saldo_cta_cte`, que es
+  el que ve la gente; hay saldos de junio sin movimiento).
+- **Toda lectura paginada de la base lleva un orden único** (`order=id`, o
+  `vigente_desde.desc,id.desc`): ordenado solo por fecha, con miles de precios de la
+  misma fecha, las páginas salteaban filas (el 10/11 se grabaron 846 precios repetidos,
+  que se borraron, y 3 stocks quedaron mal hasta la verificación).
+
+### Quién vende cada producto (10/11/2026, auditoría 1083)
+- La columna que vale es **«proveedor habitual»** de `articulos.csv`. Lo verificó Leandro con sus ejemplos: Johnnie Walker va a Lalo Importados y Don Satur a Clan. El código de `productosxproveedor.csv` **está roto** para los proveedores nuevos: mandó Johnnie Walker, SodaStream y vinos a «distrisur».
+- Cada escritura del Crack se traduce con `mapa-proveedores.json`, la tabla del 23/10 corregida a mano.
+- **Lo decidido en NÚCLEO manda sobre el Crack** (Leandro, 10/11/2026: «que respete lo que hizo Jackie»). La tabla `proveedor_decidido` tiene un proveedor por producto: Jackie pasó 26 Mutti y Garofalo a Marquisse. La simulación no le agrega el proveedor del Crack y el espejo usa el decidido como destino, así que nunca lo saca.
+- `python3 espejo-proveedores.py <carpeta>` deja los vínculos igual que el Crack: saca los que el Crack no tiene, salvo los que tienen una compra real en NÚCLEO (factura, código o alias del proveedor), y agrega los que faltan. El 10/11 sacó 1.309 y agregó 13.
+- «distrisur» y «Distribuidora de Galletitas y Alimentos del Sur SA» se unificaron en la segunda, la de las facturas.

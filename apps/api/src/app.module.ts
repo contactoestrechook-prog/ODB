@@ -6,9 +6,11 @@ import { SaludController } from './salud.controller';
 import { AsistenteModule } from './asistente/asistente.module';
 import { NovedadesController } from './novedades/novedades.controller';
 import { ActividadController } from './actividad/actividad.controller';
+import { MantenimientoController } from './mantenimiento/mantenimiento.controller';
 import { supabaseProvider } from './supabase.provider';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { StockModule } from './stock/stock.module';
+import { TraspasosModule } from './traspasos/traspasos.module';
 import { DescuentosModule } from './descuentos/descuentos.module';
 import { ComprasModule } from './compras/compras.module';
 import { AbastecimientoModule } from './abastecimiento/abastecimiento.module';
@@ -36,6 +38,7 @@ import { MensajesModule } from './mensajes/mensajes.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
 import { FrioModule } from './frio/frio.module';
+import { BalanzasModule } from './balanzas/balanzas.module';
 import { SalonModule } from './salon/salon.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { MercadoPagoModule } from './mercadopago/mercadopago.module';
@@ -54,12 +57,13 @@ import { BotModule } from './bot/bot.module';
 import { DocumentosModule } from './documentos/documentos.module';
 import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 import { ReportesModule } from './reportes/reportes.module';
+import { ManualModule } from './manual/manual.module';
 import { AvisosModule } from './avisos/avisos.module';
 import { AvisosCelularModule } from './avisos-celular/avisos-celular.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  controllers: [SaludController, NovedadesController, ActividadController],
+  controllers: [SaludController, NovedadesController, ActividadController, MantenimientoController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, supabaseProvider],
   imports: [
     // límite global de tráfico por IP (anti-abuso); los endpoints de IA
@@ -73,6 +77,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CatalogoModule,
     AsistenteModule,
     StockModule,
+    TraspasosModule,
     DescuentosModule,
     ComprasModule,
     AbastecimientoModule,
@@ -121,10 +126,12 @@ import { ScheduleModule } from '@nestjs/schedule';
     DocumentosModule,
     AprobacionesModule,
     ReportesModule,
+    ManualModule,
     AvisosModule,
     AvisosCelularModule,
     FrioModule,
     SalonModule,
+    BalanzasModule,
   ],
 })
 export class AppModule {}

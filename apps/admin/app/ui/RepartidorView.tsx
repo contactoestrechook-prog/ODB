@@ -99,6 +99,9 @@ export function RepartidorView() {
       </div>
       {error && <Aviso tono="error">{error}</Aviso>}
 
+      {/* los traspasos entre locales que me tocan llevar (10/11/2026) */}
+      <TraspasosParaLlevar />
+
       {entregas.length === 0 ? (
         <Vacio titulo="No tenés entregas asignadas." texto="Cuando en Envíos te elijan para llevar un pedido y esté listo, aparece acá con la dirección, el teléfono y qué cobrar." />
       ) : entregas.map((e) => (
@@ -122,5 +125,37 @@ export function RepartidorView() {
         </Tarjeta>
       ))}
     </div>
+  );
+}
+
+// TRASPASOS PARA LLEVAR (10/11/2026): mercadería de un local al otro que me
+// eligieron para llevar. Al dejarla, «Lo entregué»; el local que recibe la cuenta.
+function TraspasosParaLlevar() {
+  const [lista, setLista] = useState<any[]>([]);
+  const [trabajando, setTrabajando] = useState('');
+  const cargar = () => fetch('/api/traspasos?p=para-llevar', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then((d) => setLista(Array.isArray(d) ? d : [])).catch(() => {});
+  useEffect(() => { cargar(); }, []);
+  if (!lista.length) return null;
+  return (
+    <>
+      {lista.map((t) => (
+        <Tarjeta key={t.id}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-base font-semibold text-tinta">Traspaso #{t.numero}: {t.origen?.nombre} → {t.destino?.nombre}</p>
+              <p className="mt-0.5 text-xs text-tinta/60">{t.items.filter((i: any) => i.enviado > 0).length} productos · el remito viaja con la mercadería</p>
+            </div>
+            <Etiqueta tono="info" className="shrink-0">Para llevar</Etiqueta>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Boton cargando={trabajando === t.id} onClick={async () => {
+              setTrabajando(t.id);
+              await fetch('/api/traspasos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ p: `${t.id}/entregado` }) }).catch(() => null);
+              setTrabajando(''); cargar();
+            }} className="grow sm:grow-0">Lo entregué</Boton>
+          </div>
+        </Tarjeta>
+      ))}
+    </>
   );
 }

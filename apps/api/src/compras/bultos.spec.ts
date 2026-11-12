@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo, unidadesDeLaPresentacion } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, puedeVendersePorPesoConCatalogo, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo, unidadesDeLaPresentacion } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   // El caso real (Leandro, 10/9/2026): "HILERET ZUCRA 8 X 50 SOBRES" entraba
@@ -1073,5 +1073,22 @@ describe('el lector no decide solo con evidencia contradictoria (revisión del 6
       expect(r.decision).not.toBe('unidades_a_envase');
       expect(r.cantidad).toBe(24);
     });
+  });
+});
+
+describe('cierra con kilos (10/11/2026)', () => {
+  const base = { importe: null, unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, kg: null, puedePorPeso: false };
+  it('cantidad con decimales que cierra = por peso, aunque el papel no diga queso', () => {
+    const r = interpretarRenglon({ ...base, descripcion: 'GOUDA AHUMADO "DON ATILIO"', cantidad: 3.23, precio: 12325.83, importe: 39812.43 });
+    expect(r.porPeso).toBe(true);
+    expect(r.cantidad).toBe(3.23);
+  });
+  it('la bebida nunca, y lo entero sigue en unidades', () => {
+    expect(interpretarRenglon({ ...base, descripcion: 'Vino tinto suelto', cantidad: 2.5, precio: 1000, importe: 2500 }).porPeso).toBe(false);
+    expect(interpretarRenglon({ ...base, descripcion: 'Queso cremoso', cantidad: 3, precio: 1000, importe: 3000 }).porPeso).toBe(false);
+  });
+  it('el producto vinculado también dice si es queso', () => {
+    expect(puedeVendersePorPesoConCatalogo('GOUDA AHUMADO "DON ATILIO"', { nombre: 'Queso Gouda Ahumado Don Atilio' })).toBe(true);
+    expect(puedeVendersePorPesoConCatalogo('Malbec 750', { nombre: 'Queso' })).toBe(false);
   });
 });

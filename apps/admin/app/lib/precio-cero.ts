@@ -3,6 +3,9 @@
 // se elige cuál le corresponde a cada producto de la factura y se arma el
 // texto del renglón. Se prueba en apps/api/src/compras/precio-cero.spec.ts.
 
+/** Menos de $1 por unidad es un precio simbólico, no un precio (igual que la API, compras/precio-cero.ts). */
+export const PRECIO_SIMBOLICO = 1;
+
 export type PendientePrecioCero = {
   ocId: string;
   ocNumero: number | null;
@@ -20,12 +23,18 @@ export type PendientePrecioCero = {
  * vieja. Una entrada no se asigna dos veces.
  */
 export function elegirPendientes(
-  renglones: { sku?: string | null; cantidad: number | string }[],
+  renglones: { sku?: string | null; cantidad: number | string; costoUnitario?: number | null }[],
   pendientes: PendientePrecioCero[],
 ): Record<string, PendientePrecioCero> {
   const cantidadPorSku = new Map<string, number>();
   for (const r of renglones ?? []) {
     if (!r?.sku) continue;
+    // UN RENGLÓN A $0,10 NO TRAE PRECIO (9/11/2026, quesos de La Serenísima): si
+    // esta factura también lo cobra simbólico, entra al stock como siempre y el
+    // precio real llega en la próxima. Antes se lo usaba para «ponerle precio» a
+    // lo que entró a $0 la vez anterior y el registro rebotaba entero («para
+    // ponerle precio… hace falta el costo real»).
+    if (r.costoUnitario != null && Number(r.costoUnitario) < PRECIO_SIMBOLICO) continue;
     cantidadPorSku.set(r.sku, (cantidadPorSku.get(r.sku) ?? 0) + (Number(r.cantidad) || 0));
   }
   const libres = [...(pendientes ?? [])].sort((a, b) => a.fecha.localeCompare(b.fecha));

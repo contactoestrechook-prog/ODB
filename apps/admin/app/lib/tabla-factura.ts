@@ -369,7 +369,12 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       if (n != null && facturadas > 0 && n > facturadas) { descartados.push(c); continue; }
       const nuevo = n == null || n === facturadas ? null : n;
       registros.push({ renglon: k + 1, campo: 'recibidas', antes: num(fila.recibidoAMano), despues: nuevo, motivo });
-      nuevos[k] = { ...fila, recibidoAMano: nuevo };
+      // si llegó una parte, el renglón no volvió entero (9/11/2026, Playadito pintada
+      // con «-1»: el lector la marcó devuelta toda): entra lo recibido
+      const llegoAlgo = n == null || n > 0;
+      nuevos[k] = fila.devueltoAMano && llegoAlgo
+        ? { ...fila, recibidoAMano: nuevo, devueltoAMano: false, incluir: !!fila.sku && !fila.sugerido }
+        : { ...fila, recibidoAMano: nuevo };
       continue;
     }
     // POR PESO (4/11/2026, el jamón de Oxxon): «le escribimos en el chat y no nos
@@ -377,6 +382,24 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // descartaba callado. Con los kilos, la cantidad pasa a kg y el costo pasa a
     // ser por kilo; el importe del renglón no cambia (igual que «por peso» a mano).
     if (c.campo === 'kilos') {
+      // SACARLE EL PESO (9/11/2026: el chat dijo «les saqué el peso» a los quesos
+      // fraccionados y no se aplicó): «kilos» vacío o 0 lo vuelve a unidades. Si
+      // pasó a peso en esta pantalla, vuelve a como estaba; si lo leyó así el
+      // lector, las unidades salen del papel y el precio, de importe ÷ unidades.
+      if (c.valor == null || c.valor === '' || num(c.valor) === 0) {
+        if (!fila.porPeso) { descartados.push(c); continue; }
+        let vuelta: Record<string, any> | null = null;
+        if (fila.antesDePeso) vuelta = { ...fila.antesDePeso };
+        else {
+          const unidades = cuentaDelPapel(fila.papel ?? papelDeLectura(fila)).unidades;
+          const importe = Math.abs(num(fila.importe) ?? 0);
+          if (unidades > 0 && importe > 0) vuelta = { cantidad: unidades, precio: Math.round((importe / unidades) * 100) / 100, importe };
+        }
+        if (!vuelta) { descartados.push(c); continue; }
+        registros.push({ renglon: k + 1, campo: 'kilos', antes: num(fila.cantidad), despues: null, motivo });
+        nuevos[k] = { ...fila, ...vuelta, porPeso: false, antesDePeso: null, cantidadCorregida: null, bultoConsumido: null };
+        continue;
+      }
       const kg = num(c.valor);
       if (kg == null || !(kg > 0)) { descartados.push(c); continue; }
       const importe = Math.abs(num(fila.importe) ?? 0) || (num(fila.cantidad) ?? 0) * Math.abs(num(fila.precio) ?? 0);
@@ -458,9 +481,21 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     if (c.campo === 'unidadesPorVenta') {
       const n = num(c.valor);
       if (n == null || n <= 1 || !Number.isFinite(n)) { descartados.push(c); continue; }
+      // ABRIR Y AGRUPAR A LA VEZ (10/11/2026, la Rhodesia: «1 caja × 36» que se vende
+      // de a 3). El papel contaba la CAJA como suelta, a precio de caja: agrupar de
+      // a 3 daba 1 ÷ 3 = 0,333 paquetes, porque el «abrir la caja» de antes se
+      // pisaba. Si las unidades de adentro se agrupan exacto en paquetes de N, el
+      // papel se reescribe igual que dice («1 bulto × 36 a precio de unidad»: la
+      // misma plata) y recién ahí se agrupa: 36 ÷ 3 = 12 paquetes.
+      const uxb = num(papel.uxb) ?? 0;
+      const cuentaCajas = (num(papel.bultos) ?? 0) === 0 && (num(papel.sueltas) ?? 0) > 0 && uxb > n && uxb % n === 0;
+      const papelAbierto: Papel = cuentaCajas && num(papel.precio) != null
+        ? { ...papel, bultos: num(papel.sueltas), sueltas: 0, precio: redondear((num(papel.precio) as number) / uxb) }
+        : papel;
+      if (papelAbierto !== papel) registros.push({ renglon: k + 1, campo: 'precio', antes: papel.precio, despues: papelAbierto.precio, motivo: `la caja de ${uxb} se abre: precio por unidad (la plata no cambia)` });
       const nuevo: EntraComo = { como: 'cajas', de: n };
       registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: `paquetes de ${n}`, motivo });
-      nuevos[k] = aplicarPapel(fila, papel, nuevo);
+      nuevos[k] = aplicarPapel(fila, papelAbierto, nuevo);
       continue;
     }
     // «el importe es lo que da la cuenta» (5/11/2026): la persona dijo el descuento,

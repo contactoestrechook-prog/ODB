@@ -1,4 +1,5 @@
 import { numeroLeido, interpretarLecturaSegura } from '../compras/lectura-segura';
+import { mismaMarca } from './marca';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -11,7 +12,7 @@ import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprob
 import { renglonesDelPapel } from '../compras/internos-por-renglon';
 import { percepcionesDelPie } from '../compras/percepciones-impresas';
 import { codigoCercano } from '../compras/codigo-proveedor';
-import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
+import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, puedeVendersePorPesoConCatalogo, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
 
 // el tope de las lecturas de PDF y Excel con Opus (6/10/2026, revisión): la
@@ -32,6 +33,7 @@ type Match = {
   sugerido?: boolean; // propuesto por la IA: el operador tiene que confirmar ("¿es este?")
   alicuotaCatalogo?: number | null; // IVA del producto en el catálogo (para verificar contra el pie)
   motivo?: string; // por qué la IA cree que es ese producto
+  precioActual?: number | null; // precio minorista de hoy: el control antes de registrar avisa si cambia mucho (10/11/2026)
 } | null;
 
 // Normaliza un texto de renglón para usarlo como alias estable (sin tildes,
@@ -137,7 +139,7 @@ const ESQUEMA_COMPROBANTE = {
           // la nota de crédito; lo que importa es que NO entra al stock.
           devueltoAMano: {
             type: 'boolean',
-            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así. Si la anotación dice CUÁNTO llegó (vino una parte), NO es true: va en recibidoAMano.',
+            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así. Si la anotación dice CUÁNTO llegó (vino una parte), NO es true: va en recibidoAMano. Y si al lado del renglón pintado hay un NÚMERO escrito a mano («-1», «dev 2», «3 → -1»), ese número es lo que VOLVIÓ, no el renglón entero (9/11/2026, Ricardo Nini: Playadito 3 bultos × 5 pintada con «-1» = volvió UN paquete, entraron 14 de 15): NO es true, va en recibidoAMano.',
           },
           // Cigarrillos (5/11/2026, Grupo Modo): el papel imprime por renglón Neto,
           // Iva, Imp Int Uni, Precio Unit y Total. Obligatoria con valor neutro
@@ -150,7 +152,7 @@ const ESQUEMA_COMPROBANTE = {
           // celda BULT. pintada y «ingresaron 3 bultos» a mano → entraron 28 de 36.
           recibidoAMano: {
             type: 'number',
-            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si no hay una anotación así, poné 0. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
+            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si el número escrito dice lo que VOLVIÓ («-1», «dev 1»), son UNIDADES: restalas de las unidades facturadas (3 bultos × 5 con «-1» → 15 − 1 = 14). Solo si dice «bulto», «caja» o «bto» es por bulto («-1 bulto» → 10). Si no hay una anotación así, poné 0. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
           },
         },
         // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
@@ -726,7 +728,8 @@ export class ListasService {
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: !!i.esDescuento,
         kg: Number(i.kg) > 0 ? Number(i.kg) : null,
-        puedePorPeso: puedeVendersePorPeso(String(i.descripcion ?? '')),
+        // queso o fiambre lo dice el papel o el producto vinculado (10/11/2026)
+        puedePorPeso: puedeVendersePorPesoConCatalogo(String(i.descripcion ?? ''), i.match),
         // la presentación del producto vinculado se recalcula (el detector mejora)
         unidadesDelCatalogo: (i.match?.nombre ? unidadesDeLaPresentacion(String(i.match.nombre)) : null) ?? (Number(i.unidadesDelCatalogo) > 1 ? Number(i.unidadesDelCatalogo) : null),
         costoCatalogo: i.match?.costoActual ?? null,
@@ -825,7 +828,7 @@ export class ListasService {
           'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
           'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
-          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Si la nota dice que llegó una PARTE («ingresaron 3 bultos» cuando la factura dice 4), el renglón no es devueltoAMano: copiá cantidad, precio e importe del papel tal cual y poné en recibidoAMano las unidades que entraron. Es mejor preguntar que cargar un número equivocado.';
+          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Pero si al lado del renglón pintado hay un número escrito («-1», «dev 2»), volvió SOLO esa cantidad: no es devueltoAMano; poné en recibidoAMano lo que quedó: las unidades facturadas menos ese número, que son UNIDADES salvo que diga «bulto» o «caja» (3 bultos × 5 con «-1» → 14). Si la nota dice que llegó una PARTE («ingresaron 3 bultos» cuando la factura dice 4), el renglón no es devueltoAMano: copiá cantidad, precio e importe del papel tal cual y poné en recibidoAMano las unidades que entraron. Es mejor preguntar que cargar un número equivocado.';
     // El QR de ARCA ANTES de leer (3/11/2026): da el CUIT exacto, y con el
     // CUIT, el proveedor y lo que administración dejó explicado sobre sus
     // facturas. Esas reglas antes llegaban solo al chat, después de leer: la
@@ -1101,6 +1104,22 @@ export class ListasService {
       }
     }
 
+    // EL PRECIO DE VENTA DE HOY de cada producto vinculado (10/11/2026): el panel
+    // avisa antes de registrar si va a quedar muy lejos (Terrabusi: de $10.800 a
+    // $4.500 el 9/11, por el costo de otro producto). Una consulta para todos.
+    const skus = [...new Set(propuesta.map((i) => i.match?.sku).filter(Boolean) as string[])];
+    if (skus.length) {
+      const { data: precios } = await this.db
+        .from('precios')
+        .select('precio, vigente_desde, producto:productos!inner(sku), lista:listas_precios!inner(es_base)')
+        .in('producto.sku', skus)
+        .eq('lista.es_base', true)
+        .order('vigente_desde', { ascending: false });
+      const actual = new Map<string, number>();
+      for (const p of (precios ?? []) as any[]) if (!actual.has(p.producto?.sku)) actual.set(p.producto?.sku, Number(p.precio));
+      for (const i of propuesta) if (i.match) i.match.precioActual = actual.get(i.match.sku) ?? null;
+    }
+
     // Con el producto del catálogo ya elegido se rehace la interpretación: si la
     // casa vende el ENVASE CERRADO (el blíster de azafrán x2, no las unidades
     // sueltas), el precio impreso es el de cada unidad de adentro y la cantidad
@@ -1121,6 +1140,7 @@ export class ListasService {
         unidadesDelCatalogo: internas && internas > 1 ? internas : null,
         costoCatalogo: i.match?.costoActual ?? null,
         vinculoSugerido: !!i.match?.sugerido,
+        puedePorPeso: puedeVendersePorPesoConCatalogo(lectura.descripcion, i.match),
       });
       if (internas && internas > 1) i.unidadesDelCatalogo = internas;
       // la variación, con la unidad que quedó decidida
@@ -1808,12 +1828,9 @@ export class ListasService {
     };
   }
 
+  // la marca la decide lib marca.ts: la primera palabra que no es un tipo de producto (9/11/2026)
   private mismaMarca(descripcionProveedor: string, nombreProducto: string): boolean {
-    const normalizar = (s: string) =>
-      s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
-    const palabras = normalizar(descripcionProveedor).split(/\s+/).filter((p) => p.length >= 3);
-    if (!palabras.length) return true;
-    return normalizar(nombreProducto).includes(palabras[0]);
+    return mismaMarca(descripcionProveedor, nombreProducto);
   }
 
   private armarMatch(

@@ -43,7 +43,7 @@ describe('validarRespuestaChat', () => {
     expect(r.respuesta).toContain('5%');
   });
   it('sin nada útil devuelve una respuesta vacía de cambios', () => {
-    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [], leerOtrosComprobantes: false });
+    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], reglaProveedor: null, reglaReemplaza: null, descartados: [], leerOtrosComprobantes: false });
   });
   it('lo que se descarta vuelve con el porqué, para que la pantalla lo diga (22/10/2026)', () => {
     const r = validarRespuestaChat({
@@ -120,5 +120,16 @@ describe('medirLlamada: cuánto razonó la IA en una llamada', () => {
   it('sin razonamiento queda en cero', () => {
     const m = medirLlamada({ content: [{ type: 'text', text: 'x'.repeat(300) }], usage: { output_tokens: 100 } }, 'high', 1000);
     expect(m).toMatchObject({ bloquesDeRazonamiento: 0, salidaSinRespuesta: 0 });
+  });
+});
+
+
+// UNA SOLA REGLA POR TEMA (9/11/2026): «los fraccionados por peso» y «por unidades» quedaron activas a la vez
+describe('reglaReemplaza', () => {
+  it('viaja solo con una regla nueva', () => {
+    const base = { respuesta: 'ok', cambios: [], cambiosPie: [], leerOtrosComprobantes: false };
+    expect(validarRespuestaChat({ ...base, reglaProveedor: 'Los fraccionados entran por unidades.', reglaReemplaza: 4 }, 3).reglaReemplaza).toBe(4);
+    expect(validarRespuestaChat({ ...base, reglaProveedor: null, reglaReemplaza: 4 }, 3).reglaReemplaza).toBeNull();
+    expect(validarRespuestaChat({ ...base, reglaProveedor: 'Una regla.', reglaReemplaza: 0 }, 3).reglaReemplaza).toBeNull();
   });
 });

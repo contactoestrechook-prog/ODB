@@ -53,6 +53,8 @@ export type RenglonPedido = { nombre: string; cantidad: number; codigoProveedor?
 export function observacionParaProveedor(obs?: string | null): string | null {
   const t = String(obs ?? '').trim();
   if (!t || /^armada (desde qu[eé] comprar|con el agente de abastecimiento)\.?$/i.test(t)) return null;
+  // la nota de pedido interna de donde salió la orden (10/11/2026) no es para el proveedor
+  if (/^nota de pedido n\.º \d+/i.test(t)) return null;
   return t;
 }
 

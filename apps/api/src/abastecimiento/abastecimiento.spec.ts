@@ -1,5 +1,11 @@
 import { AbastecimientoService, filaCorta } from './abastecimiento.service';
 import { armarPropuestas, cantidadPedible } from './propuesta';
+import { olvidarLecturas } from './motor';
+import { olvidarFrescura } from './frescura';
+
+// La lectura completa del motor se comparte un minuto entre pedidos: cada
+// prueba arranca sin la de la anterior.
+beforeEach(() => { olvidarLecturas(); olvidarFrescura(); });
 
 // El agente de compras (1/10/2026): las cuentas las hace la base; acá se prueba
 // que las herramientas filtren, resuelvan nombres y armen la orden con el aviso

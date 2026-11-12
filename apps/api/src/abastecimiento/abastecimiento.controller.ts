@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
-import { AbastecimientoService, filaCorta, type MensajeAbastecimiento } from './abastecimiento.service';
+import { AbastecimientoService, type MensajeAbastecimiento } from './abastecimiento.service';
 
 // La mesa de compras: qué falta, qué no llega a tiempo y el agente que propone
 // y arma las órdenes (ver abastecimiento.service.ts).
@@ -20,7 +20,7 @@ export class AbastecimientoController {
     const sucursalId = await this.abastecimiento.sucursalId(sucursal);
     let filas = await this.abastecimiento.situacion({ sucursalId, q: q ?? null, limite: Math.min(Number(limite) || 300, 2000) });
     if (alerta && alerta !== 'todas') filas = filas.filter((f) => f.alerta === alerta);
-    return filas.map(filaCorta);
+    return this.abastecimiento.listaCorta(filas);
   }
 
   // "Qué comprar": lo sugerido, como notas de pedido para tildar
@@ -39,6 +39,20 @@ export class AbastecimientoController {
       // las observaciones viajan al proveedor: acá no va ninguna nota interna
       usuarioId: req.usuario?.sub,
     });
+  }
+
+  // Poner al día el stock y las ventas de un local con los archivos de su
+  // sistema (11/11/2026). Cambia el stock de miles de productos: solo el dueño.
+  @Roles('dueno')
+  @Post('puesta-al-dia/simular')
+  simularPuestaAlDia(@Body() b: unknown) {
+    return this.abastecimiento.simularPuestaAlDia(b);
+  }
+
+  @Roles('dueno')
+  @Post('puesta-al-dia/aplicar')
+  aplicarPuestaAlDia(@Body() b: unknown, @Req() req: any) {
+    return this.abastecimiento.aplicarPuestaAlDia(b, req.usuario?.sub);
   }
 
   @Roles('comprador', 'gerente', 'dueno')
