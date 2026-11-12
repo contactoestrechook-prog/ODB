@@ -44,7 +44,9 @@ Cargas hechas: 12/6, 20/6, 21/7, 11/8, 16/9 (scripts sueltos, ya borrados) y
   uno solo para las dos sucursales.
 - Stock: solo Saint Thomas, por diferencia con `registrar_movimiento` (motivo
   `Sincronización con sistema anterior`, referencia `stock-DDMM`). Negativos → 0.
-- No se aplica, va a revisión: productos dados de baja, códigos repetidos o
+- No se aplica, va a revisión: productos dados de baja, códigos repetidos (en
+  NÚCLEO o en el Crack: el 12252, el 10610 y el 8139 son dos artículos cada uno, y
+  hasta el 12/11/2026 cada fila le pisaba el stock a la otra) o
   reutilizados con otro nombre, precios basura (0, 0,01, menos de $100) y saltos de
   más de ±60%.
 - Lo que ODB tiene y la planilla no trae, no se toca.

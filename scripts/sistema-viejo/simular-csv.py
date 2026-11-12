@@ -49,6 +49,11 @@ decidido = {x['producto_id']: x['proveedor_id'] for x in todas('proveedor_decidi
 # ---------- los archivos ----------
 _, art = filas('articulos'); _, stk = filas('stock'); _, pxp = filas('productosxproveedor')
 _, bar = filas('codigobarras'); _, cli = filas('clientes'); _, cta = filas('ctacte_clientes'); _, ven = filas('ventas'); _, prv = filas('proveedores')
+# CÓDIGOS REPETIDOS EN EL CRACK (12/11/2026). El stock, las barras y las ventas vienen solo con
+# el código: con dos artículos en el mismo código, cada fila le aplicaba lo suyo al MISMO producto
+# de NÚCLEO (el 10/11: +7 y −7 al 12252, Gin y Raid; −17 y +17 al 10610, vino y Procenex; +0,705
+# y −0,705 al 8139, espumante y queso). Van a revisión y la carga no les toca nada.
+repetidos_crack = {c for c, n in collections.Counter(r[0].strip() for r in art if r[0].strip()).items() if n > 1}
 plan = {'referencia': 'export-1011', 'corte': CORTE, 'sucursal_id': ST, 'lista_id': lista['id']}
 rev = collections.defaultdict(list)  # a revisión (no se aplica)
 res = []
@@ -65,6 +70,7 @@ for r in art:
     cod = r[0].strip()
     if not cod: continue
     ps = [p for p in por_cod.get(cod, [])]
+    if cod in repetidos_crack: rev['codigo_repetido_en_el_crack'].append([cod, r[1], ' | '.join(p['sku'] for p in ps)]); continue
     if len(ps) > 1: rev['codigo_repetido_en_odb'].append([cod, r[1], ' | '.join(p['sku'] for p in ps)]); continue
     if ps:
         existentes[cod] = ps[0]; continue
@@ -78,7 +84,7 @@ for r in art:
 stock_crack = {r[0].strip(): max(0.0, num(r[2]) or 0) for r in stk}
 for x in altas: x['stock'] = round(stock_crack.get(x['codigo'], 0.0), 3)
 plan['altas'] = altas
-res.append(f'1. PRODUCTOS: {len(existentes)} ya están en NÚCLEO; {len(altas)} altas nuevas ({sum(1 for a in altas if not a["categoria_id"])} sin categoría por su rubro); {len(rev["codigo_repetido_en_odb"])} códigos repetidos en NÚCLEO y {len(rev["alta_sin_precio_valido"])} altas sin precio válido, a revisión.')
+res.append(f'1. PRODUCTOS: {len(existentes)} ya están en NÚCLEO; {len(altas)} altas nuevas ({sum(1 for a in altas if not a["categoria_id"])} sin categoría por su rubro); {len(rev["codigo_repetido_en_odb"])} códigos repetidos en NÚCLEO, {len(repetidos_crack)} repetidos en el Crack ({", ".join(sorted(repetidos_crack))}) y {len(rev["alta_sin_precio_valido"])} altas sin precio válido, a revisión.')
 
 # ---------- 2. completar datos que NÚCLEO no tiene (IVA, PLU, costo vacío) ----------
 completar = []
