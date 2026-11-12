@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { SECCIONES } from '../../manual/contenido';
 import { GRUPOS, TITULOS } from '../../ui/Header';
-import { puedeVer, rolDesdeToken } from '../../lib/permisos';
+import { puedeVer, recibeAvisosCelular, rolDesdeToken } from '../../lib/permisos';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -24,7 +24,7 @@ function manualEnTexto(): string {
 }
 
 function pantallasPara(rol: string | null) {
-  return GRUPOS.flatMap((g) => g.items.map((i) => {
+  const delMenu = GRUPOS.flatMap((g) => g.items.map((i) => {
     const ruta = i.href.split('?')[0];
     return {
       href: i.href,
@@ -34,6 +34,13 @@ function pantallasPara(rol: string | null) {
       puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.includes(String(rol))),
     };
   }));
+  // las de abajo del menú, las de cada persona (12/11/2026: «Avisos en el celular»)
+  const delPie = [
+    { href: '/manual', nombre: 'Manual del sistema', puede: true },
+    { href: '/avisos', nombre: 'Avisos en el celular', puede: puedeVer(rol, '/avisos') && recibeAvisosCelular(rol) },
+    { href: '/cambiar-clave', nombre: 'Cambiar mi contraseña', puede: true },
+  ].map((p) => ({ ...p, grupo: 'Abajo del menú (tu cuenta)', bajada: TITULOS[p.href]?.bajada ?? '' }));
+  return [...delMenu, ...delPie];
 }
 
 async function api(ruta: string, init: RequestInit = {}) {
