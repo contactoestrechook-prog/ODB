@@ -23,6 +23,8 @@ import { asignarInternos, internosImpresos, textoInternos } from '../lib/interno
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
 import { revisarAntesDeRegistrar } from '../lib/revision-factura';
+import { faltaParaConciliar, faltaParaEntrada, type Falta } from '../lib/motivo-registro';
+import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucursal-habitual';
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
@@ -389,7 +391,7 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </Tarjeta>
       )}
 
-      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} onAvisoTrasRegistrar={setAvisoBandeja} />}
+      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} ordenes={ordenes} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} onAvisoTrasRegistrar={setAvisoBandeja} />}
     </div>
   );
 }
@@ -410,9 +412,16 @@ function Sello({ tono = 'neutro', children }: { tono?: 'neutro' | 'ok' | 'ojo' |
   return <Etiqueta tono={t} className="whitespace-nowrap">{children}</Etiqueta>;
 }
 
-function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas, onAvisoTrasRegistrar }: any) {
-  const [f, setF] = useState<any>(modal.prov ?? modal);
+function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], aviso, categorias = [], onLecturasEncoladas, onAvisoTrasRegistrar }: any) {
+  // la sucursal no arranca vacía (12/11/2026, lib/sucursal-habitual.ts): la
+  // última elegida en esta compu o la que más mercadería recibe
+  const [f, setF] = useState<any>(() => {
+    const base = modal.prov ?? modal;
+    if (!['entradaFoto', 'entradaDirecta', 'nuevaOC'].includes(modal.tipo) || base.sucursalId) return base;
+    return { ...base, sucursalId: sucursalHabitual(sucursales ?? [], ordenes, sucursalGuardada()) };
+  });
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
+  const elegirSucursal = (id: string) => { set('sucursalId', id); guardarSucursal(id); };
   const [items, setItems] = useState<any[]>([]);
   const [busca, setBusca] = useState(''); const [sug, setSug] = useState<any[]>([]);
   const [recibido, setRecibido] = useState<Record<string, string>>({});
@@ -758,7 +767,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       // punto de partida; si alguien ya la había trabajado, encima van sus
       // cambios (los guarda el efecto de abajo, solos, mientras se edita)
       const pieLeido = { ...(d.impuestos ?? {}) };
-      fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: d.comprobante?.numero ?? '' } };
+      // la sucursal con la que arrancó la pantalla no cuenta como cambio de la persona
+      fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: d.comprobante?.numero ?? '', sucursalId: f.sucursalId ?? '' } };
       const b = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
       if (b) {
         const r = aplicarBorrador(filas, pieLeido, b);
@@ -2229,10 +2239,49 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     : t === 'pagar' ? <>Nueva orden de pago — {modal.prov.proveedor?.razon_social}</>
     : '';
 
+  // POR QUÉ NO SE PUEDE REGISTRAR (12/11/2026, lib/motivo-registro.ts): al lado
+  // del botón va lo que falta y cada cosa lleva a donde se arregla. El botón se
+  // apaga si y solo si falta algo.
+  const irA = (x: Falta) => {
+    if (x.donde === 'renglon' && x.renglon != null) { verRenglon(x.renglon); return; }
+    const el = x.donde ? document.getElementById(`registro-${x.donde}`) : null;
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (el instanceof HTMLSelectElement) el.focus({ preventScroll: true });
+  };
+  const nombreSucursal = sucursales?.find((s: any) => s.id === f.sucursalId)?.nombre ?? null;
+  const renglonIncompleto = (() => {
+    const k = fotoItems.findIndex((i) => (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
+    return k >= 0 ? k : null;
+  })();
+  const faltanEntrada = faltaParaEntrada({
+    proveedor: !!f.proveedorId,
+    sucursal: !!f.sucursalId,
+    tildadosConProducto: fotoItems.filter((i) => i.incluir && i.sku).length,
+    tildadosSinProducto: fotoItems.flatMap((i, k) => (i.incluir && !i.sku ? [k] : [])),
+    renglonIncompleto,
+    cuentaNoCierra: cuentaBloquea,
+    iva: ivaBloquea ? (ivaFactura as any) : null,
+    internosSinMarcar: internosBloquea,
+    renglonesSinCierre: sinCierreBloquea ? renglonesSinCierre.length : 0,
+    avisosAntesDeRegistrar: revisionPendiente.length,
+  });
+  const faltanConciliar = faltaParaConciliar({
+    proveedor: !!f.proveedorId,
+    total: fotoImp?.total > 0,
+    renglonIncompleto: esNotaCredito ? null : renglonIncompleto,
+  });
+  const faltanSimple = (conProductos: boolean) => [
+    ...(!f.proveedorId ? [{ texto: 'Elegí el proveedor', donde: 'proveedor' as const }] : []),
+    ...(!f.sucursalId ? [{ texto: 'Elegí la sucursal', donde: 'sucursal' as const }] : []),
+    ...(!conProductos ? [{ texto: 'Agregá al menos un producto', donde: null }] : []),
+  ];
+  const cambiarSucursal = <button type="button" onClick={() => irA({ texto: '', donde: 'sucursal' })} className={unir(ENLACE, 'text-tinta/60')}>cambiar</button>;
+  const entraEn = nombreSucursal ? <>Entra en <b className="text-tinta">{nombreSucursal}</b> · {cambiarSucursal}</> : null;
+
   // los botones de cada ventana (Cancelar + la acción), fijos abajo aunque el contenido scrollee
   const pie =
     t === 'nuevaOC' ? (
-      <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
+      <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" faltan={faltanSimple(items.length > 0)} ir={irA} info={nombreSucursal ? <>Se entrega en <b className="text-tinta">{nombreSucursal}</b> · {cambiarSucursal}</> : null} />
     ) : t === 'rechazar' ? (
       <Acciones variante="peligro" cerrar={cerrar} onOk={() => post({ accion: 'rechazar', id: modal.oc.id, motivo: f.motivo })} okLabel="Rechazar orden" />
     ) : t === 'rechazarOP' ? (
@@ -2240,7 +2289,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     ) : t === 'recibir' ? (
       <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined, fijarMargen: !!fijarSku[it.producto?.sku] })).filter((x: any) => x.cantidad > 0) })} />
     ) : t === 'entradaDirecta' ? (
-      <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
+      <Acciones cerrar={cerrar} okLabel="Registrar entrada" faltan={faltanSimple(items.length > 0)} ir={irA} info={entraEn} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
     ) : t === 'entradaFoto' ? (
       !foto ? (
         <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
@@ -2251,7 +2300,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <Acciones
             cerrar={cerrar}
             okLabel={esNotaCredito ? (foto.ncPara ? `Registrar nota de crédito y liberar la factura ${foto.ncPara.numero}` : 'Registrar nota de crédito') : 'Registrar factura para conciliar'}
-            disabled={!f.proveedorId || !(fotoImp?.total > 0) || (!esNotaCredito && lecturaIncompleta)}
+            faltan={faltanConciliar}
+            ir={irA}
+            info={esNotaCredito ? null : remitoAplicado
+              ? 'La mercadería ya entró con su remito: la factura queda cruzada con él.'
+              : 'La mercadería no entra al stock: la factura queda esperando la recepción con la pistola.'}
             onOk={() => registrarConConstancia({
               accion: 'factura',
               proveedorId: f.proveedorId,
@@ -2282,7 +2335,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         <Acciones
           cerrar={cerrar}
           okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
-          disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku) || costoBloquea}
+          faltan={faltanEntrada}
+          ir={irA}
+          info={entraEn}
           onOk={() => registrarConConstancia({
             accion: 'entradaDirecta',
             proveedorId: f.proveedorId,
@@ -2354,10 +2409,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     <Ventana abierto onCerrar={cerrar} titulo={titulo} ancho={modalAncho} pie={pie} cerrarAlTocarAfuera={false}>
       <div className="space-y-3" onKeyDown={escapeEnCampo}>
         {t === 'nuevaOC' && (<>
-          <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+          <select id="registro-proveedor" aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
-          <select aria-label="Sucursal destino" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+          <select id="registro-sucursal" aria-label="Sucursal destino" className={input} value={f.sucursalId ?? ''} onChange={(e) => elegirSucursal(e.target.value)}>
             <option value="">Sucursal destino…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
           <div className="grid grid-cols-2 gap-3">
@@ -2467,11 +2522,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
         {t === 'entradaDirecta' && (<>
           <p className="text-xs text-tinta/60">Llegó mercadería <b>sin orden de compra previa</b> (reparto, compra de oportunidad). Genera la OC retroactiva con su remito, suma stock, fija costo y recalcula el precio de venta — todo trazable.</p>
-          <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+          <select id="registro-proveedor" aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
           <div className="grid gap-3 sm:grid-cols-2">
-            <select aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+            <select id="registro-sucursal" aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => elegirSucursal(e.target.value)}>
               <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
             <input value={f.numeroRemito ?? ''} onChange={(e) => set('numeroRemito', e.target.value)} placeholder="N° de remito del proveedor" aria-label="N° de remito del proveedor" className={input} />
@@ -2602,18 +2657,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   su % (o con "lo que falta"); si el pie no cierra con el total, el
                   sistema dice cuál es el impuesto y ofrece el arreglo exacto
                   (app/lib/pie-factura.ts, con tests). Todo se deshace con ↺. */}
-              <PanelImpuestos
-                key={foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
-                fotoImp={fotoImp} setFotoImp={setFotoImp}
-                habituales={foto.impuestosHabituales ?? null}
-                sumaRenglones={sumaRenglones}
-              />
+              <div id="registro-pie">
+                <PanelImpuestos
+                  key={foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
+                  fotoImp={fotoImp} setFotoImp={setFotoImp}
+                  habituales={foto.impuestosHabituales ?? null}
+                  sumaRenglones={sumaRenglones}
+                />
+              </div>
 
               {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
               {lecturaIncompleta && <p role="alert" className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
               {renglonesSinCierre.length > 0 && (
-                <div role="alert" className="space-y-2 rounded-xl bg-atencion-suave p-3 text-sm text-atencion">
+                <div id="registro-sin-cierre" role="alert" className="space-y-2 rounded-xl bg-atencion-suave p-3 text-sm text-atencion">
                   <p>
                     {renglonesSinCierre.length === 1 ? 'Un renglón no da' : `${renglonesSinCierre.length} renglones no dan`} el importe del papel (unidades × precio − bonificación):{' '}
                     {renglonesSinCierre.map(({ i, idx }) => {
@@ -2682,10 +2739,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               />
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+                <select id="registro-proveedor" aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
                   <option value="">Proveedor…</option>{provList.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
                 </select>
-                <select aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+                <select id="registro-sucursal" aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => elegirSucursal(e.target.value)}>
                   <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
@@ -3404,7 +3461,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               </div>
 
               {revisionPendiente.length > 0 && (
-                <div className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
+                <div id="registro-antes-de-registrar" className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
                   <p className="font-semibold text-atencion">Antes de registrar, mirá {revisionPendiente.length === 1 ? 'esto' : `estas ${revisionPendiente.length} cosas`}</p>
                   <ul className="mt-2 space-y-2">
                     {revisionPendiente.map((a) => (
@@ -3419,13 +3476,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 </div>
               )}
 
-              <CuentaDeLaFactura
-                cuenta={cuenta}
-                costosAMano={costosAMano.map(({ i, idx }) => ({ renglon: idx + 1, aMano: numImp(i.costoManual), segunFactura: costoSegunFactura(i, idx) }))}
-                aceptar={(motivo) => aceptarDiferencia('Vos', cuenta.diferencia, motivo)}
-                desaceptar={() => aceptarDiferencia('Vos', null, 'se volvió a pedir que cierre')}
-                pedirTexto={pedirTexto}
-              />
+              <div id="registro-cuenta">
+                <CuentaDeLaFactura
+                  cuenta={cuenta}
+                  costosAMano={costosAMano.map(({ i, idx }) => ({ renglon: idx + 1, aMano: numImp(i.costoManual), segunFactura: costoSegunFactura(i, idx) }))}
+                  aceptar={(motivo) => aceptarDiferencia('Vos', cuenta.diferencia, motivo)}
+                  desaceptar={() => aceptarDiferencia('Vos', null, 'se volvió a pedir que cierre')}
+                  pedirTexto={pedirTexto}
+                />
+              </div>
 
               {/* Reconciliación del costo vs la mercadería de la factura */}
               <div className="rounded-xl bg-crema-claro px-3 py-2.5 text-xs text-tinta/70">
@@ -3445,7 +3504,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </div>
                 )}
                 {impIntDoc > 0 && (
-                  <div className={'mt-1.5 rounded-xl px-2.5 py-2 ' + (internosResueltos ? 'bg-ok-suave text-ok' : 'border border-marca bg-marca-suave font-semibold text-marca-hondo')}>
+                  <div id="registro-internos" className={'mt-1.5 rounded-xl px-2.5 py-2 ' + (internosResueltos ? 'bg-ok-suave text-ok' : 'border border-marca bg-marca-suave font-semibold text-marca-hondo')}>
                     <p>
                       {internosResueltos ? <IconoOk className="mr-1 inline size-4 align-[-3px]" /> : <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />}
                       {textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1)}
@@ -3473,7 +3532,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </p>
                 )}
                 {ivaFactura?.estado === 'no_cierra' && (
-                  <div className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 text-marca-hondo">
+                  <div id="registro-iva" className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 text-marca-hondo">
                     <p className="font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El IVA no cierra: los renglones suman {pesos(ivaFactura.ivaCalculado)} de IVA y el pie dice {pesos(ivaFactura.ivaPie)}
                       {' '}({ivaFactura.diferencia < 0 ? 'sobran' : 'faltan'} {pesos(Math.abs(ivaFactura.diferencia))}). No se puede registrar hasta que cierre.</p>
                     <p className="mt-0.5">
@@ -4081,12 +4140,30 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
 
 // Cancelar + la acción de la ventana. Van sueltos: el pie de la ventana los
 // acomoda (en el celular se reparten el ancho). `variante` = 'peligro' en los rechazos.
-function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario' }: any) {
+// `faltan`: lo que falta para registrar (lib/motivo-registro.ts). Con algo, el
+// botón se apaga y al lado dice qué es; tocarlo lleva a donde se arregla.
+// `info`: con todo en orden, qué va a pasar (dónde entra la mercadería).
+function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario', faltan, ir, info }: any) {
   const [cargando, setCargando] = useState(false);
+  const lista: Falta[] = faltan ?? [];
+  const apagado = !!disabled || lista.length > 0;
   return (
     <>
+      {lista.length ? (
+        <p role="status" className="min-w-0 basis-full text-sm text-atencion sm:flex-1 sm:basis-0">
+          <span className="font-semibold">Para registrar: </span>
+          {lista.map((x, k) => (
+            <span key={x.texto}>
+              {k > 0 && ' · '}
+              {x.donde && ir ? <button type="button" onClick={() => ir(x)} className={unir(ENLACE, 'text-left')}>{x.texto}</button> : x.texto}
+            </span>
+          ))}
+        </p>
+      ) : info ? (
+        <p className="min-w-0 basis-full text-sm text-tinta/60 sm:flex-1 sm:basis-0">{info}</p>
+      ) : null}
       <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
-      <Boton variante={variante} onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled} cargando={cargando}>{okLabel}</Boton>
+      <Boton variante={variante} onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={apagado} cargando={cargando}>{okLabel}</Boton>
     </>
   );
 }
