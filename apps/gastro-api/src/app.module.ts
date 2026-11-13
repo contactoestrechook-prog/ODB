@@ -18,6 +18,11 @@ import { ProveedoresModule } from './proveedores/proveedores.module';
 import { CocinaModule } from './cocina/cocina.module';
 import { MozosModule } from './mozos/mozos.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { CuentaModule } from './cuenta/cuenta.module';
+import { DerivadoresModule } from './derivadores/derivadores.module';
+import { ReservasModule } from './reservas/reservas.module';
+import { TableroModule } from './tablero/tablero.module';
+import { CarneModule } from './carne/carne.module';
 
 @Module({
   controllers: [SaludController],
@@ -44,6 +49,11 @@ import { ClientesModule } from './clientes/clientes.module';
     CocinaModule,
     MozosModule,
     ClientesModule,
+    CuentaModule,
+    DerivadoresModule,
+    ReservasModule,
+    TableroModule,
+    CarneModule,
   ],
 })
 export class AppModule {}

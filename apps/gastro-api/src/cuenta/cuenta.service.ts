@@ -59,7 +59,8 @@ export class CuentaService {
     const total = renglones.reduce((s, r) => s + r.total, 0);
     const confirmados = pagos.filter((p) => p.estado === 'confirmado');
     const pagado = confirmados.reduce((s, p) => s + Number(p.monto_ars), 0);
-    const saldo = Math.max(0, total - pagado);
+    const pagada = total > 0 && total - pagado <= tolerancia(total);
+    const saldo = pagada ? 0 : Math.max(0, total - pagado);
     return {
       cicloId: ciclo.id,
       mesaId: ciclo.mesa_id,
@@ -71,7 +72,7 @@ export class CuentaService {
       pagado,
       saldo,
       saldoEn: enMonedas(saldo, cambio),
-      pagada: total > 0 && saldo <= tolerancia(total),
+      pagada,
       preferido: ciclo.pago_preferido_metodo
         ? { metodo: ciclo.pago_preferido_metodo as Metodo, moneda: (ciclo.pago_preferido_moneda ?? 'ARS') as Moneda }
         : null,

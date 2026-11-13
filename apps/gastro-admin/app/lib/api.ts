@@ -35,8 +35,15 @@ export async function api(path: string, init?: RequestInit) {
     throw new Error("Clave inválida");
   }
   if (!res.ok) {
+    // la API contesta {"message": "...", "statusCode": 400}: al usuario le
+    // mostramos el motivo, no el JSON
     const texto = await res.text().catch(() => "");
-    throw new Error(texto || `Error ${res.status}`);
+    let motivo = texto;
+    try {
+      const json = JSON.parse(texto);
+      motivo = Array.isArray(json.message) ? json.message.join(". ") : json.message ?? texto;
+    } catch {}
+    throw new Error(motivo || `No se pudo (error ${res.status})`);
   }
   return res.status === 204 ? null : res.json();
 }

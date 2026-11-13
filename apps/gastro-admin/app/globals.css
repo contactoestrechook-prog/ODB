@@ -1,45 +1,94 @@
 @import "tailwindcss";
 
-/* Misma identidad "parrilla de noche" que gastro-web y los mockups, pero acá
-   la interfaz se opera de día también → damos ambos temas. */
+/* Panel de trabajo de Gran Caminito. Escala chica y densa (se usa parado, con
+   una mano, en el salón) y una tinta por zona del restaurante, sacadas de
+   Iguazú: brasa (salón), tierra colorada (cocina), lapacho (puerta), yerba
+   (plata), malbec (negocio). Tema claro de día y oscuro de noche, solo. */
 @theme inline {
-  --color-bg: #141010;
-  --color-card: #241d19;
-  --color-card-2: #2c2320;
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-ink: #f4ece2;
-  --color-dim: #b6a89a;
-  --color-faint: #877a6d;
-  --color-accent: #e8a03d;
-  --color-accent-2: #c47a24;
-  --color-good: #4cc38a;
-  --color-loss: #f2555a;
-  --color-warn: #e8bd4d;
-  --font-display: var(--font-fraunces);
-  --font-sans: var(--font-manrope);
+  --color-bg: #101412;
+  --color-card: #1a201d;
+  --color-card-2: #232b27;
+  --color-line: rgba(255, 255, 255, 0.1);
+  --color-ink: #eef1ec;
+  --color-dim: #b3bdb6;
+  --color-faint: #808b84;
+  --color-accent: #f07a3c;
+  --color-accent-2: #d2541f;
+  --color-good: #56c48d;
+  --color-loss: #f2595e;
+  --color-warn: #e8b04d;
+  --color-salon: #f07a3c;
+  --color-cocina: #e08a70;
+  --color-puerta: #e883b3;
+  --color-plata: #9ccb5a;
+  --color-negocio: #c79ade;
+  --color-ajustes: #9aa59e;
+  --font-display: var(--font-archivo);
+  --font-sans: var(--font-archivo);
+  --font-mono: var(--font-roboto-mono);
 }
 
 @media (prefers-color-scheme: light) {
   @theme inline {
-    --color-bg: #f6f1e8;
+    --color-bg: #eceee9;
     --color-card: #ffffff;
-    --color-card-2: #f0e7d8;
-    --color-line: rgba(40, 28, 20, 0.12);
-    --color-ink: #2a201a;
-    --color-dim: #6d5f52;
-    --color-faint: #9a8b7c;
-    --color-accent: #bf7620;
-    --color-accent-2: #9c5f18;
-    --color-good: #238a5c;
-    --color-loss: #cf3237;
-    --color-warn: #a9781a;
+    --color-card-2: #f2f4ef;
+    --color-line: rgba(20, 32, 25, 0.14);
+    --color-ink: #17201b;
+    --color-dim: #4c5951;
+    --color-faint: #76817a;
+    --color-accent: #d2541f;
+    --color-accent-2: #b4441a;
+    --color-good: #1c8556;
+    --color-loss: #c8272d;
+    --color-warn: #a86d12;
+    --color-salon: #d2541f;
+    --color-cocina: #8c3b2a;
+    --color-puerta: #b83f78;
+    --color-plata: #47802a;
+    --color-negocio: #7a3e8c;
+    --color-ajustes: #5d6962;
   }
 }
 
+html { -webkit-text-size-adjust: 100%; }
 body {
   background: var(--color-bg);
   color: var(--color-ink);
-  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
-.display { font-family: var(--font-fraunces), Georgia, serif; }
+/* Títulos: la misma Archivo, ensanchada. */
+.display { font-family: var(--font-archivo), system-ui, sans-serif; font-stretch: 118%; letter-spacing: -0.01em; }
+.font-mono { font-family: var(--font-roboto-mono), ui-monospace, monospace; }
+.num { font-family: var(--font-roboto-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+button, a, summary { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled), summary, [role="button"] { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }
+input, select, textarea { font: inherit; color: inherit; }
+
+/* Campo de formulario común */
+.campo {
+  width: 100%;
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13.5px;
+  min-height: 34px;
+}
+.campo:focus { outline: 2px solid var(--color-accent); outline-offset: 0; }
+
+@keyframes hoja-entra { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes hoja-sube { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.hoja { animation: hoja-sube 0.18s ease-out both; }
+@media (min-width: 640px) { .hoja { animation-name: hoja-entra; } }
+@media (prefers-reduced-motion: reduce) { .hoja { animation: none; } }
+
+@media print {
+  .no-imprimir { display: none !important; }
+  body { background: #fff; color: #000; }
+}

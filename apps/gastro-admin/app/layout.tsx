@@ -1,26 +1,26 @@
-import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Archivo, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import { AdminGate } from "./AdminGate";
-import { NavAdmin } from "./NavAdmin";
+import { Marco } from "./Marco";
 
-const display = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap" });
-const sans = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
+// Archivo con el eje de ancho: el mismo dibujo sirve para el texto (normal) y
+// para los títulos (ensanchada). Roboto Mono para los números.
+const archivo = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-archivo", display: "swap" });
+const mono = Roboto_Mono({ subsets: ["latin"], variable: "--font-roboto-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Gran Caminito · Panel",
   description: "Panel de NÚCLEO Gastro para Gran Caminito.",
 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="es" className={`${display.variable} ${sans.variable} h-full`}>
+    <html lang="es" className={`${archivo.variable} ${mono.variable} h-full`}>
       <body className="min-h-full">
         <AdminGate>
-          <div className="max-w-2xl mx-auto w-full px-5 py-6">
-            <NavAdmin />
-            <main className="mt-6">{children}</main>
-          </div>
+          <Marco>{children}</Marco>
         </AdminGate>
       </body>
     </html>

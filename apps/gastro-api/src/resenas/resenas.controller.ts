@@ -12,9 +12,19 @@ export class ResenasController {
     return this.resenas.listar(estado);
   }
 
+  @Get('radar')
+  radar() {
+    return this.resenas.radar();
+  }
+
   @Post()
-  cargarManual(@Body() body: { autor: string; rating: number; texto: string; idioma?: string }) {
+  cargarManual(@Body() body: { autor: string; rating: number; texto: string; idioma?: string; tema?: string; origen?: string }) {
     return this.resenas.cargarManual(body);
+  }
+
+  @Post(':id/tema')
+  ponerTema(@Param('id') id: string, @Body() body: { tema: string | null }) {
+    return this.resenas.ponerTema(id, body?.tema ?? null);
   }
 
   @Post(':id/generar-respuesta')

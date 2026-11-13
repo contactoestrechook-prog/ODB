@@ -141,9 +141,10 @@ export function sembrar(): Tablas {
 
   // ── historia: 35 días cerrados ──
   for (let d = 35; d >= 1; d--) {
-    const base = new Date(ahora - d * DIA);
-    base.setUTCHours(3, 0, 0, 0); // 00:00 de Argentina
-    const diaSemana = new Date(base.getTime() - 3 * 3_600_000 + 12 * 3_600_000).getUTCDay();
+    // 00:00 de Argentina de hace d días (el día de hoy queda afuera)
+    const hoy = new Date(ahora - 3 * 3_600_000);
+    const base = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate() - d, 3, 0, 0));
+    const diaSemana = new Date(base.getTime() + 9 * 3_600_000).getUTCDay();
     const cantidad = [34, 22, 24, 27, 31, 44, 48][diaSemana] + entre(-4, 4);
     for (let k = 0; k < cantidad; k++) {
       const cena = azar() < 0.62;
@@ -240,7 +241,7 @@ export function sembrar(): Tablas {
   const compras: any[] = [];
   const compra_items: any[] = [];
   const kilosSemana: Record<string, [number, number]> = {
-    'Picaña': [128, 19800], 'Bife de chorizo': [92, 18200], 'Ojo de bife': [41, 23500], 'Vacío': [66, 13900], 'Nalga (milanesa)': [44, 12400],
+    'Picaña': [124, 19800], 'Bife de chorizo': [104, 18200], 'Ojo de bife': [41, 23500], 'Vacío': [62, 13900], 'Nalga (milanesa)': [54, 12400],
   };
   for (let s = 5; s >= 1; s--) {
     const compraId = id('compra');

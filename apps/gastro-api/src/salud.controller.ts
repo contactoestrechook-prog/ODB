@@ -7,6 +7,10 @@ export class SaludController {
   @Publico()
   @Get(['/', 'salud'])
   salud() {
-    return { ok: true, servicio: 'gastro-api', restaurante: 'Gran Caminito', hora: new Date().toISOString() };
+    // demo: true → la API está con datos de muestra en memoria (ver supabase.provider.ts)
+    return {
+      ok: true, servicio: 'gastro-api', restaurante: 'Gran Caminito', hora: new Date().toISOString(),
+      demo: process.env.SUPABASE_URL === 'demo',
+    };
   }
 }

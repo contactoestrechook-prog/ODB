@@ -10,6 +10,8 @@ plato, la atención, etc.), sin exagerar. Si es negativa: pedí disculpas de ver
 vacías, y ofrecé un canal para que vuelvan a contactarlos. Máximo 3 oraciones. Sin emojis de más
 (como mucho uno). Nunca inventes promociones ni promesas que el restaurante no pueda cumplir.`;
 
+export const TEMAS = ['comida', 'servicio', 'tiempo', 'precio', 'ambiente', 'limpieza'];
+
 @Injectable()
 export class ResenasService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
@@ -25,7 +27,7 @@ export class ResenasService {
   // Carga manual mientras no haya OAuth con el Google Business Profile real de
   // Gran Caminito (ver .env.example): el encargado copia la reseña nueva acá,
   // o se arma un importador cuando el acceso esté aprobado.
-  async cargarManual(input: { autor: string; rating: number; texto: string; idioma?: string }) {
+  async cargarManual(input: { autor: string; rating: number; texto: string; idioma?: string; tema?: string; origen?: string }) {
     const { data, error } = await this.db
       .from('resenas_google')
       .insert({
@@ -33,12 +35,43 @@ export class ResenasService {
         rating: input.rating,
         texto: input.texto,
         idioma: input.idioma ?? 'es',
+        tema: TEMAS.includes(input.tema ?? '') ? input.tema : null,
+        origen: input.origen === 'tripadvisor' ? 'tripadvisor' : 'google',
         respuesta_estado: 'pendiente',
       })
       .select()
       .single();
     if (error) throw new BadRequestException(error.message);
     return data;
+  }
+
+  async ponerTema(id: string, tema: string | null) {
+    if (tema && !TEMAS.includes(tema)) throw new BadRequestException('Tema desconocido');
+    const { data, error } = await this.db.from('resenas_google').update({ tema: tema || null }).eq('id', id).select().maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('No existe esa reseña');
+    return data;
+  }
+
+  // El radar: de qué se habla en las reseñas de los últimos 90 días y cómo
+  // puntúa cada tema. Lo que se repite con nota baja es lo que hay que arreglar.
+  async radar() {
+    const desde = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    const { data, error } = await this.db.from('resenas_google').select('rating, tema, creado_en').gte('creado_en', desde);
+    if (error) throw new BadRequestException(error.message);
+    const filas = data ?? [];
+    const prom = (xs: any[]) => (xs.length ? Math.round((xs.reduce((s, r) => s + r.rating, 0) / xs.length) * 10) / 10 : null);
+    return {
+      total: filas.length,
+      promedio: prom(filas),
+      sinTema: filas.filter((r: any) => !r.tema).length,
+      temas: TEMAS.map((tema) => {
+        const suyas = filas.filter((r: any) => r.tema === tema);
+        return { tema, resenas: suyas.length, promedio: prom(suyas), malas: suyas.filter((r: any) => r.rating <= 3).length };
+      })
+        .filter((t) => t.resenas > 0)
+        .sort((a, b) => b.malas - a.malas || b.resenas - a.resenas),
+    };
   }
 
   async generarRespuesta(id: string) {
