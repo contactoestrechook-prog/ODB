@@ -39,6 +39,9 @@ export function siguienteEstado(actual: EstadoMesa): EstadoMesa | null {
   return idx >= 0 && idx < ORDEN_ESTADOS.length - 1 ? ORDEN_ESTADOS[idx + 1] : null;
 }
 
+// ¿La mesa ya tiene consumo y todavía no pagó? (se le puede sumar y cobrar)
+export const conConsumo = (e: EstadoMesa) => ["comanda_tomada", "plato_servido", "terminando", "pidio_cuenta"].includes(e);
+
 export type MesaPiso = {
   mesaId: string;
   numero: number;
@@ -52,6 +55,14 @@ export type MesaPiso = {
   minutosTotal: number | null;
   llamadoHaceMin: number | null;
   color: "verde" | "amarillo" | "rojo" | null;
+  derivadorNombre?: string | null;
+  pagoPreferido?: { metodo: "pix" | "qr" | "tarjeta" | "efectivo"; moneda: "ARS" | "BRL" | "USD" } | null;
 };
 
 export type Mozo = { id: string; nombre: string; activo: boolean };
+
+export function agruparPorSector(mesas: MesaPiso[]): Record<string, MesaPiso[]> {
+  const grupos: Record<string, MesaPiso[]> = {};
+  for (const m of mesas) (grupos[m.sector ?? "Sin sector"] ??= []).push(m);
+  return grupos;
+}
