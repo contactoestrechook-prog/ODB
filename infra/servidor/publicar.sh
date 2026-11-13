@@ -24,6 +24,11 @@ ssh_ "set -e; cd /srv/odb
   docker compose --env-file hosts.env build $*
   docker compose --env-file hosts.env up -d --remove-orphans $*
   echo $VERSION > VERSION
-  docker image prune -f >/dev/null
+  # cada publicación deja una imagen de ~1 GB por servicio: el 13/11/2026 había
+  # 215 y el disco llegó al 100 % (la compilación falló). Quedan las que están en
+  # uso y las de los últimos 3 días, para volver atrás.
+  docker image prune -a -f --filter until=72h >/dev/null
+  docker builder prune -f --filter until=72h >/dev/null
+  df -h / | tail -1
   docker compose --env-file hosts.env ps --format 'table {{.Service}}\t{{.Status}}'"
 echo "Publicado $VERSION en el servidor propio."
