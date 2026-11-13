@@ -3,6 +3,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
 import { AppModule } from './app.module';
 import { ErroresFilter } from './comun/errores.filter';
+import { registrarPedidosLentos } from './comun/pedidos-lentos';
 
 async function bootstrap() {
   // rawBody: necesario para validar la firma HMAC de los webhooks (Didit, etc.)
@@ -11,6 +12,8 @@ async function bootstrap() {
   // del proxy (igual para todos los clientes) y cualquier rate-limit por IP
   // terminaría limitando a todo el mundo junto en vez de a cada uno.
   app.set('trust proxy', 1);
+  // todo pedido de más de 3 s queda en el log con ruta, duración y usuario
+  app.use(registrarPedidosLentos());
   app.use(compression());
   // cada error que sale por la API queda en el log, con ruta y usuario
   app.useGlobalFilters(new ErroresFilter());

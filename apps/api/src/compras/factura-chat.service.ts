@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
+import { conRelevo, relevoMs } from '../comun/relevo-ia';
 import { ListasService } from '../listas/listas.service';
 
 // ============================================================
@@ -369,30 +370,41 @@ export class FacturaChatService {
       });
       if (e) this.log.warn(`no se guardó la charla fallida de la factura ${lecturaId}: ${e.message}`);
     };
+    // RELEVO (13/11/2026): a las 10:56 una respuesta de 595 tokens tardó 140,7 s
+    // y Anabella se quedó esperando. Si a los 30 s no llegó, sale otro pedido
+    // igual y gana el primero que termine (comun/relevo-ia.ts). Regulable con
+    // FACTURA_CHAT_RELEVO (segundos).
+    const esperaRelevo = relevoMs('FACTURA_CHAT_RELEVO', 30);
     const pedir = async (msgs: Anthropic.MessageParam[]) => {
       const t1 = Date.now();
-      const r: any = await claude.messages
-        .stream({
-          // Opus 5.5 en high desde el 3/11/2026 (Leandro: «el chat no tiene una
-          // lógica suficiente»). Iba en Sonnet 5.5 medium, que contestaba en 5–9 s
-          // pero se perdía en las cuentas de bultos, bonificaciones y descuentos
-          // repartidos. Esperar unos segundos más es más barato que una factura
-          // mal cargada. Se regula con FACTURA_CHAT_ESFUERZO; no lee ODB_ESFUERZO.
-          model: MODELO_PRINCIPAL,
-          system: [{ type: 'text', text: INSTRUCCIONES, cache_control: { type: 'ephemeral' } }],
-          // el razonamiento sale de este mismo tope: con 16k y high se cortaba
-          max_tokens: 32000,
-          thinking: RAZONAMIENTO,
-          output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: esfuerzoChat },
-          messages: msgs,
-        } as any)
-        .finalMessage()
-        .catch((e: any) => {
-          llamadas.push({ error: String(e?.message ?? e).slice(0, 300), estado: e?.status ?? null, segundos: Math.round((Date.now() - t1) / 100) / 10 });
-          throw e;
-        });
+      const { valor: r, relevo, gano } = await conRelevo<any>(
+        (signal) =>
+          claude.messages
+            .stream({
+              // Opus 5.5 en high desde el 3/11/2026 (Leandro: «el chat no tiene una
+              // lógica suficiente»). Iba en Sonnet 5.5 medium, que contestaba en 5–9 s
+              // pero se perdía en las cuentas de bultos, bonificaciones y descuentos
+              // repartidos. Esperar unos segundos más es más barato que una factura
+              // mal cargada. Se regula con FACTURA_CHAT_ESFUERZO; no lee ODB_ESFUERZO.
+              model: MODELO_PRINCIPAL,
+              system: [{ type: 'text', text: INSTRUCCIONES, cache_control: { type: 'ephemeral' } }],
+              // el razonamiento sale de este mismo tope: con 16k y high se cortaba
+              max_tokens: 32000,
+              thinking: RAZONAMIENTO,
+              output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: esfuerzoChat },
+              messages: msgs,
+            } as any, { signal })
+            .finalMessage(),
+        {
+          relevoMs: esperaRelevo,
+          alRelevar: () => this.log.warn(`chat de factura ${lecturaId}: la IA lleva ${esperaRelevo / 1000} s sin contestar, sale un segundo pedido`),
+        },
+      ).catch((e: any) => {
+        llamadas.push({ error: String(e?.message ?? e).slice(0, 300), estado: e?.status ?? null, segundos: Math.round((Date.now() - t1) / 100) / 10 });
+        throw e;
+      });
       const bloque = (r.content ?? []).find((x: any) => x.type === 'text');
-      llamadas.push(medirLlamada(r, esfuerzoChat, Date.now() - t1));
+      llamadas.push({ ...medirLlamada(r, esfuerzoChat, Date.now() - t1), ...(relevo ? { relevo: true, gano } : {}) });
       let crudo: any = null;
       try { crudo = JSON.parse(bloque?.text ?? ''); } catch { /* abajo */ }
       return { crudo, texto: String(bloque?.text ?? ''), usage: r.usage ?? {} };

@@ -14,6 +14,7 @@ import { percepcionesDelPie } from '../compras/percepciones-impresas';
 import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, puedeVendersePorPesoConCatalogo, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
+import { conRelevo, relevoMs } from '../comun/relevo-ia';
 
 // el tope de las lecturas de PDF y Excel con Opus (6/10/2026, revisión): la
 // salida máxima de Opus 5.5, porque el razonamiento sale del mismo tope
@@ -872,9 +873,14 @@ export class ListasService {
     let msLectura = 0;
     let datos: any;
     let ultimoError: any = null;
+    // RELEVO (13/11/2026, comun/relevo-ia.ts): 91 lecturas de dos semanas
+    // tardaron 11 s la mitad y 35 s la más lenta (42 renglones). Si a los 60 s
+    // no terminó, sale otra lectura igual y gana la primera que llegue.
+    // Regulable con ODB_LECTURA_RELEVO (segundos).
+    const esperaRelevo = relevoMs('ODB_LECTURA_RELEVO', 60);
     for (let intento = 1; intento <= 2; intento++) {
       try {
-        const respuesta = await claude.messages
+        const { valor: respuesta } = await conRelevo((signal) => claude.messages
           .stream({
             // Sonnet 5.5 desde el 7/10/2026 (decisión de Leandro). Medido con tres
             // facturas reales de Distri Sur: lee 21–33 s contra 54–127 s de
@@ -920,8 +926,11 @@ export class ListasService {
               effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'medium') as any,
             },
             messages: [{ role: 'user', content: contenido }],
-          })
-          .finalMessage();
+          }, { signal })
+          .finalMessage(), {
+          relevoMs: esperaRelevo,
+          alRelevar: () => this.log.warn(`lectura del comprobante: lleva ${esperaRelevo / 1000} s sin terminar, sale una segunda lectura`),
+        });
         // Quedarse sin espacio es un ERROR, no un resultado. Antes, si el tope
         // se agotaba durante el razonamiento, no había bloque de texto, el
         // JSON quedaba en '{}' y la pantalla mostraba un comprobante vacío con
@@ -1726,7 +1735,11 @@ export class ListasService {
       });
 
       const claude = new Anthropic();
-      const respuesta = await claude.messages
+      // RELEVO (13/11/2026, comun/relevo-ia.ts): en dos semanas esta parte tardó
+      // 6,5 s la mitad y 24 s la más lenta. Si a los 45 s no terminó, sale otro
+      // pedido igual y gana el primero. Regulable con ODB_MATCHING_RELEVO (segundos).
+      const esperaRelevo = relevoMs('ODB_MATCHING_RELEVO', 45);
+      const { valor: respuesta } = await conRelevo((signal) => claude.messages
         .stream({
           model: MODELO_PRINCIPAL,
           // el razonamiento sale de este mismo tope: con 32k y high, una factura
@@ -1754,8 +1767,11 @@ export class ListasService {
             '5. Si ninguno es claramente el mismo, devolvé sku null: es peor vincular mal que dejarlo sin vincular, no fuerces. Entre dos variedades (Malbec y Cabernet, light y común) que el renglón no aclara, también null.\n\n' +
             'En «motivo» explicá en pocas palabras por qué es ese (o por qué ninguno), para que la persona lo confirme.\n\nRenglones y candidatos:\n' +
             JSON.stringify(payload) }] }],
-        } as any)
-        .finalMessage();
+        } as any, { signal })
+        .finalMessage(), {
+        relevoMs: esperaRelevo,
+        alRelevar: () => this.log.warn(`sugerencia de vínculos: lleva ${esperaRelevo / 1000} s sin terminar, sale un segundo pedido`),
+      });
       const elecciones = jsonDe<{ elecciones?: any[] }>(respuesta as any, 'La sugerencia de vínculos').elecciones ?? [];
 
       for (const e of elecciones) {
