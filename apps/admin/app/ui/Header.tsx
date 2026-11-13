@@ -219,7 +219,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/clientes': { titulo: 'Base de clientes', bajada: 'Todos los clientes, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Cumpleaños, casamientos, corporativos y fin de año: de la propuesta al brindis' },
-  '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
+  '/sommelier': { titulo: 'Somelier ODB', bajada: 'Qué vino recomendarle a cada cliente, con lo que hay en el local' },
   '/bot': { titulo: 'Probar el bot', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
   '/responde': { titulo: 'RESPONDE', bajada: 'Las conversaciones reales de WhatsApp: contestar, pausar el bot, notas, programados y difusión' },
   '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de WhatsApp' },

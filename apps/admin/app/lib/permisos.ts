@@ -59,6 +59,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios', // verificador de precios
     '/productos', // catálogo (consulta)
     '/inventario', // inventario de un producto, sin costos ni margen (el API no se los manda), 5/11/2026
+    '/sommelier', // qué vino recomendarle al cliente, con lo que hay en el local (13/11/2026)
     '/cheques', // cheques que recibe en el mostrador
     // «Mis entregas»: los envíos que lleva (21/10/2026: sin repartidores
     // cargados, un envío sale con alguien del local y tiene que ver la
