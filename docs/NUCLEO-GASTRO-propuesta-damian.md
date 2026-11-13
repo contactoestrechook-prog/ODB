@@ -199,7 +199,119 @@ Acá está la magia de verdad. El sistema no sólo mira: **mueve las palancas.**
 
 ---
 
-## 3. La aritmética de la magia (con las palancas del RevPASH)
+## 3. Lo que se suma: el restaurante de frontera (12/11)
+
+La versión del 30/9 pensaba el salón. Ésta suma lo que hace distinto a Iguazú: **el cliente es
+extranjero, paga en otra moneda, llega mandado por alguien y decide por Google.** Son siete piezas
+más Pix. Todas empujan alguna de las tres palancas del RevPASH.
+
+### 3.1 Tres monedas y cobro en la mesa
+
+- La carta y la cuenta se ven en **pesos, reales y dólares** al mismo tiempo, con el tipo de cambio
+  de la casa que Damián carga a la mañana (un solo número por moneda, se toca y se cambia).
+- La mesa escanea su QR, ve su cuenta, **la divide si quiere** y paga ahí: Pix, QR argentino o
+  tarjeta. Al pagar, la mesa pasa sola a «pagó» en el Piso Vivo.
+- Qué mueve: el intervalo **t5→t6 (cobro)**, que hoy es de 9 minutos en hora pico, y el tiempo
+  muerto que viene atrás. Es rotación directa en la hora con cola.
+- El efectivo en reales y dólares que entra a la caja queda anotado por moneda, para que el cierre
+  cierre.
+
+### 3.2 Pix
+
+**Se puede.** Un comercio argentino no tiene clave Pix propia (es del Banco Central de Brasil),
+así que se cobra con un intermediario: el brasileño paga en reales desde la app de su banco y el
+restaurante recibe pesos o dólares.
+
+En julio de 2026 los brasileños fueron el **36,1 % de los turistas extranjeros** que entraron al
+país, y el ticket promedio pagado con Pix en bares y restaurantes fue de **US$ 68**
+(informe de kamiPay con llegadas del INDEC).
+
+| Camino | Cómo cobra | Qué recibe Damián | Comisión publicada | Sirve para cobrar en la mesa desde la app |
+|---|---|---|---|---|
+| **Clover / Posnet (Fiserv)** | QR en la terminal | Pesos | 0,8 % (guía de Wise, enero 2026) | No: el mozo cobra aparte |
+| **Mercado Pago Point Smart** | QR en la terminal | Pesos, al instante | 3,25 % + IVA (dato de febrero 2025) | Sin confirmar |
+| **Naranja X** | QR | Pesos | 0 % (guía de Wise) | No. Pide el CPF del cliente |
+| **Belo** | QR o link de pago | Dólares digitales (USDT) | 2,5 % | A medias: con link |
+| **kamiPay** | QR por cada cobro, **por API** | Pesos o dólares digitales, al instante | No la publica: el costo va en el tipo de cambio | **Sí** |
+
+Para comparar: Mercado Pago dice que una tarjeta internacional le cuesta al comercio entre 9 % y
+12 %.
+
+**Recomendación, en dos pasos:**
+1. **Día 1, sin tocar el sistema:** Pix por la terminal que Damián ya tenga (Clover o Point). El
+   cartel «Aceitamos Pix» va en la puerta y en la carta desde la primera semana.
+2. **Después, Pix adentro de la cuenta:** un QR por mesa generado por API (kamiPay es el candidato).
+   El brasileño ve la cuenta en reales, paga, y la mesa se cierra sola.
+
+**Falta confirmar antes de prometerlo:** que kamiPay le abra la API a un restaurante suelto (hoy
+se sabe que la integraron Belo, Fiwind y Takenos), el tipo de cambio que aplica, la comisión real
+y en cuánto liquida en pesos. Las comisiones de la tabla son de notas y guías, no de un tarifario:
+se piden por escrito a cada proveedor. La cuenta la abre Damián con el CUIT del restaurante. Cómo
+se factura un cobro en reales lo define su contador.
+
+### 3.3 Carta en tres idiomas, con fotos y alérgenos
+
+- Español, portugués e inglés: el QR abre en el idioma del teléfono.
+- **Foto de cada plato** y el corte explicado (qué es la picaña para un europeo, qué es un bife de
+  chorizo para un brasileño).
+- **Alérgenos y sin TACC** marcados; filtro «sin gluten», «sin lactosa», «vegetariano».
+- Punto de la carne con foto, para que no vuelva un plato a la cocina.
+- Qué mueve: el **enganche (t0→t1)** y el ticket: lo que se ve, se pide.
+
+### 3.4 Hoteles, guías y agencias con QR propio
+
+En Iguazú el turista llega mandado: el conserje, el guía de Cataratas, el remisero, la agencia.
+Hoy esa comisión se arregla de palabra y nadie sabe cuánto trae cada uno.
+
+- Cada hotel, guía o agencia tiene **su QR y su link**. La mesa que entra por ahí queda anotada a
+  su nombre.
+- Damián ve, por cada uno: mesas que mandó, cubiertos, ticket y **la comisión que le corresponde**.
+- Liquidación mensual lista para pagar, y un resumen que se le manda por WhatsApp al que trajo
+  gente («este mes mandaste 14 mesas»).
+- Los **contingentes** (grupos de agencia) usan el módulo de eventos y presupuesto que ya existe.
+- Qué mueve: la **ocupación**, sobre todo en los valles, y le pone número a un canal que hoy es
+  invisible.
+
+### 3.5 Reservas, Google «Reservar» y espera en un solo lugar
+
+- Reserva por WhatsApp, por la web y con el botón **«Reservar» de Google**.
+- La reserva, el que llega sin reserva y la lista de espera viven en el mismo Piso Vivo: el
+  anfitrión de la puerta ve qué mesa se libera y a quién le toca.
+- **Seña** opcional para grupos grandes y fechas pico (se puede pagar con Pix).
+- Recordatorio automático y confirmación: baja el que reserva y no viene.
+- Qué mueve: **ocupación** y la **tasa de abandono** de la vereda.
+
+### 3.6 Reseñas de Google conectadas de verdad, y el después de la visita
+
+- Hoy las reseñas se cargan a mano. Se conecta el perfil de Google para que **entren solas** y la
+  respuesta sugerida salga en el idioma del cliente, con aprobación de Damián en un toque.
+- **Después de la visita:** al que dejó su WhatsApp, un mensaje al día siguiente con el
+  agradecimiento y el link a Google. A todos por igual, sin premio (ver «Sin atajos»).
+- Radar de temas: qué se repite en las reseñas malas, cruzado con turno y mozo.
+- TripAdvisor se suma al radar si se puede leer; pesa mucho en el turista europeo.
+
+### 3.7 El tablero del dueño
+
+- **Resumen por WhatsApp a la mañana**: ayer en cinco renglones y la única cosa para corregir hoy.
+- **Mozos:** tiempo de atención, rotación, ticket y tasa de postre de cada uno.
+- **Ingeniería de menú con costos:** cada plato ubicado por lo que se vende y lo que deja. Cuál
+  empujar, cuál subir de precio, cuál sacar.
+- **Pronóstico:** cubiertos de mañana y de la semana con clima y feriados de Argentina y de Brasil.
+- Es un **informe que explica**, no un tablero de números sueltos: cada dato dice de dónde sale.
+
+### 3.8 Cocina y carne
+
+- **Rendimiento por corte:** kilos comprados contra porciones vendidas. La merma deja de ser una
+  sensación.
+- **Mise en place** con el pronóstico: cuántas picañas, bifes y milanesas sacar para mañana.
+- **Pantalla de cocina** con las comandas en orden y el reloj de cada una.
+- Alerta de faltante antes del pico, y aviso cuando un proveedor sube el precio de un corte
+  (compras ya mide la variación).
+- Qué mueve: el **margen**, y el tiempo de cocina (t2→t3).
+
+---
+
+## 4. La aritmética de la magia (con las palancas del RevPASH)
 
 Todo lo de arriba se traduce en un solo número moviéndose. Con ~9.000 cubiertos/mes:
 
@@ -210,6 +322,8 @@ Todo lo de arriba se traduce en un solo número moviéndose. Con ~9.000 cubierto
 | **Ocupación** | Lista de espera + 2x1 dinámico llenando valles | +2 a 5 mesas/día |
 | **Margen** | 2x1 recortado al valle + mise-en-place sin desperdicio | margen recuperado directo |
 | **Reputación** | 5-12% de captura sepulta el historial → más tráfico orgánico | efecto compuesto, baja dependencia de agencias |
+| **Cobro** | Pix y cuenta en reales en la mesa: baja el t5→t6 y reemplaza tarjeta internacional | minutos de mesa recuperados en el pico y menos comisión por cobro |
+| **Canal** | Hoteles, guías y agencias con QR propio | se sabe quién trae gente y cuánto cuesta cada mesa mandada |
 
 Sobre 9.000 cubiertos mensuales, **un +3% de ticket ya paga el abono varias veces.**
 Y la rotación en pico es plata que hoy, literalmente, se va caminando por la vereda.
@@ -221,7 +335,7 @@ transformación digital). Si el resto califica como PyME elegible, la mitad la p
 
 ---
 
-## 4. Por qué esto es rápido: ya está casi todo construido
+## 5. Por qué esto es rápido: ya está casi todo construido
 
 Respeta el núcleo: mismo core, mismo schema, mismos despliegues. Se **activan** módulos.
 
@@ -241,9 +355,23 @@ Respeta el núcleo: mismo core, mismo schema, mismos despliegues. Se **activan**
 
 El delta real son **dos módulos nuevos**. El 80% del "sistema revolucionario" ya corre en producción.
 
+**Lo que se suma el 12/11, contra lo que ya hay en la V1 de Gran Caminito:**
+
+| Pieza | Sobre qué se apoya | Estado |
+|---|---|---|
+| Tres monedas en carta y cuenta | `catalogo` + cuenta de la mesa | 🔨 a construir (chico) |
+| Cobro en la mesa y Pix por API | cuenta de la mesa + proveedor de Pix | 🔨 a construir · depende del proveedor |
+| Pix por terminal | Clover o Point de Damián | ✅ no requiere desarrollo |
+| Carta trilingüe con fotos y alérgenos | carta por QR que ya existe | ⚠️ se amplía (falta cargar fotos y alérgenos) |
+| Hoteles, guías y agencias | QR de mesa + `eventos` + `presupuesto` | 🔨 a construir |
+| Reservas + espera | lista de espera que ya existe | ⚠️ se amplía · Google «Reservar» a validar |
+| Reseñas conectadas + post-visita | termómetro y reseñas a mano que ya existen | ⚠️ depende de la API de Google y del alta en Meta |
+| Tablero del dueño | `analista` (ya calcula RevPASH) | ⚠️ se amplía (mozos, costos, pronóstico) |
+| Cocina y carne | comandas + compras con variación de precios | 🔨 a construir |
+
 ---
 
-## 5. Cómo encaja en la escalera de MetoGroup
+## 6. Cómo encaja en la escalera de MetoGroup
 
 | Escalón | Qué es acá | Gancho comercial |
 |---|---|---|
@@ -257,17 +385,20 @@ RevPASH, el resto se vende solo.
 
 ---
 
-## 6. El piloto — Damián como caso testigo #1
+## 7. El piloto — Damián como caso testigo #1
 
 **90 días. Precio de fundador.**
 
 | Semanas | Entrega |
 |---|---|
-| 1 | Auditoría express: Google Business Profile, carta, costos de tragos, RevPASH base, foto de reputación actual |
-| 2-3 | QR + termómetro + respuesta IA a reseñas **vivos** |
-| 4-6 | Piso Vivo + PWA del mozo → **tiempo de mesa medido de verdad** |
-| 7-9 | Analista completo (RevPASH, tiempo muerto, margen del 2x1) + Anfitrión |
-| 10-12 | 2x1 dinámico + lista de espera WhatsApp + informe de resultados |
+| 1 | Auditoría express: Google Business Profile, carta, costos de tragos, RevPASH base, foto de reputación actual · **Pix por la terminal y cartel «Aceitamos Pix»** |
+| 2-3 | QR + termómetro + respuesta IA a reseñas **vivos** · **carta en tres idiomas y tres monedas, con fotos y alérgenos** |
+| 4-6 | Piso Vivo + PWA del mozo → **tiempo de mesa medido de verdad** · **QR de hoteles, guías y agencias** · **pantalla de cocina** |
+| 7-9 | Analista completo (RevPASH, tiempo muerto, margen del 2x1) + Anfitrión · **reservas y espera juntas** · **tablero del dueño con mozos y costos** |
+| 10-12 | 2x1 dinámico + lista de espera WhatsApp + informe de resultados · **cobro en la mesa con Pix por API** · **rendimiento de carne y mise en place** |
+
+El orden de lo nuevo (en negrita) es una propuesta: lo que no depende de terceros va primero, y lo
+que depende de Google, Meta o del proveedor de Pix va al final para no frenar el resto.
 
 A cambio del precio de fundador: **(1)** los datos reales del vertical (los necesitás para vender
 el segundo), **(2)** testimonio en video con el antes/después de Maps y del RevPASH, **(3)** derecho
@@ -279,10 +410,16 @@ sin vendedor.
 
 ---
 
-## 7. Riesgos, de frente
+## 8. Riesgos, de frente
 
 | Riesgo | Mitigación |
 |---|---|
+| **Pix por API**: no está confirmado que el proveedor le abra la integración a un restaurante, ni su comisión y tipo de cambio | Arrancar con Pix por terminal (ya funciona). Pedir condiciones por escrito antes de prometer el cobro en la mesa |
+| **Tipo de cambio de la casa** mal cargado o viejo | Un solo número por moneda, con fecha a la vista y aviso si tiene más de un día |
+| **Facturación de cobros en reales o dólares** | Lo define el contador de Damián antes de activar el cobro en la mesa |
+| **Google «Reservar»** se habilita a través de socios de reservas | Validar el camino antes de ofrecerlo. Plan B: link de reserva propio en el perfil |
+| **Comisiones a hoteles y guías** hoy son de palabra | El sistema sólo anota y calcula; el porcentaje de cada uno lo carga Damián |
+| **Fotos y alérgenos** los tiene que dar la cocina | Sesión de fotos en la semana 1 y planilla de alérgenos firmada por el cocinero |
 | **API de Google Business Profile** requiere aprobación y puede demorar | ⚠️ **Validar primero.** Plan B: gestión asistida con acceso delegado |
 | Políticas de Google (reseñas incentivadas / filtradas) | Diseño limpio desde el día 1: a todos, sin premio |
 | **Medir tiempos exige input** (mozo o QR) | Se arranca con lo automático (QR) y 3 toques del mozo; la API de Fudo, si existe, lo hace invisible |
@@ -293,7 +430,7 @@ sin vendedor.
 
 ---
 
-## 8. La frase para arrancar la charla
+## 9. La frase para arrancar la charla
 
 > *"Damián, vos no vendés picaña. Vendés mesas. Tenés 300 lugares por día y cada minuto que una
 > mesa está ocupada al pedo o vacía mientras hay cola afuera, es plata que se te cae al piso y no
@@ -306,3 +443,10 @@ sin vendedor.
 Los rangos de captura de reseñas y de uplift son referencias del rubro, a validar con los datos
 reales del local. La medición fina de tiempos requiere input de mozo (PWA) y/o integración con la
 API de Fudo, sujeta a validación técnica.*
+
+*Fuentes de Pix (consultadas el 12/11/2026): guía de Wise «Recibir pagos con Pix en Argentina»
+(enero 2026) para las comisiones de Clover, Belo, Naranja X y Mercado Pago; anuncio de Mercado
+Pago de febrero 2025 (3,25 % + IVA y el 9–12 % de tarjeta internacional); informe de kamiPay
+publicado por iProUP el 17/9/2026 (36,1 % de turistas brasileños y ticket de US$ 68 en bares y
+restaurantes, julio 2026); comunicado de Fiserv de junio 2023 (Pix en Clover y Posnet). Ninguna
+es un tarifario oficial.*
