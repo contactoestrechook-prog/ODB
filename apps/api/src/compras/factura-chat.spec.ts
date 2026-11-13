@@ -43,7 +43,28 @@ describe('validarRespuestaChat', () => {
     expect(r.respuesta).toContain('5%');
   });
   it('sin nada útil devuelve una respuesta vacía de cambios', () => {
-    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], reglaProveedor: null, reglaReemplaza: null, descartados: [], leerOtrosComprobantes: false });
+    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], renglonesNuevos: [], reglaProveedor: null, reglaReemplaza: null, descartados: [], leerOtrosComprobantes: false });
+  });
+  it('los renglones nuevos: pasan los que tienen qué son, unidades y precio (13/11/2026)', () => {
+    const r = validarRespuestaChat({
+      respuesta: 'Partí el renglón 3.',
+      renglonesNuevos: [
+        { descripcion: ' Artesano Brioche ', cantidad: 4, precio: 5500, comoElRenglon: 3, producto: 'Artesano Brioche', motivo: 'lo dijo Ana' },
+        { descripcion: 'Artesano Integral', cantidad: 6, precio: 5500.004, comoElRenglon: 99, producto: '  ', motivo: '' },
+        { descripcion: '', cantidad: 1, precio: 1, comoElRenglon: null, producto: null, motivo: '' },
+        { descripcion: 'Flete', cantidad: 0, precio: 3000, comoElRenglon: null, producto: null, motivo: '' },
+        { descripcion: 'Algo', cantidad: 2, precio: -5, comoElRenglon: null, producto: null, motivo: '' },
+      ],
+    }, 24);
+    expect(r.renglonesNuevos).toEqual([
+      { descripcion: 'Artesano Brioche', cantidad: 4, precio: 5500, comoElRenglon: 3, producto: 'Artesano Brioche', motivo: 'lo dijo Ana' },
+      { descripcion: 'Artesano Integral', cantidad: 6, precio: 5500, comoElRenglon: null, producto: null, motivo: '' },
+    ]);
+    expect(r.descartados).toEqual([
+      { renglon: null, campo: 'renglonNuevo', porque: 'no dice qué es' },
+      { renglon: null, campo: 'renglonNuevo', porque: 'la cantidad no es válida' },
+      { renglon: null, campo: 'renglonNuevo', porque: 'el precio no es válido' },
+    ]);
   });
   it('lo que se descarta vuelve con el porqué, para que la pantalla lo diga (22/10/2026)', () => {
     const r = validarRespuestaChat({
@@ -61,7 +82,19 @@ describe('validarRespuestaChat', () => {
 // «Resuelve bien en la conversación pero no después en el cambio» (22/10/2026):
 // cuándo el servidor le pide a la IA que mande el cambio de forma aplicable.
 describe('motivoParaCorregir', () => {
-  const salida = (o: any) => ({ respuesta: '', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [], ...o });
+  const salida = (o: any) => ({ respuesta: '', cambios: [], cambiosPie: [], renglonesNuevos: [], reglaProveedor: null, descartados: [], ...o });
+  it('le pide a la persona que agregue renglones a mano → se le pide que los agregue él (13/11/2026)', () => {
+    // la respuesta real del chat de Artesano
+    const real = 'Dejé el renglón 3 (Artesano x 500) en 20 unidades a $5.500 = $110.000, como el artesano blanco. Partir el renglón no tiene campo desde el chat, así que agregá en la pantalla dos renglones nuevos con el botón de agregar renglón de la tabla: 4 Artesano Brioche y 6 Artesano Integral.';
+    expect(motivoParaCorregir(salida({ respuesta: real, cambios: [{ renglon: 3, campo: 'sueltas', valor: 20, motivo: '' }] }))).toMatch(/renglonesNuevos/);
+    expect(motivoParaCorregir(salida({ respuesta: 'Sumá un renglón con el flete.' }))).toMatch(/renglonesNuevos/);
+    // si los mandó, está bien
+    expect(motivoParaCorregir(salida({
+      respuesta: 'Partí el renglón 3: quedan 20 Artesano y agregué 4 Brioche y 6 Integral.',
+      cambios: [{ renglon: 3, campo: 'sueltas', valor: 20, motivo: '' }],
+      renglonesNuevos: [{ descripcion: 'Artesano Brioche', cantidad: 4, precio: 5500, comoElRenglon: 3, producto: 'Artesano Brioche', motivo: '' }],
+    }))).toBeNull();
+  });
   it('dice que cambió algo y no mandó cambios → se le pide de nuevo', () => {
     expect(motivoParaCorregir(salida({ respuesta: 'Listo, le saqué el 18% al Oreo y ahora cierra.' }))).toMatch(/no mandaste ninguno/);
   });

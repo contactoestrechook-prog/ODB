@@ -48,7 +48,10 @@ const valorLegible = (v: unknown) => (v == null || v === '' ? 'vacío' : typeof 
 const ENTRA: Record<string, string> = { unidades: 'en unidades', cajas: 'en cajas', abiertas: 'abriendo la caja' };
 const legible = (campo: string, v: unknown) => (campo === 'entraComo' ? (v == null ? 'por decidir' : ENTRA[String(v)] ?? String(v)) : valorLegible(v));
 export const describirCambio = (c: Pick<CambioHecho, 'renglon' | 'campo' | 'antes' | 'despues'>) =>
-  `${c.renglon == null ? 'Pie' : `Renglón ${c.renglon}`} · ${NOMBRE_CAMPO[c.campo] ?? c.campo}: ${legible(c.campo, c.antes)} → ${legible(c.campo, c.despues)}`;
+  // un renglón agregado (13/11/2026): «antes» es su id, no se muestra
+  c.campo === 'renglonNuevo'
+    ? `Renglón ${c.renglon} agregado: ${valorLegible(c.despues)}`
+    : `${c.renglon == null ? 'Pie' : `Renglón ${c.renglon}`} · ${NOMBRE_CAMPO[c.campo] ?? c.campo}: ${legible(c.campo, c.antes)} → ${legible(c.campo, c.despues)}`;
 
 const ERRORES: Record<number, string> = { 401: 'Se venció la sesión: volvé a entrar.', 403: 'Tu usuario no puede usar el asistente.' };
 
@@ -62,7 +65,8 @@ export type PropsAsistente = {
   pie: unknown;
   controles: unknown;
   /** aplica lo que devolvió la IA; devuelve cuántos cambios aplicó y su descripción */
-  onAplicar: (cambios: any[], cambiosPie: any[], automatico?: boolean) => { aplicados: string[]; noAplicados: string[] } | Promise<{ aplicados: string[]; noAplicados: string[] }>;
+  /** `nuevos`: los renglones que agrega el chat (13/11/2026), van al final de la tabla. */
+  onAplicar: (cambios: any[], cambiosPie: any[], automatico?: boolean, nuevos?: any[]) => { aplicados: string[]; noAplicados: string[] } | Promise<{ aplicados: string[]; noAplicados: string[] }>;
   cambios: CambioHecho[];
   onDeshacer: (c: CambioHecho) => void;
   sugerencias?: string[];
@@ -194,7 +198,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(ERRORES[r.status] ?? d?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
-      const { aplicados, noAplicados } = await onAplicar(d.cambios ?? [], d.cambiosPie ?? []);
+      const { aplicados, noAplicados } = await onAplicar(d.cambios ?? [], d.cambiosPie ?? [], false, Array.isArray(d.renglonesNuevos) ? d.renglonesNuevos : []);
       // lo que la IA propuso y no se pudo aplicar, a la vista (antes se perdía en silencio)
       const delServidor = (Array.isArray(d.descartados) ? d.descartados : [])
         .map((x: any) => `${x.renglon ? `Renglón ${x.renglon}` : 'Cambio'} · ${NOMBRE_CAMPO[x.campo] ?? x.campo}: ${x.porque}`);

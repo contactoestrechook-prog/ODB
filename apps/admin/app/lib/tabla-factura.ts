@@ -545,6 +545,8 @@ export function tablaParaIA(
       codigo: fila.codigo ?? null,
       descripcion: fila.descripcion,
       producto: fila.nombre ?? null,
+      // no está en el papel: lo agregó una persona o el chat en esta pantalla
+      ...(fila.agregado ? { agregadoEnPantalla: true } : {}),
       bultos: p.bultos, unidadesPorBulto: p.uxb, sueltas: p.sueltas,
       precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
@@ -621,3 +623,46 @@ export function frenarReglasAbsurdas<T extends Record<string, any>>(
   }
   return { items, registros: registros.filter((g) => !frenados.includes(g.renglon)), frenados };
 }
+
+// ---- renglones agregados (13/11/2026) ----
+// El chat le dijo a la persona «agregá dos renglones con el botón de agregar
+// renglón de la tabla», y ese botón no existía: la factura de Artesano quedó
+// $55.000 abajo. Ahora se agregan desde la tabla («Agregar renglón») y desde el
+// chat («renglonesNuevos»). Van SIEMPRE al final: así los números de los
+// renglones leídos no se mueven (el borrador y la constancia de cambios los
+// usan) y el borrador los guarda enteros.
+
+export type DatosRenglonNuevo = { descripcion: string; cantidad: number; precio: number };
+
+/**
+ * Un renglón nuevo, sin producto vinculado (no entra al stock hasta que se
+ * elige uno), con su cuenta del papel: cantidad × precio = importe. El IVA sale
+ * del renglón que se parte o al que se parece (`plantilla`); si no hay, del
+ * primero de mercadería.
+ */
+export function renglonAgregado(plantilla: Record<string, any> | null | undefined, datos: DatosRenglonNuevo, por: string, id: string) {
+  const cantidad = Math.max(0, num(datos.cantidad) ?? 0);
+  const precio = Math.max(0, num(datos.precio) ?? 0);
+  const iva = num(plantilla?.papel?.iva) ?? num(plantilla?.alicuotaIva);
+  const papel: Papel = { bultos: null, uxb: null, sueltas: cantidad, precio, desc: null, iva, importe: redondear(cantidad * precio) };
+  const fila = {
+    descripcion: String(datos.descripcion ?? '').trim() || 'Renglón agregado',
+    codigo: null, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, avisoMedida: null,
+    margenPct: plantilla?.margenPct ?? '',
+    cantidad, precio, importe: papel.importe, porPeso: false, kg: null,
+    esDescuento: false, esDevolucion: false, devueltoAMano: false, recibidoAMano: null,
+    descuentoPct: null, bonificacionPct: null, puedePorPeso: false,
+    alicuotaIva: iva, alicuotaCatalogo: null, costoCatalogo: null, precioActual: null, alicuotaElegida: null,
+    unidadesPorBulto: null, bultoAplicado: null, bultoDescartado: null, bultoDescartadoComo: null, bultoAuto: false,
+    razonBulto: null, bultoOrigen: null, cantidadAlternativa: null, cantidadCorregida: null, bultoConsumido: null,
+    importeConIvaLeido: null, internosDelPapel: null, netoDelPapel: null, fraccionNeta: null, envaseAplicado: null,
+    // sin producto no entra al stock: se elige en el renglón (o lo vincula el chat)
+    incluir: false,
+    papel,
+    agregado: { id, por, cuando: new Date().toISOString() },
+  };
+  return aplicarPapel(fila, papel, { como: 'unidades' });
+}
+
+/** ¿Lo agregó alguien en esta pantalla (no lo leyó el sistema)? */
+export const esRenglonAgregado = (fila: any) => !!fila?.agregado;

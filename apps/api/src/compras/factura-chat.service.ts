@@ -61,8 +61,25 @@ const ESQUEMA_CHAT = {
     reglaProveedor: { type: ['string', 'null'], description: 'Una regla de este proveedor para las próximas facturas, si la persona explicó una. Una oración. Si no, null.' },
     reglaReemplaza: { type: ['integer', 'null'], description: 'Si lo que dijo la persona corrige o contradice una regla guardada, el número de esa regla en la lista de reglas guardadas: se apaga. Si no, null.' },
     leerOtrosComprobantes: { type: 'boolean', description: 'true si la persona pide cargar, leer, asociar o usar OTRO comprobante que vino en el MISMO archivo que esta factura (la nota de crédito de la página 2, otra factura). El sistema lo lee aparte en ese mismo momento y lo deja en la bandeja. false en cualquier otro caso.' },
+    renglonesNuevos: {
+      type: 'array',
+      description: 'Renglones que se agregan a la factura (van al final de la tabla). Para agregar uno que falta o para partir un renglón en varios productos.',
+      items: {
+        type: 'object',
+        properties: {
+          descripcion: { type: 'string', description: 'Lo que dice el papel o lo que nombró la persona («Artesano Brioche»)' },
+          cantidad: { type: 'number', description: 'Unidades' },
+          precio: { type: 'number', description: 'Precio por unidad, como los demás precios de la tabla' },
+          comoElRenglon: { type: ['integer', 'null'], description: 'El renglón del que sale o al que se parece (de ahí toma el IVA); null si no hay' },
+          producto: { type: ['string', 'null'], description: 'El producto del catálogo como lo nombró la persona, para vincularlo; null si no lo dijo' },
+          motivo: { type: 'string' },
+        },
+        required: ['descripcion', 'cantidad', 'precio', 'comoElRenglon', 'producto', 'motivo'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['respuesta', 'cambios', 'cambiosPie', 'reglaProveedor', 'reglaReemplaza', 'leerOtrosComprobantes'],
+  required: ['respuesta', 'cambios', 'cambiosPie', 'reglaProveedor', 'reglaReemplaza', 'leerOtrosComprobantes', 'renglonesNuevos'],
   additionalProperties: false,
 };
 
@@ -85,7 +102,8 @@ const INSTRUCCIONES = [
   'OTRO COMPROBANTE EN EL MISMO ARCHIVO (5/11/2026): muchas veces escanean juntas la factura y su nota de crédito, o dos facturas, y esta lectura trae una sola (una duda de la lectura suele decirlo: «el adjunto trae una segunda factura», «página 2: nota de crédito»). Si la persona pide cargar, leer, asociar, descontar o usar ese otro comprobante («cargá la nota de crédito», «se descuentan con la NC asociada», «falta la otra factura»), poné «leerOtrosComprobantes» = true. El sistema lo lee aparte en ese mismo momento y lo deja en la bandeja, sin subir nada de nuevo; si es una nota de crédito, al abrirla ya viene asociada a su factura para registrarla. NUNCA le digas que la suba o la cargue aparte, ni que desde acá no se puede. En tu respuesta contá solo lo que cambiaste en ESTA factura: lo del otro comprobante lo agrega el sistema después de tu texto.',
   'REGLAS DEL PROVEEDOR (5/11/2026, Leandro: «no aprendió los cambios ni los razonamientos, tuvimos que poner todo otra vez, no puede volver a pasar»): lo que la persona te explica una vez sobre cómo factura o cómo se carga este proveedor NO se lo tiene que volver a explicar nadie. Si lo que dijo vale para las próximas facturas de este proveedor («en este proveedor el precio es por unidad», «los quesos a $0,10 entran igual al stock», «UxB son las unidades por bulto»), escribilo en «reglaProveedor»: se guarda solo. Escribila para que la próxima vez se pueda aplicar SIN la persona: a qué renglones toca (por lo que dice el papel: la descripción, el precio, una columna, una marca) y qué hay que hacer con ellos. Una o dos oraciones. NO es una regla lo que pasó solo en esta factura (una cantidad que no llegó, un importe puntual, un número de renglón): ahí «reglaProveedor» = null. Si una regla guardada ya dice lo mismo, null. La regla dice SOLO lo que la persona explicó: nunca metas una decisión tuya, una cuenta que hiciste para que cierre ni algo que dedujiste del papel (el 5/11 se guardó «usar como precio la columna Neto», que nadie había dicho y era al revés). Las reglas guardadas se cumplen SIEMPRE que mires una factura de este proveedor, aunque la persona no las nombre. ALCANCE DE LA REGLA (5/11/2026: alguien dijo «las cantidades son por paquete» mirando una factura de cigarrillos, la regla se guardó como «en GRUPO MODO la Cantidad es en paquetes… todos los renglones son tabaco», y en la factura siguiente pisó las barras «X 10u» y un encendedor «X 15 U»: cada barra pasó a costar la caja entera). Un proveedor vende cosas distintas. La regla nombra SIEMPRE a qué productos toca, por lo que son (cigarrillos, quesos, gaseosas, las barras) y nunca dice «todos los renglones» ni «en este proveedor la cantidad…» salvo que la persona haya dicho con esas palabras que vale para todo lo que vende. Lo que la persona dijo mirando una factura vale para la clase de producto que había en ESA factura: escribilo así («en los renglones de cigarrillos…»). Al cumplir una regla guardada, aplicala solo a los renglones de esa clase de producto: si la regla no nombra ninguna pero por lo que dice se ve de qué hablaba (habla de atados, de cigarrillos, de kilos), no la extiendas a renglones de otra cosa. Y una regla nunca justifica dejar un renglón con un costo absurdo: si al aplicarla el «costoFinalConIva» queda a varias veces el costo que traía, esa regla no era para ese renglón. UNA SOLA REGLA POR TEMA (9/11/2026: quedaron activas a la vez «los fraccionados entran por peso» y «los fraccionados entran por unidades»): si lo que dice la persona corrige o contradice una regla guardada, escribí la regla nueva en «reglaProveedor» y poné en «reglaReemplaza» el número de la vieja: se apaga y queda solo la nueva. Nunca dejes dos reglas que digan cosas distintas sobre lo mismo. PRECIO SIMBÓLICO: un renglón a menos de $1 por unidad ($0,10 en los quesos) no es un precio: entra al stock con su cantidad y el precio real llega en otra factura. Eso lo hace solo la pantalla; vos no le toques el precio.',
   'EL PRODUCTO VINCULADO (10/11/2026, Leandro: «¿podremos solucionar esto para que el sistema pueda resolver estas cosas sin pasar por acá?»; el 9/11 18 Jorgito entraron como Cachafaz y nadie lo pudo corregir desde acá): si la persona dice que un renglón es OTRO producto («el 4 es Jorgito tubo chocolate», «ese no es Cachafaz, es Jorgito», «vinculalo al 7790...»), mandá «producto» = cómo lo dijo ella: el nombre con la marca y lo que lo distingue (sabor, tamaño), o el código de barras si lo dio. La pantalla lo busca en el catálogo: si hay uno solo, lo vincula; si hay varios, te devuelve cuáles y se lo preguntás. Si los controles traen «antesDeRegistrar» (otra marca, una cantidad partida, un costo o un precio muy lejos), explicalo con esas mismas palabras y, si es otra marca, ofrecé cambiar el producto.',
-  'LO QUE DECÍS ES LO QUE SE APLICA: la pantalla aplica SOLO lo que mandás en «cambios» y «cambiosPie». Si en la respuesta decís que cambiaste, corregiste, pusiste, sacaste o marcaste algo, ese cambio TIENE que estar en «cambios» o «cambiosPie», con uno de los campos permitidos. Nunca digas que cambiaste algo que no mandaste. Solo para lo que de verdad no tiene campo (agregar, sacar o partir un renglón) decí en una línea que eso se cambia en la pantalla y dónde; lo demás del mensaje hacelo igual.',
+  'AGREGAR O PARTIR RENGLONES (13/11/2026: el chat mandó a la persona a «el botón de agregar renglón de la tabla», que no existía, y la factura quedó trabada). Los renglones los agregás VOS con «renglonesNuevos»: van al final de la tabla, cada uno con «descripcion» (lo que dice el papel o lo que nombró la persona), «cantidad» (unidades), «precio» (por unidad, igual que los demás precios de la tabla), «comoElRenglon» (el renglón del que sale o al que se parece: de ahí toma el IVA; null si no hay) y «producto» (el producto del catálogo como lo nombró la persona, para que la pantalla lo vincule; null si no lo dijo). PARTIR un renglón («del 3, 20 son Artesano, 4 Brioche y 6 Integral») es: bajar ese renglón a lo que le queda con «cambios» (sus unidades y «ajustarImporte» = true) y agregar los otros con «renglonesNuevos». Hacé la cuenta antes de contestar: lo que le sacaste al renglón tiene que ser lo que suman los nuevos. Si para agregar algo te falta la cantidad o el precio y no está en el papel, preguntalo. Nunca le pidas a la persona que agregue o parta un renglón a mano.',
+  'LO QUE DECÍS ES LO QUE SE APLICA: la pantalla aplica SOLO lo que mandás en «cambios», «cambiosPie» y «renglonesNuevos». Si en la respuesta decís que cambiaste, corregiste, pusiste, sacaste, agregaste o marcaste algo, ese cambio TIENE que estar ahí, con uno de los campos permitidos. Nunca digas que cambiaste algo que no mandaste. Lo único que no tiene campo es sacar un renglón que leyó el sistema: si te lo piden, decí que eso todavía no se puede desde el chat. Nunca mandes a la persona a un botón o a un lugar de la pantalla que no esté en la tabla o en los controles que recibís.',
   'CÓMO CONTESTÁS: castellano rioplatense, de vos, corto (una a tres oraciones), sin markdown ni listas. Decí qué cambiaste y si ahora cierra; si no cambiaste nada, por qué.',
 ].join('\n\n');
 
@@ -142,8 +160,32 @@ export function validarRespuestaChat(crudo: any, renglones: number) {
     .slice(0, 10);
   const regla = typeof crudo?.reglaProveedor === 'string' ? crudo.reglaProveedor.trim().slice(0, 300) : '';
   const reemplaza = Number.isInteger(crudo?.reglaReemplaza) && crudo.reglaReemplaza >= 1 ? Number(crudo.reglaReemplaza) : null;
-  return { respuesta, cambios, cambiosPie, reglaProveedor: regla.length >= 3 ? regla : null, reglaReemplaza: regla.length >= 3 ? reemplaza : null, descartados, leerOtrosComprobantes: crudo?.leerOtrosComprobantes === true };
+  // los renglones que agrega (13/11/2026): con descripción, unidades y precio de verdad
+  const renglonesNuevos: RenglonNuevo[] = [];
+  for (const n of (Array.isArray(crudo?.renglonesNuevos) ? crudo.renglonesNuevos : []).slice(0, 12)) {
+    const descripcion = String(n?.descripcion ?? '').trim().slice(0, 120);
+    const cantidad = Number(n?.cantidad);
+    const precio = Number(n?.precio);
+    const porque = !descripcion ? 'no dice qué es'
+      : !(Number.isFinite(cantidad) && cantidad > 0 && cantidad <= 100_000) ? 'la cantidad no es válida'
+      : !(Number.isFinite(precio) && precio >= 0) ? 'el precio no es válido'
+      : null;
+    if (porque) { descartados.push({ renglon: null, campo: 'renglonNuevo', porque }); continue; }
+    const como = Number(n?.comoElRenglon);
+    renglonesNuevos.push({
+      descripcion,
+      cantidad: Math.round(cantidad * 1000) / 1000,
+      precio: Math.round(precio * 100) / 100,
+      comoElRenglon: Number.isInteger(como) && como >= 1 && como <= renglones ? como : null,
+      producto: typeof n?.producto === 'string' && n.producto.trim() ? n.producto.trim().slice(0, 120) : null,
+      motivo: String(n?.motivo ?? '').slice(0, 300),
+    });
+  }
+  return { respuesta, cambios, cambiosPie, renglonesNuevos, reglaProveedor: regla.length >= 3 ? regla : null, reglaReemplaza: regla.length >= 3 ? reemplaza : null, descartados, leerOtrosComprobantes: crudo?.leerOtrosComprobantes === true };
 }
+
+/** Un renglón que agrega el chat: va al final de la tabla (13/11/2026). */
+export type RenglonNuevo = { descripcion: string; cantidad: number; precio: number; comoElRenglon: number | null; producto: string | null; motivo: string };
 
 /**
  * ¿Lo que contestó la IA se puede aplicar tal como lo dice? Si no, el texto con el
@@ -153,9 +195,16 @@ export function motivoParaCorregir(salida: ReturnType<typeof validarRespuestaCha
   if (salida.descartados.length) {
     return `Estos cambios no se pueden aplicar: ${salida.descartados.map((d) => `renglón ${d.renglon ?? '?'} «${d.campo}» (${d.porque})`).join('; ')}.`;
   }
+  // 13/11/2026: «agregá en la pantalla dos renglones nuevos con el botón…»: eso lo hace el chat
+  // (sin \b después de la tilde: en JavaScript la «á» no cuenta como letra para \b)
+  const mandaAAgregar = /\b(agreg[áa]|sum[áa]|carg[áa]|part[íi]|divid[íi]|separ[áa])(?![a-záéíóúñ])[^.]{0,80}\brengl[oó]n/i.test(salida.respuesta)
+    || /\bbot[oó]n\b[^.]{0,40}\b(agregar|sumar)\b/i.test(salida.respuesta);
+  if (mandaAAgregar && !salida.renglonesNuevos.length) {
+    return 'Le pediste a la persona que agregue o parta renglones a mano. Eso lo hacés vos: mandá los renglones en «renglonesNuevos» (y la baja del renglón que se parte en «cambios»).';
+  }
   const dice = /\b(cambi[éeo]|correg[íi]|puse|pas[ée]|sa?qu[ée]|marqu[ée]|ajust[ée]|actualic[ée]|dej[ée]|apliqu[ée]|agregu[ée]|modifiqu[ée])/i.test(salida.respuesta);
-  if (dice && !salida.cambios.length && !salida.cambiosPie.length && !salida.leerOtrosComprobantes) {
-    return 'En la respuesta decís que hiciste un cambio, pero no mandaste ninguno en «cambios» ni en «cambiosPie»: la pantalla no aplicó nada.';
+  if (dice && !salida.cambios.length && !salida.cambiosPie.length && !salida.renglonesNuevos.length && !salida.leerOtrosComprobantes) {
+    return 'En la respuesta decís que hiciste un cambio, pero no mandaste ninguno en «cambios», «cambiosPie» ni «renglonesNuevos»: la pantalla no aplicó nada.';
   }
   return null;
 }
@@ -301,7 +350,7 @@ export class FacturaChatService {
     const reglas = b?.proveedorId ? await this.reglas(b.proveedorId).catch(() => []) : [];
     const lecturaValida = /^[0-9a-f-]{36}$/i.test(String(lecturaId));
     if (automatico) {
-      const nada = { respuesta: '', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [], segundos: 0, reglaGuardada: null };
+      const nada = { respuesta: '', cambios: [], cambiosPie: [], renglonesNuevos: [], reglaProveedor: null, descartados: [], segundos: 0, reglaGuardada: null };
       // sin reglas no hay nada que aplicar, y no se gasta una consulta a la IA
       if (!reglas.length) return { ...nada, omitido: 'sin-reglas' };
       // si ya se miró esta factura y las reglas no pedían ningún cambio, no se
@@ -428,12 +477,13 @@ export class FacturaChatService {
       const segunda = await pedir([
         ...turnos,
         { role: 'assistant', content: primera.texto },
-        { role: 'user', content: `${falla} Devolvé de nuevo la respuesta completa con TODOS los cambios que nombrás en «cambios» o «cambiosPie», usando solo estos campos de renglón: ${CAMPOS_RENGLON.join(', ')}; y del pie: ${CAMPOS_PIE.join(', ')}. Si algo no se puede expresar con esos campos, sacá de la respuesta que lo cambiaste y explicá qué hay que hacer a mano.` },
+        { role: 'user', content: `${falla} Devolvé de nuevo la respuesta completa con TODOS los cambios que nombrás en «cambios», «cambiosPie» o «renglonesNuevos», usando solo estos campos de renglón: ${CAMPOS_RENGLON.join(', ')}; y del pie: ${CAMPOS_PIE.join(', ')}. Los renglones que faltan o que salen de partir otro van en «renglonesNuevos». Si algo no se puede expresar con esos campos, sacá de la respuesta que lo cambiaste y decí que todavía no se puede desde el chat.` },
       ]).catch(() => null);
       if (segunda?.crudo) { salida = validarRespuestaChat(segunda.crudo, tabla.length); vueltas = 2; }
     }
     const u = primera.usage;
-    if (automatico) salida = { ...salida, reglaProveedor: null, reglaReemplaza: null, leerOtrosComprobantes: false };
+    // un turno automático (las reglas al abrir) no agrega renglones: eso lo pide una persona
+    if (automatico) salida = { ...salida, reglaProveedor: null, reglaReemplaza: null, leerOtrosComprobantes: false, renglonesNuevos: [] };
     // OTRO COMPROBANTE EN EL MISMO ARCHIVO (5/11/2026): lo lee el sistema en este
     // mismo momento, y lo que pasó lo dice el servidor, no la IA.
     if (salida.leerOtrosComprobantes) {
@@ -469,7 +519,8 @@ export class FacturaChatService {
       usuario_id: usuarioId ?? null,
       mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : ultimo.slice(0, 2000),
       respuesta: salida.respuesta,
-      cambios: salida.cambios,
+      // los renglones agregados van con los cambios, como «renglonNuevo» (la tabla no cambia)
+      cambios: [...salida.cambios, ...salida.renglonesNuevos.map((n) => ({ renglon: null, campo: 'renglonNuevo', valor: n, motivo: n.motivo }))],
       cambios_pie: salida.cambiosPie,
       descartados: salida.descartados,
       regla_propuesta: salida.reglaProveedor,
@@ -478,7 +529,7 @@ export class FacturaChatService {
       uso: { llamadas },
     });
     if (errorTurno) this.log.warn(`no se guardó la charla de la factura ${lecturaId}: ${errorTurno.message}`);
-    this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
+    this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.renglonesNuevos.length} renglones nuevos · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
     return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada };
   }
 }

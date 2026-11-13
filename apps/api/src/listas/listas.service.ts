@@ -595,8 +595,10 @@ export class ListasService {
       cambios: Array.isArray(b.cambios) ? b.cambios.slice(0, 1000) : [],
       // proveedor, sucursal, número y remarcación elegidos en la pantalla
       form: b.form && typeof b.form === 'object' && !Array.isArray(b.form) ? b.form : {},
+      // los renglones agregados en la pantalla, enteros (13/11/2026)
+      agregados: Array.isArray(b.agregados) ? b.agregados.filter((a: any) => a && typeof a === 'object' && a.agregado).slice(0, 100) : [],
     } : null;
-    const vacio = !limpio || (!limpio.renglones.length && !Object.keys(limpio.pie).length && !limpio.cambios.length && !Object.keys(limpio.form).length);
+    const vacio = !limpio || (!limpio.renglones.length && !Object.keys(limpio.pie).length && !limpio.cambios.length && !Object.keys(limpio.form).length && !limpio.agregados.length);
     const { error } = await this.db
       .from('lecturas_comprobante')
       .update({ borrador: vacio ? null : limpio, borrador_en: vacio ? null : new Date().toISOString(), borrador_por: vacio ? null : usuarioId ?? null })

@@ -28,7 +28,8 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado } from '../lib/tabla-factura';
+import { AgregarRenglon } from './AgregarRenglon';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -777,7 +778,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         setCambiosFactura(Array.isArray(b.cambios) ? b.cambios : []);
         if (b.form && typeof b.form === 'object') setF((x: any) => ({ ...x, ...b.form }));
         setBorradorRecuperado({ aplicados: r.aplicados, descartados: r.descartados, en: b.en ?? null, por: b.por ?? null });
-        ultimoBorrador.current = JSON.stringify(b.renglones ?? []) + JSON.stringify(b.pie ?? {}) + JSON.stringify(b.form ?? {}) + JSON.stringify(b.cambios ?? []);
+        ultimoBorrador.current = JSON.stringify(b.renglones ?? []) + JSON.stringify(b.pie ?? {}) + JSON.stringify(b.form ?? {}) + JSON.stringify(b.cambios ?? []) + JSON.stringify(b.agregados ?? []);
       } else {
         setFotoItems(filas);
         setBorradorRecuperado(null);
@@ -800,7 +801,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       for (const k of ['proveedorId', 'numeroRemito', 'sucursalId', 'margenPct'] as const) {
         if ((f?.[k] ?? '') !== (o.form?.[k] ?? '')) form[k] = f?.[k] ?? '';
       }
-      const clave = JSON.stringify(b.renglones) + JSON.stringify(b.pie) + JSON.stringify(form) + JSON.stringify(b.cambios);
+      const clave = JSON.stringify(b.renglones) + JSON.stringify(b.pie) + JSON.stringify(form) + JSON.stringify(b.cambios) + JSON.stringify(b.agregados ?? []);
       if (clave === ultimoBorrador.current) return;
       // nada cambiado y nada guardado antes: no hay qué mandar
       if (!ultimoBorrador.current && borradorVacio(b) && !Object.keys(form).length) return;
@@ -1483,7 +1484,40 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     const opciones = conTodo.length ? conTodo : items.filter((p) => mismaMarca(q, p.nombre));
     return { elegido: opciones.length === 1 ? opciones[0] : null, opciones };
   };
-  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false, quien = 'IA') => {
+  // RENGLONES AGREGADOS (13/11/2026: el chat mandó a «el botón de agregar
+  // renglón», que no existía). Van al final, sin producto; la constancia lleva
+  // el id del renglón para poder deshacerlo.
+  const agregarRenglones = (
+    datos: { descripcion: string; cantidad: number; precio: number; comoElRenglon?: number | null; motivo?: string }[],
+    quien: string,
+    base?: any[],
+  ) => {
+    const actuales = base ?? fotoItemsVivos.current;
+    const primero = actuales.length;
+    const plantillaDe = (n: any) => actuales[Math.round(Number(n?.comoElRenglon)) - 1] ?? actuales.find((x: any) => !esRenglonDescuento(x) && !x.esDevolucion) ?? null;
+    const sello = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const filas = datos.map((n, k) => renglonAgregado(plantillaDe(n), n, quien, `${sello}-${k}`));
+    setFotoItems((xs) => [...xs, ...filas]);
+    const registros = filas.map((fila, k) => ({
+      renglon: primero + k + 1,
+      campo: 'renglonNuevo',
+      antes: fila.agregado.id,
+      despues: `${fila.descripcion} · ${Number(fila.cantidad).toLocaleString('es-AR')} × ${pesos(fila.precio)}`,
+      motivo: String(datos[k]?.motivo ?? '').slice(0, 300),
+    }));
+    anotar(quien, registros);
+    const indices = filas.map((_, k) => primero + k);
+    setMarcados(indices);
+    setTimeout(() => setMarcados([]), 5000);
+    return { primero, registros, indices };
+  };
+  const quitarRenglonAgregado = (idx: number) => {
+    const fila = fotoItemsVivos.current[idx];
+    if (!fila?.agregado) return;
+    setFotoItems((xs) => xs.filter((_, j) => j !== idx));
+    setCambiosFactura((xs) => xs.map((y) => (y.campo === 'renglonNuevo' && y.antes === fila.agregado.id ? { ...y, deshecho: true } : y)));
+  };
+  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false, quien = 'IA', nuevos: any[] = []) => {
     const deProducto = (cambios ?? []).filter((c: any) => c?.campo === 'producto');
     cambios = (cambios ?? []).filter((c: any) => c?.campo !== 'producto');
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
@@ -1516,7 +1550,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     if (pie.length) setFotoImp((x: any) => { const y = { ...x }; for (const c of pie) y[c.campo] = c.despues; return y; });
     const todos = [...r.registros, ...pie, ...reglas];
     anotar(quien, todos);
-    const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
+    // los renglones que agrega el chat (un turno automático no agrega nada)
+    const nuevosValidos = automatico ? [] : (nuevos ?? []).filter((n: any) => String(n?.descripcion ?? '').trim() && Number(n?.cantidad) > 0 && Number(n?.precio) >= 0);
+    const agregados = nuevosValidos.length ? agregarRenglones(nuevosValidos, quien, r.registros.length ? r.items : fotoItemsVivos.current) : null;
+    const tocados = [...new Set([...r.registros.map((g) => g.renglon - 1), ...(agregados?.indices ?? [])])];
     setMarcados(tocados);
     if (tocados.length) setTimeout(() => setMarcados([]), 5000);
     // lo que no se pudo aplicar se dice, con el porqué (antes se perdía en silencio)
@@ -1530,7 +1567,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
     });
     for (const n of freno.frenados) noAplicados.push(`Renglón ${n}: la regla lo dejaba a un costo muy lejos del que tiene el producto en el catálogo, así que quedó como se leyó`);
-    const aplicados = todos.map((c) => describirCambio(c));
+    const aplicados = [...todos, ...(agregados?.registros ?? [])].map((c) => describirCambio(c));
+    // el producto de cada renglón agregado, si el chat lo nombró
+    for (const [k, n] of nuevosValidos.entries()) {
+      if (!agregados || !String(n?.producto ?? '').trim()) continue;
+      const idx = agregados.primero + k;
+      const { elegido, opciones } = await productoDelChat(String(n.producto));
+      if (!elegido) {
+        noAplicados.push(opciones.length
+          ? `Renglón ${idx + 1} · producto: hay ${opciones.length} que pueden ser «${n.producto}»: ${opciones.slice(0, 5).map((p) => p.nombre).join(' · ')}. Decí cuál.`
+          : `Renglón ${idx + 1} · producto: no encontré «${n.producto}» en el catálogo. Buscalo en el renglón o dalo de alta.`);
+        continue;
+      }
+      vincularProducto(idx, elegido);
+      const reg = { renglon: idx + 1, campo: 'producto', antes: null, despues: elegido.nombre, motivo: String(n.motivo ?? '').slice(0, 300) };
+      anotar('IA', [reg]);
+      aplicados.push(describirCambio(reg));
+    }
     // un turno automático (las reglas del proveedor) no cambia productos: eso lo pide una persona
     for (const c of automatico ? [] : deProducto) {
       const k = Math.round(Number(c?.renglon)) - 1;
@@ -1580,6 +1633,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
+    // un renglón agregado: deshacerlo es sacarlo (se busca por su id, no por el número)
+    if (c.campo === 'renglonNuevo') {
+      setFotoItems((xs) => xs.filter((x) => x?.agregado?.id !== c.antes));
+      setCambiosFactura((xs) => xs.map((y) => (y.id === c.id ? { ...y, deshecho: true } : y)));
+      return;
+    }
     if (c.campo === 'revisado') setRevisionOk((xs) => xs.filter((t) => t !== c.motivo));
     if (c.renglon == null && c.campo === 'aceptarDiferencia') {
       setDiferenciaAceptada(c.antes == null ? null : { monto: Number(c.antes), motivo: 'vuelta atrás' });
@@ -2727,7 +2786,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 })}
                 pie={fotoImp}
                 controles={controlesParaIA()}
-                onAplicar={aplicarIA}
+                onAplicar={(cambios, pie, automatico, nuevos) => aplicarIA(cambios, pie, automatico, 'IA', nuevos)}
                 cambios={cambiosFactura}
                 onDeshacer={deshacerCambio}
                 sugerencias={sugerenciasChat}
@@ -2909,6 +2968,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
+                        {esRenglonAgregado(i) && (
+                          <>
+                            <Sello tono="info">{i.agregado?.por === 'IA' ? 'lo agregó el chat' : 'agregado a mano'}</Sello>
+                            <button type="button" onClick={() => quitarRenglonAgregado(idx)} className={CHIP_ACCION} aria-label={`Quitar el renglón ${idx + 1}: ${i.descripcion}`}>Quitar</button>
+                          </>
+                        )}
                         {(!i.papel || i.porPeso) && (
                           <span className="font-mono text-xs tabular-nums text-tinta/60">
                             {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
@@ -3436,6 +3501,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   )}
                 </div>
               ))}
+              <AgregarRenglon onAgregar={(d) => agregarRenglones([d], 'persona')} />
               {fotoItems.some((i) => i.incluir && !i.sku) && (
                 <p className="text-xs text-marca-hondo">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}

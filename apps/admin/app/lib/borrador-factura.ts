@@ -14,7 +14,12 @@
 // ============================================================
 
 export type CambioDeRenglon = { renglon: number; descripcion: string; campos: Record<string, unknown> };
-export type BorradorFactura = { renglones: CambioDeRenglon[]; pie: Record<string, unknown>; cambios: unknown[] };
+/**
+ * `agregados` (13/11/2026): los renglones que se agregaron en la pantalla (a
+ * mano o con el chat). No están en lo que leyó el sistema, así que se guardan
+ * enteros; van siempre después de los leídos.
+ */
+export type BorradorFactura = { renglones: CambioDeRenglon[]; pie: Record<string, unknown>; cambios: unknown[]; agregados?: Record<string, unknown>[] };
 
 // lo que arma el sistema y no decide la persona
 const NO_SE_GUARDA = new Set(['interpretado', '_lectura']);
@@ -39,17 +44,22 @@ export function borradorDe(
   cambios: unknown[] = [],
 ): BorradorFactura {
   const renglones: CambioDeRenglon[] = [];
+  const agregados: Record<string, unknown>[] = [];
   actual.forEach((fila, k) => {
     const o = original[k];
-    if (!o) return;
+    if (!o) {
+      // un renglón agregado en la pantalla: entero, sin lo que arma el sistema
+      if (fila?.agregado) agregados.push(Object.fromEntries(Object.entries(fila).filter(([c]) => !NO_SE_GUARDA.has(c) && !c.startsWith('_'))));
+      return;
+    }
     const campos = camposCambiados(o, fila);
     if (Object.keys(campos).length) renglones.push({ renglon: k, descripcion: String(o.descripcion ?? ''), campos });
   });
-  return { renglones, pie: camposCambiados(pieOriginal ?? {}, pieActual ?? {}), cambios: cambios ?? [] };
+  return { renglones, pie: camposCambiados(pieOriginal ?? {}, pieActual ?? {}), cambios: cambios ?? [], ...(agregados.length ? { agregados } : {}) };
 }
 
 export function borradorVacio(b: BorradorFactura | null | undefined): boolean {
-  return !b || (!b.renglones?.length && !Object.keys(b.pie ?? {}).length && !(b.cambios ?? []).length);
+  return !b || (!b.renglones?.length && !Object.keys(b.pie ?? {}).length && !(b.cambios ?? []).length && !(b.agregados ?? []).length);
 }
 
 /** Pone lo guardado encima de la lectura de hoy. */
@@ -65,6 +75,12 @@ export function aplicarBorrador<T extends Record<string, any>>(
     const f = nuevas[r?.renglon];
     if (!f || String(f.descripcion ?? '') !== String(r.descripcion ?? '') || !r.campos || typeof r.campos !== 'object') { descartados++; continue; }
     nuevas[r.renglon] = { ...f, ...r.campos };
+    aplicados++;
+  }
+  // los agregados en la pantalla vuelven al final, como estaban
+  for (const a of Array.isArray(b?.agregados) ? b!.agregados : []) {
+    if (!a || typeof a !== 'object' || !(a as any).agregado) { descartados++; continue; }
+    nuevas.push(a as T);
     aplicados++;
   }
   const delPie = b?.pie && typeof b.pie === 'object' ? b.pie : {};
