@@ -1,12 +1,13 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
-import { leerAbastecimiento } from '../abastecimiento/motor';
+import { leerAbastecimiento, leerCostos } from '../abastecimiento/motor';
 import { ordenarPorRelevancia } from '../catalogo/relevancia';
 import {
   escalones, margenSobreCosto, nivelEnElTiempo, nombreSucursal, origenDelCosto, ventasPorPeriodo,
   type MovimientoCrudo, type Periodo,
 } from './series';
+import { armarEntrada, esVista, type FilaMotor } from './entrada';
 
 // Los períodos de venta que tiene cargados cada sucursal (los del sistema
 // viejo). `ventas_historicas` tiene ~50.000 renglones y PostgREST no agrupa: se
@@ -14,6 +15,16 @@ import {
 const MEMO_PERIODOS_MS = 600_000;
 const TOPE_PERIODOS = 80;
 let memoPeriodos: { en: number; porSucursal: Map<string, Periodo[]> } | null = null;
+// los productos que se venden por peso (son pocos y casi no cambian)
+let memoPorPeso: { en: number; ids: Set<string> } | null = null;
+// La lectura completa del motor para la entrada: son ~10 páginas de ~1 s cada
+// una. Fresca vale un minuto (lo mismo que la memo del motor); hasta 15 minutos
+// se muestra la última mientras se renueva por detrás, así la pantalla no
+// espera. Pasado eso, se espera la lectura nueva.
+const MOTOR_FRESCO_MS = 60_000;
+const MOTOR_VIEJO_MS = 15 * 60_000;
+let memoMotor: { en: number; filas: FilaMotor[] } | null = null;
+let renovandoMotor: Promise<FilaMotor[]> | null = null;
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const numONada = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -85,6 +96,55 @@ export class InventarioService {
       .limit(10);
     if (error) throw new Error(error.message);
     return this.conStock(((data ?? []) as any[]).map((r) => r.id as string));
+  }
+
+  // ---------- la entrada: cómo está el stock y las listas para recorrer ----------
+  // La primera lectura del motor tarda unos segundos (después queda un minuto en
+  // memoria, compartida con Mesa de compras, el Analista y los informes); por eso
+  // la pantalla la pide aparte y el buscador anda mientras tanto.
+  async entrada(opciones: { sucursal?: string; vista?: string; desde?: string | number; conPlata: boolean }) {
+    const [filas, sucursales, costos, porPeso] = await Promise.all([
+      this.filasDelMotor(),
+      this.sucursales(),
+      opciones.conPlata ? leerCostos(this.db) : Promise.resolve(new Map<string, number>()),
+      this.porPeso(),
+    ]);
+    const soloVista = esVista(opciones.vista) ? opciones.vista : undefined;
+    return armarEntrada({
+      filas, sucursales, porPeso, costos,
+      sucursal: opciones.sucursal?.trim() || null,
+      conPlata: opciones.conPlata,
+      soloVista,
+      desde: Number(opciones.desde) || 0,
+    });
+  }
+
+  private filasDelMotor(): Promise<FilaMotor[]> {
+    const renovar = () => {
+      renovandoMotor ??= (leerAbastecimiento(this.db) as Promise<FilaMotor[]>)
+        .then((filas) => {
+          memoMotor = { en: Date.now(), filas };
+          return filas;
+        })
+        .finally(() => { renovandoMotor = null; });
+      return renovandoMotor;
+    };
+    const edad = memoMotor ? Date.now() - memoMotor.en : Infinity;
+    if (memoMotor && edad < MOTOR_FRESCO_MS) return Promise.resolve(memoMotor.filas);
+    if (memoMotor && edad < MOTOR_VIEJO_MS) {
+      renovar().catch(() => undefined); // si falla, la próxima vuelve a probar
+      return Promise.resolve(memoMotor.filas);
+    }
+    return renovar();
+  }
+
+  private async porPeso(): Promise<Set<string>> {
+    if (memoPorPeso && Date.now() - memoPorPeso.en < MEMO_PERIODOS_MS) return memoPorPeso.ids;
+    const { data, error } = await this.db.from('productos').select('id').eq('vendido_por_peso', true).limit(5000);
+    if (error) throw new Error(error.message);
+    const ids = new Set(((data ?? []) as any[]).map((r) => r.id as string));
+    memoPorPeso = { en: Date.now(), ids };
+    return ids;
   }
 
   /** Los productos de la lista, en ese orden, con lo que hay en cada sucursal. */

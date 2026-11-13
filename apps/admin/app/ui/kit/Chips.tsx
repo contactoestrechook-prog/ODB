@@ -18,7 +18,7 @@ const INACTIVO = 'border-black/15 bg-white text-tinta/70 hover:border-black/25 h
 function Cuenta({ n, activo }: { n: number; activo: boolean }) {
   return (
     <span className={unir('importe rounded-full px-1.5 text-xs font-semibold leading-5', activo ? 'bg-white/20 text-white' : 'bg-crema-hondo text-tinta/70')}>
-      {n}
+      {n.toLocaleString('es-AR')}
     </span>
   );
 }

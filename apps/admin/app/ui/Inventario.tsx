@@ -96,7 +96,13 @@ function FilaProducto({ r, marcada, alAbrir, alPasar }: { r: ResultadoInventario
 // El buscador: nombre, código de barras o SKU. Con el lector de códigos, Enter
 // abre el primero. Sin nada escrito, la entrada ofrece los que más se venden.
 // ------------------------------------------------------------
-export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Reciente | null; sugeridos?: ResultadoInventario[] }) {
+export function InventarioBuscador({ abierto, alAbrir, enPanel = false }: {
+  abierto: Reciente | null;
+  /** en el escritorio la ficha se abre al lado de la lista, sin cambiar de página */
+  alAbrir?: (sku: string) => void;
+  /** arriba de la lista y la ficha: sin «Volver al buscador» y con los resultados flotando */
+  enPanel?: boolean;
+}) {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<{ q: string; lista: ResultadoInventario[] } | null>(null);
@@ -112,8 +118,9 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
   const abrir = useCallback((sku: string) => {
     abrirPrimero.current = false;
     setQ('');
-    enTransicion(() => router.push(`/inventario?sku=${encodeURIComponent(sku)}`));
-  }, [router]);
+    if (alAbrir) alAbrir(sku);
+    else enTransicion(() => router.push(`/inventario?sku=${encodeURIComponent(sku)}`));
+  }, [router, alAbrir]);
 
   useEffect(() => {
     if (texto.length < 2) return;
@@ -173,8 +180,8 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        {abierto && <BotonVolver href="/inventario" label="Volver al buscador" />}
-        <label className={unir('relative block w-full min-w-0 sm:w-auto sm:flex-1', !abierto && 'sm:max-w-2xl')}>
+        {abierto && !enPanel && <BotonVolver href="/inventario" label="Volver al buscador" />}
+        <label className={unir('relative block w-full min-w-0 sm:w-auto sm:flex-1', (!abierto || enPanel) && 'sm:max-w-2xl')}>
           <span className="sr-only">Buscar un producto por nombre, código de barras o SKU</span>
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tinta/60">{buscando || yendo ? <Girador className="size-5" /> : <IconoLupa />}</span>
           <input
@@ -185,22 +192,22 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={teclas}
-            placeholder={abierto ? 'Buscar otro producto' : 'Nombre, código de barras o SKU'}
+            placeholder={abierto && !enPanel ? 'Buscar otro producto' : 'Nombre, código de barras o SKU'}
             aria-controls="inventario-resultados"
             className={unir(
               'w-full appearance-none rounded-2xl border border-black/15 bg-white pl-12 pr-4 text-base text-tinta shadow-tarjeta outline-none transition-[border-color,box-shadow]',
               'placeholder:text-tinta/40 focus:border-marca focus:ring-4 focus:ring-marca/15',
-              abierto ? 'min-h-11' : 'min-h-14 sm:text-lg',
+              abierto && !enPanel ? 'min-h-11' : 'min-h-14 sm:text-lg',
             )}
           />
         </label>
       </div>
 
-      <div id="inventario-resultados" aria-live="polite">
+      <div id="inventario-resultados" aria-live="polite" className={unir(enPanel && 'relative')}>
         {fallo && <p className="px-1 text-sm text-marca-hondo">No pude buscar. Probá de nuevo.</p>}
         {lista && lista.length === 0 && <p className="px-1 text-sm text-tinta/70">No encontré ningún producto con «{texto}».</p>}
         {lista && lista.length > 0 && (
-          <Tarjeta relleno={false} className="overflow-hidden">
+          <Tarjeta relleno={false} className={unir('overflow-hidden', enPanel && 'absolute inset-x-0 top-0 z-contenido max-w-4xl shadow-flotante')}>
             <ul className="divide-y divide-black/[0.06]">
               {lista.map((r, i) => (
                 <li key={r.sku}><FilaProducto r={r} marcada={i === elegido} alAbrir={abrir} alPasar={() => setElegido(i)} /></li>
@@ -210,13 +217,14 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
         )}
       </div>
 
-      {!lista && otros.length > 0 && (
-        <div className={unir('flex-wrap items-center gap-2', abierto ? 'hidden sm:flex' : 'flex')}>
-          <p className={ROTULO}>{abierto ? 'También miraste' : 'Los últimos que miraste'}</p>
-          {otros.slice(0, abierto ? 4 : 8).map((r) => (
+      {(enPanel || !lista) && otros.length > 0 && (
+        <div className={unir('flex-wrap items-center gap-2', abierto && !enPanel ? 'hidden sm:flex' : 'flex')}>
+          <p className={ROTULO}>{abierto && !enPanel ? 'También miraste' : 'Los últimos que miraste'}</p>
+          {otros.slice(0, abierto && !enPanel ? 4 : 6).map((r) => (
             <Link
               key={r.sku}
               href={`/inventario?sku=${encodeURIComponent(r.sku)}`}
+              onClick={alAbrir ? (e) => { e.preventDefault(); alAbrir(r.sku); } : undefined}
               className={unir('inline-flex min-h-9 max-w-full items-center rounded-full border border-black/15 bg-white px-3.5 text-sm font-medium text-tinta/70 hover:border-black/25 hover:text-tinta', FOCO)}
             >
               <span className="truncate">{r.nombre}</span>
@@ -225,16 +233,6 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
         </div>
       )}
 
-      {!lista && !abierto && sugeridos.length > 0 && (
-        <Tarjeta relleno={false} className="overflow-hidden">
-          <TarjetaCabecera titulo="Los que más se venden" sub="Tocá uno para abrir su inventario" />
-          <ul className="divide-y divide-black/[0.06]">
-            {sugeridos.map((r) => (
-              <li key={r.sku}><FilaProducto r={r} alAbrir={abrir} /></li>
-            ))}
-          </ul>
-        </Tarjeta>
-      )}
     </div>
   );
 }
@@ -367,7 +365,7 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
         </TarjetaCuerpo>
       </Tarjeta>
 
-      <div className={unir('grid gap-4 sm:gap-6', plata && 'xl:grid-cols-2')}>
+      <div className={unir('grid gap-4 sm:gap-6', plata && 'min-[1800px]:grid-cols-2')}>
         {/* ---------- cuánto se vende ---------- */}
         <Tarjeta relleno={false} id="cuanto-se-vende" className="scroll-mt-20">
           <TarjetaCabecera

@@ -235,3 +235,61 @@ export function separarRotulos(ys: number[], minimo = 14, techo = -Infinity, pis
   for (const o of orden) salida[o.i] = o.y + corrido;
   return salida;
 }
+
+// ============================================================
+// LA ENTRADA (13/11/2026): cuánto alcanza el stock en cada sucursal y las
+// listas para recorrer producto por producto. Lo arma el servidor en
+// apps/api/src/inventario/entrada.ts; acá van los tipos y las palabras.
+// ============================================================
+
+export const TRAMOS = ['sin_stock', 'semana', 'mes', 'meses', 'de_mas', 'sin_ventas'] as const;
+export type Tramo = (typeof TRAMOS)[number];
+export type Vista = 'se_vende' | Tramo | 'revisar';
+
+export type SucursalDeFila = { id: string; stock: number; enCamino: number; ritmo: number; cobertura: number | null; alerta: string | null; tramo: Tramo | null };
+export type FilaEntrada = {
+  sku: string; nombre: string; rubro: string | null; porPeso: boolean;
+  ritmo: number; valor: number | null; sucursales: SucursalDeFila[]; motivo: string | null;
+};
+export type ResumenVista = { total: number; valor: number | null; filas: FilaEntrada[] };
+export type Entrada = {
+  sucursales: { id: string; nombre: string }[];
+  sucursal: string | null;
+  conPlata: boolean;
+  foto: { conStock: number; valor: number | null };
+  alcance: { sucursalId: string; total: number; tramos: Record<Tramo, { n: number; valor: number | null }> }[];
+  vistas: Record<Vista, ResumenVista>;
+};
+
+/**
+ * Los tramos: el nombre, la línea que explica la lista y el color del gráfico
+ * (validado con la herramienta de la skill dataviz: pasa daltonismo y visión
+ * normal; el gris de «sin ventas» es neutro a propósito). Corto ↔ rojo, bien ↔
+ * verde, sobra ↔ ciruela. Sin amarillo: en la pantalla está el azul de Saint Thomas.
+ */
+export const TRAMO: Record<Tramo, { nombre: string; corto: string; bajada: string; color: string; texto: string }> = {
+  sin_stock: { nombre: 'Se venden y no hay', corto: 'No hay', bajada: 'Se venden y el stock está en cero: lo que más se vende, arriba', color: '#932A1F', texto: 'text-white' },
+  semana: { nombre: 'Se terminan esta semana', corto: 'Menos de 7 días', bajada: 'Lo que hay alcanza para 7 días o menos: lo que se termina antes, arriba', color: '#D9776E', texto: 'text-tinta' },
+  mes: { nombre: 'Alcanzan de 1 a 4 semanas', corto: '1 a 4 semanas', bajada: 'Lo que hay alcanza para 8 a 30 días', color: '#166B3E', texto: 'text-white' },
+  meses: { nombre: 'Alcanzan de 1 a 4 meses', corto: '1 a 4 meses', bajada: 'Lo que hay alcanza para 31 a 120 días', color: '#55A874', texto: 'text-tinta' },
+  de_mas: { nombre: 'Sobra: más de 4 meses', corto: 'Más de 4 meses', bajada: 'Se venden, pero lo que hay alcanza para más de 120 días: la plata más parada, arriba', color: '#7D4B8C', texto: 'text-white' },
+  sin_ventas: { nombre: 'Con stock y sin ventas', corto: 'Sin ventas', bajada: 'Hay stock y no tienen ventas cargadas: la plata más parada, arriba', color: '#B5ADA1', texto: 'text-tinta' },
+};
+
+export const VISTA: Record<Vista, { nombre: string; bajada: string }> = {
+  se_vende: { nombre: 'Los que más se venden', bajada: 'Por lo que se vende por día hoy (la misma cuenta que Mesa de compras)' },
+  ...Object.fromEntries(TRAMOS.map((t) => [t, { nombre: TRAMO[t].nombre, bajada: TRAMO[t].bajada }])) as Record<Tramo, { nombre: string; bajada: string }>,
+  revisar: { nombre: 'Números para revisar', bajada: 'Stock negativo o con decimales en algo que se vende por unidad: hay que contarlo' },
+};
+
+/** Cuánto alcanza, corto, para una fila: «14 días», «3 meses», «más de un año». */
+export function alcanzaCorto(s: Pick<SucursalDeFila, 'stock' | 'ritmo' | 'cobertura'>): string {
+  if (s.ritmo <= 0) return s.stock > 0 ? 'sin ventas' : '—';
+  if (s.stock <= 0) return 'no hay';
+  const dias = s.cobertura ?? s.stock / s.ritmo;
+  if (dias < 1) return 'menos de 1 día';
+  if (dias < 1.5) return '1 día';
+  if (dias < 60) return `${Math.round(dias)} días`;
+  if (dias < 365) return `${Math.round(dias / 30)} meses`;
+  return 'más de un año';
+}

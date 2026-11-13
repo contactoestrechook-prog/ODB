@@ -16,6 +16,13 @@ export class InventarioController {
     return this.inventario.buscar(q ?? '');
   }
 
+  // La entrada: cuánto alcanza el stock en cada sucursal y las listas para
+  // recorrer (13/11/2026). La caja la ve sin plata (sin el valor a costo).
+  @Get('entrada')
+  entrada(@Query('sucursal') sucursal: string | undefined, @Query('vista') vista: string | undefined, @Query('desde') desde: string | undefined, @Req() req: any) {
+    return this.inventario.entrada({ sucursal, vista, desde, conPlata: req.usuario?.rol !== 'cajero' });
+  }
+
   @Get('mas-vendidos')
   masVendidos() {
     return this.inventario.masVendidos();

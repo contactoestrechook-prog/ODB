@@ -1,13 +1,15 @@
 import { Pantalla } from '../ui/kit/Pantalla';
-import { Aviso, BotonLink } from '../ui/kit';
+import { BotonLink } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
-import { InventarioBuscador, InventarioFicha } from '../ui/Inventario';
-import type { FichaInventario, ResultadoInventario } from '../lib/inventario';
+import { InventarioPantalla } from '../ui/InventarioEntrada';
+import type { FichaInventario } from '../lib/inventario';
 
 export const dynamic = 'force-dynamic';
 
-// Inventario de producto (5/11/2026): se busca un producto y se abre su ficha
-// con cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra. La ficha
+// Inventario de producto. 5/11/2026: se busca un producto y se abre su ficha
+// con cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra.
+// 13/11/2026: a pantalla completa, con cómo está el stock entero arriba, las
+// listas para recorrer a la izquierda y la ficha abierta a la derecha. La ficha
 // va en la dirección (?sku=L341) para poder mandarla o volver con «atrás».
 export default async function Inventario({ searchParams }: { searchParams: Promise<{ sku?: string; volver?: string }> }) {
   const sp = await searchParams;
@@ -15,17 +17,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   // desde la lista de Stock se llega con ?volver=/stock?… para volver con los filtros intactos
   const volver = sp.volver?.startsWith('/stock') ? sp.volver : null;
   let ficha: FichaInventario | null = null;
-  let sugeridos: ResultadoInventario[] = [];
   let error: string | null = null;
-  if (!sku) {
-    // la entrada: los que más se venden, para abrirlos con un toque
-    try {
-      const r = await apiFetch('/inventario/mas-vendidos');
-      if (r.ok) sugeridos = await r.json();
-    } catch {
-      // sin la lista, el buscador anda igual
-    }
-  }
   if (sku) {
     try {
       const r = await apiFetch(`/inventario/producto/${encodeURIComponent(sku)}`);
@@ -37,11 +29,10 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   }
 
   return (
-    <Pantalla activo="/inventario" ancho="ancho">
+    <Pantalla activo="/inventario" ancho="completo">
       {volver && <BotonLink href={volver} variante="secundario" tamano="chico" className="w-fit">Volver al stock</BotonLink>}
-      <InventarioBuscador abierto={ficha ? { sku: ficha.producto.sku, nombre: ficha.producto.nombre } : null} sugeridos={sugeridos} />
-      {error && <Aviso tono="error">{error}</Aviso>}
-      {ficha && <InventarioFicha key={ficha.producto.sku} ficha={ficha} />}
+      {/* cada ficha abierta desde el celular es otra página: la pantalla arranca de nuevo */}
+      <InventarioPantalla key={ficha?.producto.sku ?? 'entrada'} fichaInicial={ficha} error={error} />
     </Pantalla>
   );
 }
