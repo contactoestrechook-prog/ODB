@@ -11,7 +11,14 @@ export class ConfiguracionController {
   }
 
   @Put()
-  actualizar(@Body() body: { nombreRestaurante?: string; capacidadAsientos?: number; horasServicioDia?: number; dosPorUnoActivo?: boolean }) {
+  actualizar(
+    @Body()
+    body: {
+      nombreRestaurante?: string; capacidadAsientos?: number; horasServicioDia?: number; dosPorUnoActivo?: boolean;
+      cambioBrl?: number | null; cambioUsd?: number | null; pixModo?: 'terminal' | 'api';
+      whatsappDueno?: string | null; factorFeriado?: number;
+    },
+  ) {
     return this.configuracion.actualizar(body);
   }
 }

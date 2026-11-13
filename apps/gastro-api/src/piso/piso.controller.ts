@@ -13,8 +13,26 @@ export class PisoController {
   }
 
   @Post('mesas/:mesaId/abrir')
-  abrir(@Param('mesaId') mesaId: string, @Body() body: { cubiertos?: number; mozoId?: string }) {
-    return this.piso.abrir(mesaId, body?.cubiertos, body?.mozoId);
+  abrir(
+    @Param('mesaId') mesaId: string,
+    @Body() body: { cubiertos?: number; mozoId?: string; derivadorId?: string | null; reservaId?: string | null },
+  ) {
+    return this.piso.abrir(mesaId, body?.cubiertos, body?.mozoId, body?.derivadorId, body?.reservaId);
+  }
+
+  @Post('mesas/:mesaId/retroceder')
+  retroceder(@Param('mesaId') mesaId: string) {
+    return this.piso.retroceder(mesaId);
+  }
+
+  @Post('mesas/:mesaId/cancelar')
+  cancelar(@Param('mesaId') mesaId: string) {
+    return this.piso.cancelar(mesaId);
+  }
+
+  @Post('mesas/:mesaId/mozo')
+  cambiarMozo(@Param('mesaId') mesaId: string, @Body() body: { mozoId: string }) {
+    return this.piso.cambiarMozo(mesaId, body.mozoId);
   }
 
   @Post('mesas/:mesaId/avanzar')

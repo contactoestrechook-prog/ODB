@@ -42,29 +42,39 @@ export class CocinaService {
       .maybeSingle();
     if (errCiclo) throw new BadRequestException(errCiclo.message);
     if (!ciclo) throw new NotFoundException('Esta mesa no tiene un ciclo activo — abrila primero');
-    if (!['sentada', 'vio_carta'].includes(ciclo.estado)) {
-      throw new BadRequestException('La comanda ya fue tomada para esta mesa');
+    // La primera comanda adelanta el reloj de la mesa. Después se puede seguir
+    // sumando (otra bebida, el postre) hasta que pague.
+    const esPrimera = ['sentada', 'vio_carta'].includes(ciclo.estado);
+    if (!esPrimera && !['comanda_tomada', 'plato_servido', 'terminando', 'pidio_cuenta'].includes(ciclo.estado)) {
+      throw new BadRequestException('Esta mesa ya pagó: no se le puede sumar nada');
     }
 
     const { data: cartaItems, error: errCarta } = await this.db
       .from('carta_items')
-      .select('id, nombre, tiempo_coccion_min')
+      .select('id, nombre, precio, agotado, tiempo_coccion_min')
       .in('id', items.map((i) => i.itemId));
     if (errCarta) throw new BadRequestException(errCarta.message);
-    const porId = new Map((cartaItems ?? []).map((c: any) => [c.id, c]));
+    const porId = new Map<string, any>((cartaItems ?? []).map((c: any) => [c.id, c]));
+
+    const agotados = items.map((i) => porId.get(i.itemId)).filter((c) => c?.agotado).map((c) => c.nombre);
+    if (agotados.length) throw new BadRequestException(`Agotado en cocina: ${agotados.join(', ')}`);
 
     const filas = items.map((i) => {
       const info = porId.get(i.itemId);
+      if (!info) throw new BadRequestException('Uno de los platos ya no está en la carta');
       return {
         ciclo_id: ciclo.id,
         item_id: i.itemId,
-        nombre: info?.nombre ?? 'Ítem',
+        nombre: info.nombre,
         cantidad: i.cantidad,
-        tiempo_coccion_min: info?.tiempo_coccion_min ?? null,
+        // el precio queda copiado: si mañana cambia la carta, esta cuenta no cambia
+        precio_unitario: Number(info.precio),
+        tiempo_coccion_min: info.tiempo_coccion_min ?? null,
       };
     });
     const { error: errInsert } = await this.db.from('comanda_items').insert(filas);
     if (errInsert) throw new BadRequestException(errInsert.message);
+    if (!esPrimera) return ciclo;
 
     const ahora = new Date().toISOString();
     const patch: Record<string, any> = { estado: 'comanda_tomada', estado_desde: ahora, comanda_tomada_en: ahora };
@@ -72,6 +82,14 @@ export class CocinaService {
     const { data, error: errUpd } = await this.db.from('mesa_ciclos').update(patch).eq('id', ciclo.id).select().single();
     if (errUpd) throw new BadRequestException(errUpd.message);
     return data;
+  }
+
+  // Sacar un renglón mal cargado, mientras cocina no lo haya empezado.
+  async quitarItem(id: string) {
+    const { data, error } = await this.db.from('comanda_items').delete().eq('id', id).eq('estado', 'pendiente').select().maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Ese plato ya está en cocina: avisale al cocinero');
+    return { ok: true };
   }
 
   async tablero() {

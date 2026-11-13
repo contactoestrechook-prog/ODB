@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { CocinaService } from './cocina.service';
 
 @Controller('admin')
@@ -8,6 +8,11 @@ export class CocinaController {
   @Post('mesas/:mesaId/comanda')
   tomarComanda(@Param('mesaId') mesaId: string, @Body() body: { items: { itemId: string; cantidad: number }[] }) {
     return this.cocina.tomarComanda(mesaId, body.items);
+  }
+
+  @Delete('comanda-items/:id')
+  quitarItem(@Param('id') id: string) {
+    return this.cocina.quitarItem(id);
   }
 
   @Get('cocina/tablero')
