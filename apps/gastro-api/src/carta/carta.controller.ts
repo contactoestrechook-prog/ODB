@@ -26,6 +26,19 @@ export class CartaController {
     return this.carta.crearCategoria(body.nombre, body.orden);
   }
 
+  @Put('admin/carta/categorias/:id')
+  actualizarCategoria(
+    @Param('id') id: string,
+    @Body() body: { nombre?: string; nombrePt?: string | null; nombreEn?: string | null; orden?: number },
+  ) {
+    return this.carta.actualizarCategoria(id, body);
+  }
+
+  @Post('admin/carta/items/:id/sugerir-traduccion')
+  sugerirTraduccion(@Param('id') id: string) {
+    return this.carta.sugerirTraduccion(id);
+  }
+
   @Get('admin/carta/items')
   listarItems() {
     return this.carta.listarItems();

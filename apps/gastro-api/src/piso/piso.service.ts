@@ -56,7 +56,7 @@ export class PisoService {
   async pisoVivo() {
     const [mesasRes, ciclosRes] = await Promise.all([
       this.db.from('mesas').select('id, numero, sector').eq('activa', true).order('sector').order('numero'),
-      this.db.from('mesa_ciclos').select('*, mozo:mozos(id, nombre)').neq('estado', 'libre'),
+      this.db.from('mesa_ciclos').select('*, mozo:mozos(id, nombre), derivador:derivadores(id, nombre)').neq('estado', 'libre'),
     ]);
     if (mesasRes.error) throw new BadRequestException(mesasRes.error.message);
     if (ciclosRes.error) throw new BadRequestException(ciclosRes.error.message);
@@ -70,7 +70,7 @@ export class PisoService {
         return {
           mesaId: m.id, numero: m.numero, sector: m.sector, estado: 'libre', color: null,
           minutosEnEstado: null, minutosTotal: null, cubiertos: null,
-          mozoId: null, mozoNombre: null, llamadoHaceMin: null,
+          mozoId: null, mozoNombre: null, llamadoHaceMin: null, derivadorNombre: null, pagoPreferido: null,
         };
       }
       const minutosEnEstado = Math.round((ahora - new Date(ciclo.estado_desde).getTime()) / 60_000);
@@ -88,6 +88,10 @@ export class PisoService {
         minutosTotal,
         llamadoHaceMin: ciclo.llamado_mozo_en ? Math.round((ahora - new Date(ciclo.llamado_mozo_en).getTime()) / 60_000) : null,
         color: colorDeSalud(ciclo.estado, minutosEnEstado),
+        derivadorNombre: ciclo.derivador?.nombre ?? null,
+        pagoPreferido: ciclo.pago_preferido_metodo
+          ? { metodo: ciclo.pago_preferido_metodo, moneda: ciclo.pago_preferido_moneda ?? 'ARS' }
+          : null,
       };
     });
   }
@@ -95,7 +99,7 @@ export class PisoService {
   // El encargado del salón sienta la mesa y asigna quién la atiende (t0). No
   // puede haber dos ciclos activos sobre la misma mesa (índice único parcial
   // en la base).
-  async abrir(mesaId: string, cubiertos?: number, mozoId?: string) {
+  async abrir(mesaId: string, cubiertos?: number, mozoId?: string, derivadorId?: string | null, reservaId?: string | null) {
     const { data: existente } = await this.db
       .from('mesa_ciclos')
       .select('id')
@@ -106,7 +110,10 @@ export class PisoService {
 
     const { data, error } = await this.db
       .from('mesa_ciclos')
-      .insert({ mesa_id: mesaId, estado: 'sentada', cubiertos: cubiertos ?? null, mozo_id: mozoId ?? null })
+      .insert({
+        mesa_id: mesaId, estado: 'sentada', cubiertos: cubiertos ?? null, mozo_id: mozoId ?? null,
+        derivador_id: derivadorId || null, reserva_id: reservaId || null,
+      })
       .select()
       .single();
     if (error) throw new BadRequestException(error.message);
@@ -168,6 +175,65 @@ export class PisoService {
 
     const { data, error: errUpd } = await this.db.from('mesa_ciclos').update(patch).eq('id', ciclo.id).select().single();
     if (errUpd) throw new BadRequestException(errUpd.message);
+    return data;
+  }
+
+  // "Me equivoqué de botón": la mesa vuelve al estado anterior. La hora del
+  // estado que se deshace se borra, para no ensuciar los promedios.
+  async retroceder(mesaId: string) {
+    const { data: ciclo, error } = await this.db
+      .from('mesa_ciclos')
+      .select('*')
+      .eq('mesa_id', mesaId)
+      .neq('estado', 'libre')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!ciclo) throw new NotFoundException('Esta mesa no tiene un ciclo activo');
+    const idx = ORDEN_ESTADOS.indexOf(ciclo.estado);
+    if (idx <= 0) throw new BadRequestException('La mesa recién se sentó: no hay paso anterior');
+    if (ciclo.estado === 'pago') {
+      throw new BadRequestException('La mesa figura pagada: para corregirla, anulá el cobro desde Caja');
+    }
+    const anterior = ORDEN_ESTADOS[idx - 1];
+    const patch: Record<string, any> = {
+      estado: anterior,
+      estado_desde: ciclo[COLUMNA_POR_ESTADO[anterior]] ?? new Date().toISOString(),
+      [COLUMNA_POR_ESTADO[ciclo.estado as EstadoMesa]]: null,
+    };
+    const { data, error: errUpd } = await this.db.from('mesa_ciclos').update(patch).eq('id', ciclo.id).select().single();
+    if (errUpd) throw new BadRequestException(errUpd.message);
+    return data;
+  }
+
+  // Se sentó la mesa por error, o se levantaron sin pedir: se cierra la
+  // visita sin cobro. Sólo antes de que haya comanda.
+  async cancelar(mesaId: string) {
+    const { data: ciclo, error } = await this.db
+      .from('mesa_ciclos')
+      .select('id, estado')
+      .eq('mesa_id', mesaId)
+      .neq('estado', 'libre')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!ciclo) throw new NotFoundException('Esta mesa no tiene un ciclo activo');
+    if (!['sentada', 'vio_carta'].includes(ciclo.estado)) {
+      throw new BadRequestException('La mesa ya tiene comanda: no se puede anular, hay que cobrarla');
+    }
+    const { error: errDel } = await this.db.from('mesa_ciclos').delete().eq('id', ciclo.id);
+    if (errDel) throw new BadRequestException(errDel.message);
+    return { ok: true };
+  }
+
+  async cambiarMozo(mesaId: string, mozoId: string) {
+    const { data, error } = await this.db
+      .from('mesa_ciclos')
+      .update({ mozo_id: mozoId })
+      .eq('mesa_id', mesaId)
+      .neq('estado', 'libre')
+      .select()
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Esta mesa no tiene un ciclo activo');
     return data;
   }
 }

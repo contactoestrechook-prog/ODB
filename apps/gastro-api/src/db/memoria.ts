@@ -126,6 +126,7 @@ class Consulta implements PromiseLike<{ data: any; error: any; count: number | n
   private filtros: ((f: Fila) => boolean)[] = [];
   private orden: { col: string; asc: boolean }[] = [];
   private tope: number | null = null;
+  private rango: [number, number] | null = null;
   private modo: 'select' | 'insert' | 'update' | 'delete' = 'select';
   private sel: string | null = null;
   private unico: 'single' | 'maybe' | null = null;
@@ -161,6 +162,7 @@ class Consulta implements PromiseLike<{ data: any; error: any; count: number | n
   lt(col: string, v: any) { this.filtros.push((f) => f[col] != null && f[col] < v); return this; }
   order(col: string, opts?: { ascending?: boolean }) { this.orden.push({ col, asc: opts?.ascending !== false }); return this; }
   limit(n: number) { this.tope = n; return this; }
+  range(desde: number, hasta: number) { this.rango = [desde, hasta]; return this; }
   single() { this.unico = 'single'; return this; }
   maybeSingle() { this.unico = 'maybe'; return this; }
 
@@ -227,7 +229,9 @@ class Consulta implements PromiseLike<{ data: any; error: any; count: number | n
           return (x < y ? -1 : x > y ? 1 : 0) * (o.asc ? 1 : -1);
         });
       }
-      const recorte = this.tope != null ? ordenadas.slice(0, this.tope) : ordenadas;
+      const recorte = this.rango
+        ? ordenadas.slice(this.rango[0], this.rango[1] + 1)
+        : this.tope != null ? ordenadas.slice(0, this.tope) : ordenadas;
       const nodo = parsear(this.sel ?? '*');
       const data = recorte.map((f) => this.proyectar(this.tabla, f, nodo));
 
