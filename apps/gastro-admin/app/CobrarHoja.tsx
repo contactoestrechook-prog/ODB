@@ -103,7 +103,7 @@ export function CobrarHoja({ mesaId, mesaNumero, cerrar, alCambiar }: {
         cuenta.pagada || cuenta.estado === "pago" ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-good font-semibold text-[13.5px]">● Cuenta pagada{aviso ? ` · ${aviso}` : ""}</span>
-            <Accion hacer={liberar} variante="principal" haciendo="Liberando…" listo="Mesa libre">Liberar la mesa</Accion>
+            <Accion key="liberar" hacer={liberar} variante="principal" haciendo="Liberando…" listo="Mesa libre">Liberar la mesa</Accion>
           </div>
         ) : (
           <div>
@@ -113,7 +113,7 @@ export function CobrarHoja({ mesaId, mesaNumero, cerrar, alCambiar }: {
             {sinCambio ? (
               <p className="text-loss text-[12.5px]">■ Falta cargar el cambio de hoy para {NOMBRE_MONEDA[moneda].toLowerCase()} (en Caja, arriba).</p>
             ) : (
-              <Accion hacer={cobrar} variante="principal" tamano="grande" ancho haciendo="Anotando el cobro…" listo="Cobro anotado" disabled={!monto}>
+              <Accion key="cobrar" hacer={cobrar} variante="principal" tamano="grande" ancho haciendo="Anotando el cobro…" listo="Cobro anotado" disabled={!monto}>
                 Anotar {monto ? plata(monto, moneda) : ""} · {NOMBRE_METODO[metodo]}
               </Accion>
             )}

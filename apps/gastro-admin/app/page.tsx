@@ -1,217 +1,111 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "./lib/api";
+import { fechaLarga, hoyArt, pesos } from "./lib/formato";
+import { ORDEN_ZONAS, PANTALLAS, ZONAS } from "./lib/pantallas";
+import { Accion, Boton, Caja, Fila, Marca, Seccion, Titulo, useDatos } from "./ui";
 
-type Resumen = { total: number; contento: number; neutral: number; molesto: number; tasaSatisfaccion: number | null };
-type Alerta = {
-  id: string;
-  sentimiento: string;
-  creado_en: string;
-  mesa: { numero: number; sector: string | null };
-  opinion: { comentario: string | null };
-};
-type MetricasDia = {
-  ciclosCerrados: number;
-  tiempoMesaProm: number | null;
-  tiempoMuertoProm: number | null;
-  ticketProm: number | null;
-  ingresoTotal: number;
-  cubiertosTotal: number;
-  revPash: number | null;
-  tasaSatisfaccion: number | null;
-};
-type ResumenAnalista = { fecha: string; metricas: MetricasDia; insight: string };
 type Ahora = {
-  ocupadas: number;
-  totalMesas: number;
-  ocupacionPct: number;
-  llamadosPendientes: number;
-  mesasEnRiesgo: number;
-  cubiertosHoy: number;
-  cobradoHoy: number;
-  mesasCerradasHoy: number;
+  ocupadas: number; totalMesas: number; ocupacionPct: number; llamadosPendientes: number; mesasEnRiesgo: number;
+  cubiertosHoy: number; cobradoHoy: number; mesasCerradasHoy: number;
 };
-type MetricaCocina = {
-  nombre: string;
-  platos: number;
-  objetivoMin: number | null;
-  realMin: number | null;
-  esperaMin: number | null;
-  desvioMin: number | null;
-};
+type Alerta = { id: string; sentimiento: string; creado_en: string; mesa: { numero: number; sector: string | null } | null; opinion: { comentario: string | null } | null };
+type Abierta = { cicloId: string; mesaId: string; mesaNumero: number | null; estado: string; saldo: number; pidioCuentaHaceMin: number | null };
+type Agenda = { resumen: { reservas: number; personas: number; sinConfirmar: number; senasPendientes: number } };
+type Cambio = { BRL: number | null; USD: number | null; actualizadoEn: string | null };
 
-const formatoPesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
+// Inicio: lo que pasa ahora, lo que hay que hacer (cada cosa con su botón) y
+// la puerta a todas las pantallas.
+export default function InicioPage() {
+  const ahora = useDatos<Ahora>(() => api("/admin/analista/ahora"), 10000);
+  const alertas = useDatos<Alerta[]>(() => api("/admin/alertas"), 15000);
+  const abiertas = useDatos<Abierta[]>(() => api("/admin/caja/abiertas"), 10000);
+  const agenda = useDatos<Agenda>(() => api("/admin/reservas/agenda"), 60000);
+  const postVisita = useDatos<{ pendientes: unknown[] }>(() => api("/admin/post-visita"), 120000);
+  const cambio = useDatos<Cambio>(() => api("/monedas"), 120000);
+  const items = useDatos<{ activo: boolean; agotado: boolean }[]>(() => api("/admin/carta/items"), 120000);
 
-export default function ResumenPage() {
-  const [resumen, setResumen] = useState<Resumen | null>(null);
-  const [alertas, setAlertas] = useState<Alerta[]>([]);
-  const [analista, setAnalista] = useState<ResumenAnalista | null>(null);
-  const [ahora, setAhora] = useState<Ahora | null>(null);
-  const [cocina, setCocina] = useState<MetricaCocina[]>([]);
-  const [cargando, setCargando] = useState(true);
+  const a = ahora.datos;
+  const pidieron = (abiertas.datos ?? []).filter((x) => x.estado === "pidio_cuenta");
+  const cambioViejo = cambio.datos ? !cambio.datos.BRL || !cambio.datos.USD || !cambio.datos.actualizadoEn || Date.now() - new Date(cambio.datos.actualizadoEn).getTime() > 20 * 3_600_000 : false;
+  const agotados = (items.datos ?? []).filter((i) => i.activo && i.agotado).length;
+  const r = agenda.datos?.resumen;
+  const pendientesPv = postVisita.datos?.pendientes.length ?? 0;
 
-  async function cargar() {
-    const [r, a, an, ah, co] = await Promise.all([
-      api("/admin/termometro/resumen"),
-      api("/admin/alertas"),
-      api("/admin/analista/resumen"),
-      api("/admin/analista/ahora"),
-      api("/admin/cocina/metricas"),
-    ]);
-    setResumen(r);
-    setAlertas(a);
-    setAnalista(an);
-    setAhora(ah);
-    setCocina(co);
-    setCargando(false);
-  }
-
-  useEffect(() => {
-    cargar();
-    // el bloque AHORA late en vivo
-    const t = setInterval(() => api("/admin/analista/ahora").then(setAhora).catch(() => {}), 10_000);
-    return () => clearInterval(t);
-  }, []);
-
-  async function resolver(id: string) {
-    await api(`/admin/alertas/${id}/resolver`, { method: "POST" });
-    setAlertas((prev) => prev.filter((al) => al.id !== id));
-  }
-
-  if (cargando) return <p className="text-faint text-sm">Cargando…</p>;
-
-  const m = analista?.metricas;
+  type Tarea = { clave: string; texto: React.ReactNode; boton: string; href: string; tono: "mal" | "ojo" | "gris" };
+  const tareas: Tarea[] = [];
+  if (a && a.llamadosPendientes > 0) tareas.push({ clave: "llamados", texto: <><b>{a.llamadosPendientes}</b> {a.llamadosPendientes === 1 ? "mesa llama" : "mesas llaman"} al mozo</>, boton: "Ver en el piso", href: "/piso-vivo", tono: "mal" });
+  if (pidieron.length > 0) tareas.push({ clave: "cuenta", texto: <><b>{pidieron.length}</b> {pidieron.length === 1 ? "mesa pidió" : "mesas pidieron"} la cuenta ({pidieron.map((p) => p.mesaNumero).join(", ")})</>, boton: "Cobrar", href: "/caja", tono: "mal" });
+  if (a && a.mesasEnRiesgo > 0) tareas.push({ clave: "riesgo", texto: <><b>{a.mesasEnRiesgo}</b> {a.mesasEnRiesgo === 1 ? "mesa lleva" : "mesas llevan"} demasiado en el mismo paso</>, boton: "Ver en el piso", href: "/piso-vivo", tono: "ojo" });
+  if (cambioViejo) tareas.push({ clave: "cambio", texto: <>El cambio del real y del dólar no está cargado hoy</>, boton: "Cargar el cambio", href: "/caja", tono: "ojo" });
+  if (r && r.sinConfirmar > 0) tareas.push({ clave: "reservas", texto: <><b>{r.sinConfirmar}</b> {r.sinConfirmar === 1 ? "reserva de hoy está" : "reservas de hoy están"} sin confirmar</>, boton: "Ver las reservas", href: "/reservas", tono: "ojo" });
+  if (r && r.senasPendientes > 0) tareas.push({ clave: "senas", texto: <><b>{r.senasPendientes}</b> {r.senasPendientes === 1 ? "reserva tiene" : "reservas tienen"} la seña sin pagar</>, boton: "Ver las reservas", href: "/reservas", tono: "ojo" });
+  if (agotados > 0) tareas.push({ clave: "agotados", texto: <><b>{agotados}</b> {agotados === 1 ? "plato está marcado" : "platos están marcados"} como agotado</>, boton: "Revisar", href: "/carne", tono: "gris" });
+  if (pendientesPv > 0) tareas.push({ clave: "pv", texto: <><b>{pendientesPv}</b> {pendientesPv === 1 ? "cliente espera" : "clientes esperan"} el mensaje de agradecimiento</>, boton: "Mandarlos", href: "/post-visita", tono: "gris" });
 
   return (
-    <div className="flex flex-col gap-6">
-      {ahora && (
-        <div>
-          <div className="flex items-baseline justify-between mb-3">
-            <h1 className="display text-xl font-bold">Ahora en el salón</h1>
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-loss">
-              <span className="w-1.5 h-1.5 rounded-full bg-loss animate-pulse" /> en vivo
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Stat label="Ocupación" valor={`${ahora.ocupadas}/${ahora.totalMesas} · ${ahora.ocupacionPct}%`} />
-            <Stat label="Cobrado hoy" valor={formatoPesos.format(ahora.cobradoHoy)} color="good" />
-            <Stat
-              label="Mesas en riesgo"
-              valor={ahora.mesasEnRiesgo}
-              color={ahora.mesasEnRiesgo > 0 ? "loss" : "good"}
-            />
-            <Stat
-              label="Llamados sin atender"
-              valor={ahora.llamadosPendientes}
-              color={ahora.llamadosPendientes > 0 ? "loss" : undefined}
-            />
-          </div>
-          {(ahora.mesasEnRiesgo > 0 || ahora.llamadosPendientes > 0) && (
-            <a href="/piso-vivo" className="block text-center text-xs font-bold text-accent mt-2.5">
-              Ver el Piso Vivo →
-            </a>
-          )}
-        </div>
-      )}
+    <div>
+      <Titulo bajada={<span className="mayus">{fechaLarga(hoyArt())}</span>}>Gran Caminito</Titulo>
 
-      <div>
-        <p className="text-[10px] tracking-[0.14em] uppercase text-accent font-bold mb-1">El Analista</p>
-        <h1 className="display text-xl font-bold mb-4">
-          Resumen de ayer{analista?.fecha ? ` · ${new Date(analista.fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "short" })}` : ""}
-        </h1>
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <Stat label="RevPASH" valor={m?.revPash != null ? formatoPesos.format(m.revPash) : "—"} />
-          <Stat label="Tiempo de mesa" valor={m?.tiempoMesaProm != null ? `${m.tiempoMesaProm}′` : "—"} />
-          <Stat label="Tiempo muerto" valor={m?.tiempoMuertoProm != null ? `${m.tiempoMuertoProm}′` : "—"} color={m?.tiempoMuertoProm && m.tiempoMuertoProm > 5 ? "loss" : undefined} />
-          <Stat label="Ticket medio" valor={m?.ticketProm != null ? formatoPesos.format(m.ticketProm) : "—"} />
+      <div className="grid lg:grid-cols-[1fr_300px] gap-x-6">
+        <div>
+          <Seccion titulo="Para hacer ahora" bajada="Lo que está esperando a alguien. Se actualiza solo.">
+            <Caja>
+              {(alertas.datos ?? []).map((al) => (
+                <div key={al.id} className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-line">
+                  <span className="flex-1 min-w-[180px] text-[13.5px]">
+                    <Marca tono="mal">Cliente {al.sentimiento}</Marca>{" "}
+                    <b>Mesa {al.mesa?.numero}</b>
+                    {al.opinion?.comentario && <span className="text-dim"> · «{al.opinion.comentario}»</span>}
+                  </span>
+                  <Accion tamano="chico" variante="principal" haciendo="Anotando…" listo="Resuelta" hacer={async () => { await api(`/admin/alertas/${al.id}/resolver`, { method: "POST" }); await alertas.recargar(); }}>
+                    Ya fui a la mesa
+                  </Accion>
+                </div>
+              ))}
+              {tareas.map((t) => (
+                <div key={t.clave} className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-line last:border-b-0">
+                  <span className={`w-2 h-2 rounded-full flex-none ${t.tono === "mal" ? "bg-loss" : t.tono === "ojo" ? "bg-warn" : "bg-faint"}`} />
+                  <span className="flex-1 min-w-[180px] text-[13.5px]">{t.texto}</span>
+                  <Link href={t.href}><Boton tamano="chico" variante={t.tono === "mal" ? "principal" : "normal"}>{t.boton}</Boton></Link>
+                </div>
+              ))}
+              {tareas.length === 0 && (alertas.datos ?? []).length === 0 && (
+                <p className="px-3 py-3 text-[13px] text-dim">{a ? "No hay nada esperando. Todo al día." : "◔ Cargando…"}</p>
+              )}
+            </Caja>
+          </Seccion>
         </div>
-        {analista?.insight && (
-          <div className="rounded-xl border border-accent/30 bg-gradient-to-b from-accent/10 to-transparent p-4">
-            <p className="text-[10px] tracking-[0.1em] uppercase text-accent font-bold mb-1.5">La IA encontró algo</p>
-            <p className="text-sm text-ink">{analista.insight}</p>
-          </div>
-        )}
+
+        <Seccion titulo="Ahora en el salón" acciones={<Link href="/piso-vivo"><Boton tamano="chico">Abrir el piso</Boton></Link>}>
+          <Caja className="px-3">
+            <Fila que="Mesas ocupadas" cuanto={a ? `${a.ocupadas} de ${a.totalMesas}` : "—"} nota={a ? `Salón al ${a.ocupacionPct} %` : undefined} />
+            <Fila que="Personas atendidas hoy" cuanto={a?.cubiertosHoy ?? "—"} />
+            <Fila que="Mesas cerradas hoy" cuanto={a?.mesasCerradasHoy ?? "—"} />
+            <Fila fuerte que="Cobrado hoy" cuanto={a ? pesos(a.cobradoHoy) : "—"} />
+            {r && <Fila que="Reservas de hoy" cuanto={`${r.reservas} · ${r.personas} pers.`} />}
+          </Caja>
+        </Seccion>
       </div>
 
-      <div>
-        <h1 className="display text-xl font-bold mb-4">Últimos 30 días</h1>
-        <div className="grid grid-cols-2 gap-3">
-          <Stat label="Opiniones" valor={resumen?.total ?? 0} />
-          <Stat label="Satisfacción" valor={resumen?.tasaSatisfaccion != null ? `${resumen.tasaSatisfaccion}%` : "—"} color="good" />
-          <Stat label="Contentos" valor={resumen?.contento ?? 0} color="good" />
-          <Stat label="Molestos" valor={resumen?.molesto ?? 0} color="loss" />
-        </div>
-      </div>
-
-      {cocina.length > 0 && (
-        <div>
-          <h2 className="display text-lg font-bold mb-1">Producción de cocina</h2>
-          <p className="text-faint text-xs mb-3">Tiempo real vs. objetivo · últimos 30 días. El desvío dice si hay que corregir el objetivo o la parrilla.</p>
-          <div className="rounded-xl border border-line bg-card overflow-hidden">
-            {cocina.slice(0, 8).map((c, i) => (
-              <div key={c.nombre} className={`flex items-center justify-between gap-3 px-4 py-2.5 ${i > 0 ? "border-t border-line" : ""}`}>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{c.nombre}</p>
-                  <p className="text-faint text-[10.5px]">{c.platos} platos · espera {c.esperaMin ?? "—"}′</p>
-                </div>
-                <div className="text-right whitespace-nowrap">
-                  <p className="font-mono text-sm font-bold tabular-nums">
-                    {c.realMin ?? "—"}′ <span className="text-faint font-normal">/ {c.objetivoMin ?? "—"}′</span>
-                  </p>
-                  {c.desvioMin != null && (
-                    <p className={`text-[10.5px] font-bold ${c.desvioMin > 2 ? "text-loss" : c.desvioMin < -2 ? "text-good" : "text-faint"}`}>
-                      {c.desvioMin > 0 ? `+${c.desvioMin}′ se pasa` : c.desvioMin < 0 ? `${c.desvioMin}′ más rápido` : "en punto"}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <h2 className="display text-lg font-bold mb-3">Alertas pendientes</h2>
-        {alertas.length === 0 && <p className="text-faint text-sm">No hay alertas sin atender. 🎉</p>}
-        <div className="flex flex-col gap-3">
-          {alertas.map((al) => (
-            <div key={al.id} className="rounded-xl border border-line bg-card p-4">
-              <div className="flex justify-between items-start gap-3">
-                <div>
-                  <p className="font-semibold text-sm">
-                    Mesa {al.mesa?.numero}{al.mesa?.sector ? ` · ${al.mesa.sector}` : ""}{" "}
-                    <span className={al.sentimiento === "molesto" ? "text-loss" : "text-warn"}>
-                      · {al.sentimiento}
-                    </span>
-                  </p>
-                  {al.opinion?.comentario && (
-                    <p className="text-dim text-sm mt-1">&ldquo;{al.opinion.comentario}&rdquo;</p>
-                  )}
-                  <p className="text-faint text-xs mt-1">{new Date(al.creado_en).toLocaleString("es-AR")}</p>
-                </div>
-                <button
-                  onClick={() => resolver(al.id)}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-line whitespace-nowrap"
-                >
-                  Marcar resuelta
-                </button>
-              </div>
+      <Seccion titulo="Todas las pantallas" bajada="Tocá a dónde querés ir. Desde cualquier pantalla se vuelve con «Volver», arriba a la izquierda.">
+        {ORDEN_ZONAS.map((z) => (
+          <div key={z} className="mb-4">
+            <h3 className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.1em] mb-1.5 ${ZONAS[z].tinta}`}>
+              <span className={`w-2 h-2 rounded-sm ${ZONAS[z].fondo}`} /> {ZONAS[z].titulo}
+            </h3>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {PANTALLAS.filter((p) => p.zona === z).map((p) => (
+                <Link key={p.href} href={p.href} className="rounded-lg border border-line bg-card px-3 py-2.5 hover:bg-card-2">
+                  <span className="block font-semibold text-[13.5px]">{p.titulo}</span>
+                  <span className="block text-dim text-[12px] leading-snug mt-0.5">{p.que}</span>
+                </Link>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, valor, color }: { label: string; valor: string | number; color?: "good" | "loss" }) {
-  return (
-    <div className="rounded-xl border border-line bg-card p-3">
-      <p className="text-[10.5px] text-faint font-semibold uppercase tracking-wide">{label}</p>
-      <p className={`text-xl font-bold mt-1 font-mono tabular-nums ${color === "good" ? "text-good" : color === "loss" ? "text-loss" : ""}`}>
-        {valor}
-      </p>
+          </div>
+        ))}
+      </Seccion>
     </div>
   );
 }

@@ -65,6 +65,10 @@ body {
 .font-mono { font-family: var(--font-roboto-mono), ui-monospace, monospace; }
 .num { font-family: var(--font-roboto-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
+/* Sólo la primera letra en mayúscula («Jueves 12 de noviembre») */
+.mayus { display: inline-block; }
+.mayus::first-letter { text-transform: uppercase; }
+
 button, a, summary { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled), summary, [role="button"] { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }

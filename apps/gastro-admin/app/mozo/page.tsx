@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { ETIQUETA_ESTADO, ETIQUETA_SIGUIENTE, siguienteEstado, type MesaPiso, type Mozo } from "../lib/piso";
+import { ETIQUETA_ESTADO, ETIQUETA_SIGUIENTE, conConsumo, siguienteEstado, type MesaPiso, type Mozo } from "../lib/piso";
 import { ComandaPicker } from "./ComandaPicker";
+import { CobrarHoja } from "../CobrarHoja";
+import { Accion, Boton } from "../ui";
 
 const COLOR_BORDE = { verde: "border-good/50", amarillo: "border-warn/60", rojo: "border-loss/70" };
 const MOZO_KEY = "gc_mozo_id";
@@ -18,7 +20,6 @@ export default function MozoPage() {
   const [mozoId, setMozoId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [cobrandoId, setCobrandoId] = useState<string | null>(null);
-  const [monto, setMonto] = useState("");
   const [comandandoId, setComandandoId] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
 
@@ -45,8 +46,6 @@ export default function MozoPage() {
     setOcupado(mesaId);
     try {
       await api(`/admin/mesas/${mesaId}/avanzar`, { method: "POST", body: JSON.stringify({ monto: montoCobrado }) });
-      setCobrandoId(null);
-      setMonto("");
       await cargar();
     } finally {
       setOcupado(null);
@@ -115,9 +114,18 @@ export default function MozoPage() {
 
   return (
     <div>
+      {cobrandoId && (
+        <CobrarHoja
+          mesaId={cobrandoId}
+          mesaNumero={mesas.find((x) => x.mesaId === cobrandoId)?.numero ?? null}
+          cerrar={() => { setCobrandoId(null); cargar(); }}
+          alCambiar={cargar}
+        />
+      )}
       {mesaComandando && (
         <ComandaPicker
           mesaNumero={mesaComandando.numero}
+          sumando={conConsumo(mesaComandando.estado)}
           onCerrar={() => setComandandoId(null)}
           onConfirmar={(items) => confirmarComanda(mesaComandando.mesaId, items)}
         />
@@ -156,44 +164,27 @@ export default function MozoPage() {
             <p className="text-dim text-sm mb-1">{ETIQUETA_ESTADO[m.estado]}</p>
             <p className="font-mono text-2xl font-bold tabular-nums mb-3">{m.minutosTotal}′</p>
 
-            {cobrandoId === m.mesaId ? (
-              <div>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  autoFocus
-                  value={monto}
-                  onChange={(e) => setMonto(e.target.value)}
-                  placeholder="Monto total"
-                  className="w-full rounded-xl border border-line bg-card-2 p-3 text-sm mb-2 text-center font-mono"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => avanzar(m.mesaId, monto ? Number(monto) : undefined)}
-                    disabled={ocupado === m.mesaId}
-                    className="flex-1 py-3 rounded-xl bg-gradient-to-br from-accent to-accent-2 text-[#1a1206] font-bold text-sm"
-                  >
-                    Confirmar
-                  </button>
-                  <button
-                    onClick={() => avanzar(m.mesaId)}
-                    disabled={ocupado === m.mesaId}
-                    className="py-3 px-3 rounded-xl border border-line text-faint text-xs"
-                  >
-                    Sin monto
-                  </button>
-                </div>
-              </div>
-            ) : (
+            {(
               siguienteEstado(m.estado) && (
                 <button
                   onClick={() => tocarSiguiente(m)}
                   disabled={ocupado === m.mesaId}
                   className="w-full py-4 rounded-xl bg-gradient-to-br from-accent to-accent-2 text-[#1a1206] font-bold text-sm disabled:opacity-60"
                 >
-                  {ocupado === m.mesaId ? "…" : ETIQUETA_SIGUIENTE[siguienteEstado(m.estado)!]}
+                  {ocupado === m.mesaId ? "◔ Anotando…" : siguienteEstado(m.estado) === "pago" ? "Cobrar la mesa" : ETIQUETA_SIGUIENTE[siguienteEstado(m.estado)!]}
                 </button>
               )
+            )}
+            {conConsumo(m.estado) && (
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <Boton onClick={() => setComandandoId(m.mesaId)}>Sumar a la comanda</Boton>
+                <Accion
+                  confirmar="¿Deshacer? Tocá de nuevo" haciendo="Deshaciendo…" listo="Deshecho" ancho
+                  hacer={async () => { await api(`/admin/mesas/${m.mesaId}/retroceder`, { method: "POST" }); await cargar(); }}
+                >
+                  Deshacer el último paso
+                </Accion>
+              </div>
             )}
           </div>
         ))}

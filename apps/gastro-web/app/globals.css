@@ -1,33 +1,54 @@
 @import "tailwindcss";
 
-/* Misma identidad de los mockups: parrilla de noche — charcoal + dorado ember.
-   Un solo tema (no light/dark): es la pantalla que el cliente ve en la mesa,
-   de noche, en el propio local — conviene que se vea siempre igual. */
+/* La pantalla que el cliente ve en la mesa, de noche, en el local: un solo
+   tema oscuro, siempre igual. Brasa para lo que se toca, verde para lo que
+   está bien, rosa lapacho para lo que viene recomendado. */
 @theme inline {
-  --color-bg: #141010;
-  --color-screen: #1b1613;
-  --color-card: #241d19;
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-ink: #f4ece2;
-  --color-dim: #b6a89a;
-  --color-faint: #877a6d;
-  --color-accent: #e8a03d;
-  --color-accent-2: #c47a24;
-  --color-good: #4cc38a;
-  --color-loss: #f2555a;
-  --font-display: var(--font-fraunces);
-  --font-sans: var(--font-manrope);
+  --color-bg: #121110;
+  --color-screen: #1a1816;
+  --color-card: #211e1b;
+  --color-line: rgba(255, 255, 255, 0.11);
+  --color-ink: #f3eee6;
+  --color-dim: #bdb3a6;
+  --color-faint: #8b8176;
+  --color-accent: #f07a3c;
+  --color-accent-2: #d2541f;
+  --color-good: #56c48d;
+  --color-loss: #f2595e;
+  --color-lapacho: #e883b3;
+  --font-display: var(--font-spectral);
+  --font-sans: var(--font-archivo);
 }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
   background: var(--color-bg);
   color: var(--color-ink);
-  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
 }
-.display { font-family: var(--font-fraunces), Georgia, serif; }
+.display { font-family: var(--font-spectral), Georgia, serif; }
+.num { font-variant-numeric: tabular-nums; }
+button:not(:disabled), select { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }
+input, select, textarea { font: inherit; color: inherit; }
 
-@keyframes entrar { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.entrar { animation: entrar 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.selector {
+  height: 32px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
+  background: var(--color-card); border: 1px solid var(--color-line);
+}
+.campo {
+  width: 100%; border: 1px solid var(--color-line); background: var(--color-card);
+  border-radius: 8px; padding: 10px 12px; font-size: 15px;
+}
+.boton {
+  display: flex; align-items: center; justify-content: center; width: 100%; min-height: 46px; padding: 0 16px;
+  border-radius: 10px; border: 1px solid var(--color-line); font-weight: 600; font-size: 15px; text-align: center;
+}
+.boton-fuerte { background: var(--color-accent); border-color: var(--color-accent); color: #1a0f07; }
+.boton:disabled { opacity: 0.5; }
+
+@keyframes entrar { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.entrar { animation: entrar 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .entrar { animation: none; opacity: 1; transform: none; } }

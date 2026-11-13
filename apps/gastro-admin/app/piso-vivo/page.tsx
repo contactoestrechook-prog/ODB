@@ -1,124 +1,141 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { api } from "../lib/api";
-import { ETIQUETA_ESTADO, type MesaPiso } from "../lib/piso";
-
-const COLOR_BORDE = { verde: "border-good/50 bg-good/10", amarillo: "border-warn/50 bg-warn/10", rojo: "border-loss/60 bg-loss/10" };
-const COLOR_PUNTO = { verde: "bg-good", amarillo: "bg-warn", rojo: "bg-loss" };
+import { ETIQUETA_ESTADO, agruparPorSector, type MesaPiso, type Mozo } from "../lib/piso";
+import { Accion, Boton, Caja, Cargando, ErrorCarga, Marca, Opciones, Titulo, useDatos } from "../ui";
+import { MesaHoja } from "../MesaHoja";
 
 type Director = { ocupacion: number; dosPorUnoActivo: boolean; sugerencias: { tipo: string; mensaje: string }[] };
+type Filtro = "todas" | "ocupadas" | "libres" | "atencion";
+
+const BORDE = { verde: "border-good/60", amarillo: "border-warn/70", rojo: "border-loss" };
+const PUNTO = { verde: "bg-good", amarillo: "bg-warn", rojo: "bg-loss" };
 
 export default function PisoVivoPage() {
-  const [mesas, setMesas] = useState<MesaPiso[]>([]);
-  const [director, setDirector] = useState<Director | null>(null);
-  const [cargando, setCargando] = useState(true);
-  const [cambiando2x1, setCambiando2x1] = useState(false);
+  const piso = useDatos<MesaPiso[]>(() => api("/admin/piso-vivo"), 5000);
+  const director = useDatos<Director>(() => api("/admin/director/sugerencias"), 20000);
+  const mozos = useDatos<Mozo[]>(() => api("/admin/mozos"));
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [mozoFiltro, setMozoFiltro] = useState<string>("");
 
-  async function cargar() {
-    try {
-      const [m, d] = await Promise.all([api("/admin/piso-vivo"), api("/admin/director/sugerencias")]);
-      setMesas(m);
-      setDirector(d);
-    } finally {
-      setCargando(false);
-    }
-  }
+  if (piso.error && !piso.datos) return <ErrorCarga error={piso.error} reintentar={piso.recargar} />;
+  if (!piso.datos) return <Cargando />;
 
-  useEffect(() => {
-    cargar();
-    // en vivo de verdad: refresca solo cada pocos segundos
-    const t = setInterval(cargar, 5000);
-    return () => clearInterval(t);
-  }, []);
-
-  async function toggle2x1() {
-    if (!director) return;
-    setCambiando2x1(true);
-    try {
-      await api("/admin/configuracion", { method: "PUT", body: JSON.stringify({ dosPorUnoActivo: !director.dosPorUnoActivo }) });
-      await cargar();
-    } finally {
-      setCambiando2x1(false);
-    }
-  }
-
-  if (cargando) return <p className="text-faint text-sm">Cargando…</p>;
-
-  const ocupadas = mesas.filter((m) => m.estado !== "libre").length;
+  const mesas = piso.datos;
+  const activos = (mozos.datos ?? []).filter((m) => m.activo);
+  const ocupadas = mesas.filter((m) => m.estado !== "libre");
+  const pideAtencion = (m: MesaPiso) => m.color === "rojo" || m.llamadoHaceMin != null || m.estado === "pidio_cuenta" || m.estado === "pago";
+  const visibles = mesas.filter(
+    (m) =>
+      (filtro === "todas" || (filtro === "ocupadas" && m.estado !== "libre") || (filtro === "libres" && m.estado === "libre") || (filtro === "atencion" && pideAtencion(m))) &&
+      (!mozoFiltro || m.mozoId === mozoFiltro),
+  );
+  const mesaAbierta = mesas.find((m) => m.mesaId === abierta) ?? null;
+  const d = director.datos;
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-3">
-        <h1 className="display text-xl font-bold">El Piso Vivo</h1>
-        <span className="text-faint text-xs">{ocupadas}/{mesas.length} ocupadas · {director?.ocupacion}%</span>
+      <Titulo
+        bajada="Cada mesa con su reloj. Tocá una mesa para sentar gente, tomar la comanda, cobrar o lo que haga falta."
+        acciones={
+          <>
+            <Link href="/reservas"><Boton tamano="chico">Reservas y espera</Boton></Link>
+            <Link href="/caja"><Boton tamano="chico">Caja</Boton></Link>
+            <Link href="/cocina"><Boton tamano="chico">Cocina</Boton></Link>
+          </>
+        }
+      >
+        Piso vivo
+      </Titulo>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+        <Opciones
+          chico
+          valor={filtro}
+          alElegir={setFiltro}
+          opciones={[
+            { valor: "todas", texto: `Todas · ${mesas.length}` },
+            { valor: "ocupadas", texto: `Ocupadas · ${ocupadas.length}` },
+            { valor: "libres", texto: `Libres · ${mesas.length - ocupadas.length}` },
+            { valor: "atencion", texto: `Piden atención · ${mesas.filter(pideAtencion).length}` },
+          ]}
+        />
+        {activos.length > 0 && (
+          <select value={mozoFiltro} onChange={(e) => setMozoFiltro(e.target.value)} className="campo !w-auto !min-h-[28px] !py-0.5 text-[12px]" aria-label="Filtrar por mozo">
+            <option value="">Todos los mozos</option>
+            {activos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+          </select>
+        )}
       </div>
 
-      {director && (
-        <div className="rounded-xl border border-line bg-card p-3.5 mb-5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-semibold text-dim">2x1</span>
-            <button
-              onClick={toggle2x1}
-              disabled={cambiando2x1}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg ${director.dosPorUnoActivo ? "bg-good/15 text-good" : "bg-card-2 text-faint"}`}
-            >
-              {director.dosPorUnoActivo ? "Activado" : "Apagado"}
-            </button>
+      {d && (
+        <Caja className="px-3 py-2 mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 text-[13px]">
+            <span className="font-semibold">2x1: {d.dosPorUnoActivo ? "prendido" : "apagado"}</span>
+            <span className="text-dim"> · salón al {d.ocupacion} %</span>
+            {d.sugerencias.map((s, i) => <p key={i} className="text-[12.5px] text-dim mt-0.5"><Marca tono="ojo">Sugerencia</Marca> {s.mensaje}</p>)}
           </div>
-          {director.sugerencias.map((s, i) => (
-            <div key={i} className="mt-2.5 pt-2.5 border-t border-line">
-              <p className="text-[10px] tracking-[0.1em] uppercase text-accent font-bold mb-1">El Director sugiere</p>
-              <p className="text-sm">{s.mensaje}</p>
-            </div>
-          ))}
-        </div>
+          <Accion
+            tamano="chico"
+            haciendo="Cambiando…"
+            listo="Cambiado"
+            hacer={async () => {
+              await api("/admin/configuracion", { method: "PUT", body: JSON.stringify({ dosPorUnoActivo: !d.dosPorUnoActivo }) });
+              await director.recargar();
+            }}
+          >
+            {d.dosPorUnoActivo ? "Apagar el 2x1" : "Prender el 2x1"}
+          </Accion>
+        </Caja>
       )}
 
-      {Object.entries(agruparPorSector(mesas)).map(([sector, mesasSector]) => {
-        const ocupadasSector = mesasSector.filter((m) => m.estado !== "libre").length;
-        return (
-          <div key={sector} className="mb-6">
-            <div className="flex items-baseline justify-between mb-2.5">
-              <h2 className="text-xs font-bold text-dim uppercase tracking-wide">{sector}</h2>
-              <span className="text-faint text-[11px]">{ocupadasSector}/{mesasSector.length}</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {mesasSector.map((m) => (
-                <div key={m.mesaId} className={`rounded-xl border p-3 ${m.estado === "libre" ? "border-line opacity-60" : COLOR_BORDE[m.color ?? "verde"]}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-sm">M{m.numero}</span>
-                    <div className="flex items-center gap-1">
-                      {m.llamadoHaceMin != null && <span className="text-[10px]">🔔</span>}
-                      {m.estado !== "libre" && <span className={`w-2 h-2 rounded-full ${COLOR_PUNTO[m.color ?? "verde"]}`} />}
-                    </div>
-                  </div>
-                  {m.estado === "libre" ? (
-                    <p className="text-faint text-xs">Libre</p>
-                  ) : (
-                    <>
-                      <p className="font-mono text-lg font-bold tabular-nums leading-none">{m.minutosTotal}′</p>
-                      <p className="text-[11px] text-dim mt-1">{ETIQUETA_ESTADO[m.estado]}</p>
-                      <p className="text-faint text-[10.5px] mt-0.5">
-                        {m.mozoNombre ?? "sin mozo"}{m.cubiertos ? ` · ${m.cubiertos}p` : ""}
-                      </p>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
+      {visibles.length === 0 && <p className="text-dim text-[13px]">No hay mesas con ese filtro.</p>}
+
+      {Object.entries(agruparPorSector(visibles)).map(([sector, mesasSector]) => (
+        <section key={sector} className="mb-5">
+          <h2 className="flex items-baseline justify-between text-[11px] font-bold text-dim uppercase tracking-wide mb-1.5">
+            {sector}
+            <span className="text-faint font-medium normal-case tracking-normal">
+              {mesasSector.filter((m) => m.estado !== "libre").length} de {mesasSector.length} ocupadas
+            </span>
+          </h2>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5">
+            {mesasSector.map((m) => (
+              <button
+                key={m.mesaId}
+                onClick={() => setAbierta(m.mesaId)}
+                className={`text-left rounded-lg border-2 bg-card px-2 py-1.5 min-h-[76px] hover:bg-card-2 ${m.estado === "libre" ? "border-line border" : BORDE[m.color ?? "verde"]}`}
+              >
+                <span className="flex items-center justify-between">
+                  <span className="font-bold text-[13.5px]">{m.numero}</span>
+                  <span className="flex items-center gap-1">
+                    {m.llamadoHaceMin != null && <span className="text-[10px] font-bold text-salon">LLAMA</span>}
+                    {m.estado !== "libre" && <span className={`w-2 h-2 rounded-full ${PUNTO[m.color ?? "verde"]}`} />}
+                  </span>
+                </span>
+                {m.estado === "libre" ? (
+                  <span className="block text-faint text-[11.5px] mt-1">Libre · tocar para sentar</span>
+                ) : (
+                  <>
+                    <span className="block num text-[15px] font-bold leading-tight mt-0.5">{m.minutosTotal} min</span>
+                    <span className="block text-[11px] text-dim leading-tight truncate">{ETIQUETA_ESTADO[m.estado].split(" (")[0].split(" —")[0]}</span>
+                    <span className="block text-[10.5px] text-faint leading-tight truncate">{m.mozoNombre ?? "sin mozo"}{m.cubiertos ? ` · ${m.cubiertos}` : ""}</span>
+                  </>
+                )}
+              </button>
+            ))}
           </div>
-        );
-      })}
+        </section>
+      ))}
+
+      <p className="text-[11.5px] text-faint mt-2">
+        Borde verde: va bien. Amarillo: hay algo para aprovechar o apurar. Rojo: lleva demasiado en el mismo paso.
+      </p>
+
+      {mesaAbierta && <MesaHoja mesa={mesaAbierta} mozos={activos} cerrar={() => setAbierta(null)} alCambiar={piso.recargar} />}
     </div>
   );
-}
-
-function agruparPorSector(mesas: MesaPiso[]): Record<string, MesaPiso[]> {
-  const grupos: Record<string, MesaPiso[]> = {};
-  for (const m of mesas) {
-    const clave = m.sector ?? "Sin sector";
-    (grupos[clave] ??= []).push(m);
-  }
-  return grupos;
 }
