@@ -66,6 +66,7 @@ const NOMBRE_ORIGEN: Record<string, string> = {
   panel: 'el panel (cargado a mano)',
   pedidosya: 'PedidosYa',
   tiendanube: 'Tiendanube',
+  charla: 'una charla de WhatsApp (pasada a pedido en el panel)',
   pickup: 'la tienda web o la app',
   domicilio: 'la tienda web o la app',
 };
@@ -284,7 +285,7 @@ export class PedidosService {
     return JSON.parse(((r.content as any[]).find((b) => b.type === 'text')?.text) ?? '{"items":[],"nombre":null,"notas":null}');
   }
 
-  private async matchearRenglones(items: { sku?: string; name: string; quantity: number }[]) {
+  async matchearRenglones(items: { sku?: string; name: string; quantity: number }[]) {
     const matched: any[] = [];
     const sinMatch: string[] = [];
     for (const item of items ?? []) {

@@ -70,6 +70,9 @@ export function cuandoFue(iso: string, ahora = new Date()): string {
 /** Por dónde entró: el canal solo no alcanza ('web' es PedidosYa o Tiendanube). */
 export function origenDelPedido(p: Pick<PedidoParaAviso, 'qr_retiro' | 'canal' | 'esDelBot'> & { origen?: string | null }): 'bot' | 'pedidosya' | 'tiendanube' | 'panel' | 'web' | 'app' | 'tienda' | 'otro' {
   const qr = String(p.qr_retiro ?? '');
+  // pasado a pedido desde la charla en el panel (14/11/2026): tiene fila en
+  // bot_cotizaciones, pero lo cargó una persona
+  if (p.origen === 'charla') return 'panel';
   if (p.esDelBot) return 'bot';
   if (p.origen === 'web' || p.origen === 'app') return p.origen;
   if (qr.startsWith('PY-')) return 'pedidosya';

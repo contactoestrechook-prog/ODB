@@ -44,6 +44,8 @@ export type PedidoCola = {
 export const ORIGENES: Record<string, { label: string; tono: TonoEtiqueta }> = {
   bot: { label: 'WhatsApp (bot)', tono: 'ok' },
   panel: { label: 'Cargado a mano', tono: 'neutro' },
+  // pasado a pedido desde la charla de WhatsApp en Pedidos (14/11/2026)
+  charla: { label: 'WhatsApp (equipo)', tono: 'ok' },
   whatsapp: { label: 'Cargado a mano', tono: 'neutro' },
   web: { label: 'Tienda web', tono: 'info' },
   app: { label: 'App', tono: 'info' },

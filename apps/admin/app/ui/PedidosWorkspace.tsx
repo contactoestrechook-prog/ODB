@@ -18,6 +18,7 @@ import { conCodigo } from '../lib/codigo-producto';
 import { imprimirComanda } from '../lib/comanda';
 import { ComandasEstaPc } from './ComandasEstaPc';
 import { AsignarArmado } from './AsignarArmado';
+import { CharlasDeWhatsapp, paraRevisar, useCharlas } from './CharlasDeWhatsapp';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 // Las cifras de arriba, igual que en Aprobaciones: rótulo chico y número grande.
@@ -37,6 +38,7 @@ const FILTROS = [
   { valor: 'todos', etiqueta: 'Todos' },
   { valor: 'bot', etiqueta: 'WhatsApp (bot)' },
   { valor: 'panel', etiqueta: 'Cargados a mano' },
+  { valor: 'charla', etiqueta: 'WhatsApp (equipo)' },
   { valor: 'web', etiqueta: 'Tienda web' },
   { valor: 'app', etiqueta: 'App' },
   { valor: 'pedidosya', etiqueta: 'PedidosYa' },
@@ -72,7 +74,9 @@ type LineaHistorial = { cuando: string; que: string; quien: string | null; tono:
 // historial completo con nombre y hora, y los terminados se pueden consultar.
 export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRepartidor = false }: { inicial: PedidoCola[]; puedeSimular?: boolean; puedeCargarRepartidor?: boolean }) {
   const [pedidos, setPedidos] = useState<PedidoCola[]>(inicial);
-  const [vista, setVista] = useState<'curso' | 'terminados'>('curso');
+  const [vista, setVista] = useState<'curso' | 'terminados' | 'charlas'>('curso');
+  // las charlas de WhatsApp sin pedido (14/11/2026): la pestaña muestra cuántas hay para revisar
+  const charlas = useCharlas();
   const [terminados, setTerminados] = useState<PedidoCola[] | null>(null);
   const [filtro, setFiltro] = useState('todos');
   const [aviso, setAviso] = useState('');
@@ -223,10 +227,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
         className="min-w-0 max-w-full xl:w-auto"
         etiquetaAccesible="Qué pedidos ver"
         valor={vista}
-        onCambiar={(v) => setVista(v as 'curso' | 'terminados')}
+        onCambiar={(v) => setVista(v as 'curso' | 'terminados' | 'charlas')}
         opciones={[
           { valor: 'curso', etiqueta: 'En curso', cuenta: pedidos.length },
           { valor: 'terminados', etiqueta: 'Terminados (7 días)', cuenta: terminados?.length },
+          { valor: 'charlas', etiqueta: 'Charlas de WhatsApp', cuenta: charlas.charlas?.filter(paraRevisar).length },
         ]}
       />
       {vista === 'curso' && <Chips className="min-w-0 max-w-full" etiquetaAccesible="Por dónde entró" valor={filtro} onCambiar={setFiltro} desplazable opciones={FILTROS} />}
@@ -234,7 +239,19 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
 
       {aviso && <Aviso tono="error" accion={<Boton tamano="chico" variante="secundario" onClick={() => setAviso('')}>Entendido</Boton>}>{aviso}</Aviso>}
 
-      {vista === 'curso' ? (
+      {vista === 'charlas' ? (
+        <CharlasDeWhatsapp
+          charlas={charlas.charlas}
+          error={charlas.error}
+          recargar={charlas.cargar}
+          onCreado={recargar}
+          onVerPedido={(id) => {
+            const p = pedidos.find((x) => x.id === id) ?? terminados?.find((x) => x.id === id);
+            if (p) setAbierto(p);
+            else window.location.href = `/pedidos?pedido=${id}`;
+          }}
+        />
+      ) : vista === 'curso' ? (
         <>
           {/* Tres carriles que ocupan el alto de la pantalla; cada uno desplaza lo
               suyo y, si el ancho da, pone las tarjetas de a dos (6/11/2026) */}
