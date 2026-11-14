@@ -730,7 +730,7 @@ export class PedidosService {
     let q = this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja, sucursal_id,
          destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),

@@ -36,6 +36,8 @@ export type PedidoCola = {
   /** Minutos de asignado a «Finalizar» (el armado del op salón). */
   minutosArmado?: number | null;
   minutos?: number;
+  /** De qué sucursal sale (la central para el bot, la web y la app). */
+  sucursal_id?: string | null;
   items?: { cantidad: number | string; precio_unitario?: number | string | null; producto?: { sku?: string; nombre?: string } | null }[];
 };
 

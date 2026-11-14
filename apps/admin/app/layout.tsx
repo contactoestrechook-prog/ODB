@@ -7,7 +7,7 @@ import { ReportarProblema } from "./ui/ReportarProblema";
 import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
 import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
 import { cookies } from "next/headers";
-import { rolDesdeToken } from "./lib/permisos";
+import { rolDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
 // Quién ve la ventana de "Llegó un pedido" (6/10/2026): los que pueden tomarlo
 // y prepararlo. Administración lo recibe por WhatsApp, con el link para tomarlo.
@@ -53,14 +53,15 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const rol = rolDesdeToken((await cookies()).get("odb_token")?.value);
+  const token = (await cookies()).get("odb_token")?.value;
+  const rol = rolDesdeToken(token);
   return (
     <html lang="es" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         {/* op salón: solo su pantalla, sin avisos ni botones del resto del sistema (5/11/2026) */}
         {rol !== "op_salon" && <AvisoPedidosSinAviso />}
         {children}
-        {rol && ATIENDEN_PEDIDOS.includes(rol) && <AvisoPedidoNuevo />}
+        {rol && ATIENDEN_PEDIDOS.includes(rol) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
         <AvisoActualizacion />
         <BannerInstalarApp />
         {rol !== "op_salon" && <ReportarProblema />}

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pesos } from '../lib/formato';
 import { cantidadLegible, codigoDe, entregaDe, haceCuanto, origenDe, sinTomar, telefonoLegible, type PedidoCola } from '../lib/pedidos';
+import { esDeMiSucursal, lecturaDeLaCola } from '../lib/aviso-caja';
 import { llevaFlotantes } from '../lib/rutas';
 import { Boton, Etiqueta, FOCO, IconoCerrar, unir } from './kit';
 import { conCodigo } from '../lib/codigo-producto';
@@ -46,7 +47,11 @@ const guardar = (clave: string, v: Record<string, number>) => {
 
 type Resultado = { id: string; texto: string; tono: 'ok' | 'neutro' };
 
-export function AvisoPedidoNuevo() {
+// 13/11/2026 (ODB empieza a recibir los pedidos en las cajas): cada caja ve los
+// de SU sucursal (todo lo del bot, la web y la app sale de la central; la otra
+// caja sonaba igual) y, si la sesión de la PC venció, la ventana lo dice en vez
+// de apagarse en silencio: antes un 401 la apagaba hasta recargar la página.
+export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null }) {
   const ruta = usePathname();
   const [pedidos, setPedidos] = useState<PedidoCola[]>([]);
   const [pospuestos, setPospuestos] = useState<Record<string, number>>({});
@@ -55,6 +60,7 @@ export function AvisoPedidoNuevo() {
   const [error, setError] = useState<string | null>(null);
   const [permisoNotif, setPermisoNotif] = useState<string>('granted');
   const [sinSonido, setSinSonido] = useState(false);
+  const [sinSesion, setSinSesion] = useState(false);
   const [, setReloj] = useState(0);
   const apagado = useRef(false);
   const tituloOriginal = useRef<string | null>(null);
@@ -63,19 +69,24 @@ export function AvisoPedidoNuevo() {
     if (apagado.current) return;
     try {
       const r = await fetch('/api/pedidos', { cache: 'no-store' });
-      // sin permiso para pedidos (o sin sesión): esta persona no recibe la ventana
-      if (r.status === 401 || r.status === 403) { apagado.current = true; setPedidos([]); return; }
-      if (!r.ok) return;
-      const lista = await r.json();
-      if (!Array.isArray(lista)) return;
+      const lectura = lecturaDeLaCola(r.status);
+      // sin permiso para pedidos: esta persona no recibe la ventana
+      if (lectura === 'sin_permiso') { apagado.current = true; setPedidos([]); setSinSesion(false); return; }
+      // sin sesión: se avisa y se sigue mirando (vuelve sola al entrar de nuevo)
+      if (lectura === 'sin_sesion') { setSinSesion(true); setPedidos([]); return; }
+      if (lectura !== 'ok') return;
+      const todos = await r.json();
+      if (!Array.isArray(todos)) return;
+      setSinSesion(false);
+      const lista = (todos as PedidoCola[]).filter((p) => esDeMiSucursal(p, sucursalId));
       const ahora = Date.now();
-      const nuevos = (lista as PedidoCola[])
+      const nuevos = lista
         .filter((p) => sinTomar(p) && ahora - Date.parse(p.creado_en) < VENTANA_MS)
         .sort((a, b) => Date.parse(b.creado_en) - Date.parse(a.creado_en));
       // la comanda: en esta PC, si está marcada, una sola vez por pedido aunque
       // haya varias pestañas (también los cargados a mano que ya tienen dueño)
       if (estaPcImprime()) {
-        for (const p of lista as PedidoCola[]) {
+        for (const p of lista) {
           if (['recibido', 'pagado'].includes(p.estado) && ahora - Date.parse(p.creado_en) < RECIENTE_MS) {
             await imprimirSiFalta(p).catch(() => false);
           }
@@ -100,7 +111,7 @@ export function AvisoPedidoNuevo() {
       }
       setPedidos(nuevos);
     } catch { /* sin red: la próxima vuelta */ }
-  }, []);
+  }, [sucursalId]);
 
   useEffect(() => {
     setPospuestos(leer(CLAVE_POSPUESTOS));
@@ -135,8 +146,8 @@ export function AvisoPedidoNuevo() {
   useEffect(() => {
     if (tituloOriginal.current === null) tituloOriginal.current = document.title;
     const base = tituloOriginal.current ?? 'O.D.B';
-    document.title = visibles.length ? `(${visibles.length}) Pedido nuevo · ${base}` : base;
-  }, [visibles.length]);
+    document.title = sinSesion ? `(!) Sesión vencida · ${base}` : visibles.length ? `(${visibles.length}) Pedido nuevo · ${base}` : base;
+  }, [visibles.length, sinSesion]);
 
   // la alarma se repite hasta que lo toman (o lo esconden 10 min en esta PC) y
   // crece con lo que lleva sin tomar el más viejo; donde la ventana no se ve
@@ -188,7 +199,7 @@ export function AvisoPedidoNuevo() {
     setPermisoNotif(r);
   }
 
-  if (!llevaFlotantes(ruta) || (!visibles.length && !resultado)) return null;
+  if (!llevaFlotantes(ruta) || (!visibles.length && !resultado && !sinSesion)) return null;
   const [primero, segundo] = visibles;
   // en el celular va una sola ventana (dos tapaban la pantalla entera); en escritorio, dos
   const restoMovil = visibles.length - 1;
@@ -205,6 +216,7 @@ export function AvisoPedidoNuevo() {
         'lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0',
       )}
     >
+      {sinSesion && <TarjetaSinSesion />}
       {resultado && (
         <div role="status" className={unir('animate-entra-aviso rounded-2xl px-4 py-3 text-sm shadow-flotante motion-reduce:animate-none', resultado.tono === 'ok' ? 'bg-ok text-white' : 'bg-tinta text-white')}>
           {resultado.texto}
@@ -230,6 +242,26 @@ export function AvisoPedidoNuevo() {
       {restoMovil > 0 && <MasSinTomar n={restoMovil} className="lg:hidden" />}
       {restoEscritorio > 0 && <MasSinTomar n={restoEscritorio} className="hidden lg:block" />}
     </div>
+  );
+}
+
+// La sesión de esta PC venció: sin entrar de nuevo no llega ningún pedido.
+function TarjetaSinSesion() {
+  return (
+    <section role="alert" aria-label="Sesión vencida" className="animate-entra-aviso overflow-hidden rounded-2xl bg-white shadow-flotante ring-1 ring-black/[0.06] motion-reduce:animate-none">
+      <div className="bg-marca px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white">Sesión vencida</div>
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-sm text-tinta">
+          Esta PC dejó de recibir los pedidos nuevos: no aparece la ventana ni suena la alarma hasta que vuelvas a entrar.
+        </p>
+        <a
+          href="/login"
+          className={unir('inline-flex min-h-9 w-full items-center justify-center rounded-full bg-marca px-4 text-sm font-semibold text-white hover:bg-marca-hondo', FOCO)}
+        >
+          Entrar de nuevo
+        </a>
+      </div>
+    </section>
   );
 }
 
