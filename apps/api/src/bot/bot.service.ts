@@ -3997,6 +3997,30 @@ export class BotService {
     return bloqueado;
   }
 
+  // TODOS LOS BLOQUEADOS de RESPONDE en una sola consulta (16/11/2026), para lo
+  // que sale solo: recordatorios de espera, consultas, programados y difusiones.
+  // Leandro: «y que no reenvíe esa notificación». 60 s de memoria; null si
+  // RESPONDE no contesta (en ese caso no se frena nada).
+  private bloqueadosTodos: { tels: Set<string>; hasta: number } | null = null;
+  async bloqueadosEnResponde(): Promise<Set<string> | null> {
+    if (this.bloqueadosTodos && this.bloqueadosTodos.hasta > Date.now()) return this.bloqueadosTodos.tels;
+    const r = await this.respondeRpc('odb_bloqueados', {}).catch(() => null);
+    if (!Array.isArray(r)) return null;
+    const tels = new Set<string>(r.map((w: unknown) => String(w ?? '').replace(/\D/g, '')).filter(Boolean));
+    this.bloqueadosTodos = { tels, hasta: Date.now() + 60_000 };
+    return tels;
+  }
+
+  /** ¿Es bloqueada la persona de esta charla? Por su teléfono o por su @lid de RESPONDE. */
+  async telefonoBloqueado(telefono: string, bloqueados: Set<string> | null): Promise<boolean> {
+    if (!bloqueados?.size) return false;
+    const d = String(telefono ?? '').replace(/\D/g, '');
+    if (!d) return false;
+    if (bloqueados.has(d)) return true;
+    const { waId } = await this.identidadResponde(telefono);
+    return bloqueados.has(String(waId).replace(/\D/g, ''));
+  }
+
   /** ¿El interruptor de RESPONDE es el de esta línea? Solo el de la principal (sin línea = la principal). */
   private async respondeMandaEn(linea: string | null | undefined): Promise<boolean> {
     return this.lineas.esPrincipal(linea);
@@ -4396,7 +4420,17 @@ export class BotService {
     const cfg = await cfgDe(principal);
     const otrasPrendidas = (await this.lineas.activas('pedidos')).some((f) => f.linea !== principal && f.bot_activo !== false);
     if (!cfg?.bot_activo && !otrasPrendidas) return;
-    const todos = await this.pendientesPaginados('bot_consultas_internas','respondido_en');
+    const pendientesTodas = await this.pendientesPaginados('bot_consultas_internas','respondido_en');
+    // de una persona bloqueada en RESPONDE no sale nada (16/11/2026): ni la
+    // respuesta del área, ni el recordatorio, ni el pase a una persona
+    const bloqueados = await this.bloqueadosEnResponde();
+    const deBloqueados = new Set<string>();
+    if (bloqueados?.size) {
+      for (const t of new Set(pendientesTodas.map((x: any) => String(x.telefono_cliente ?? '')))) {
+        if (await this.telefonoBloqueado(t, bloqueados)) deBloqueados.add(t);
+      }
+    }
+    const todos = deBloqueados.size ? pendientesTodas.filter((x: any) => !deBloqueados.has(String(x.telefono_cliente ?? ''))) : pendientesTodas;
     const porEntregar = (x: any) => x.respuesta_admin && !x.envio_iniciado_en && Number(x.intentos ?? 0) < 3;
     // Solo las que tienen algo por hacer: con 50 consultas viejas sin cerrar, el
     // slice dejaba afuera a las nuevas (sin recordatorio ni reintento de entrega).
@@ -6127,12 +6161,19 @@ export class BotService {
     const callados = new Set(((silenciados ?? []) as any[]).map((x) => String(x.telefono)));
     const pendientes = esperasParaAvisar(((esperando ?? []) as any[]).filter((e) => !callados.has(String(e.telefono))), Date.now());
     if (!pendientes.length) return;
+    const bloqueados = await this.bloqueadosEnResponde();
 
     // administración, la de la configuración que comparten todas las líneas (6/10/2026)
     const cfg = await this.lineas.config(await this.lineas.principal());
     const admin = String((cfg as any)?.derivar_pagos_a ?? '').replace(/\D/g, '');
 
     for (const c of pendientes) {
+      // bloqueada en RESPONDE (16/11/2026): ni aviso ni nota, y la espera se borra
+      // para que no vuelva a salir (los re-avisos de las 6 y 24 h)
+      if (await this.telefonoBloqueado(c.telefono, bloqueados)) {
+        await this.limpiarEspera(c.linea, c.telefono);
+        continue;
+      }
       const texto = String(c.esperando_texto ?? '').trim();
       const marcarAvisado = () => this.db.from('bot_conversaciones')
         .update({ esperando_aviso_en: new Date().toISOString(), esperando_avisos: Number(c.esperando_avisos ?? 0) + 1 })
@@ -6200,7 +6241,13 @@ export class BotService {
     const { data: pend } = await this.db.from('mensajes_programados').select('*')
       .is('enviado_en', null).is('cancelado_en', null).lte('enviar_en', new Date().toISOString()).limit(50);
     let ok = 0, mal = 0;
+    const bloqueados = (pend ?? []).length ? await this.bloqueadosEnResponde() : null;
     for (const m of (pend ?? []) as any[]) {
+      // a una persona bloqueada en RESPONDE no le sale nada (16/11/2026)
+      if (await this.telefonoBloqueado(m.telefono, bloqueados)) {
+        await this.db.from('mensajes_programados').update({ cancelado_en: new Date().toISOString(), error: 'la persona está bloqueada en RESPONDE' }).eq('id', m.id);
+        continue;
+      }
       // por la línea en que se programó (6/10/2026: salía siempre por la principal)
       const r = await this.enviarPorWhatsapp({ to: m.telefono, text: m.texto, referencia: `programado/${m.id}`, linea: m.linea });
       if (r.enviado) { ok++; await this.db.from('mensajes_programados').update({ enviado_en: new Date().toISOString() }).eq('id', m.id); }
@@ -6252,7 +6299,14 @@ export class BotService {
     const { data: d } = await this.db.from('responde_difusiones').select('*').eq('id', id).single();
     const { data: dest } = await this.db.from('responde_difusiones_destinatarios').select('telefono').eq('difusion_id', id).eq('estado', 'pendiente');
     let ok = 0, mal = 0;
+    // a una persona bloqueada en RESPONDE no le llega la difusión (16/11/2026)
+    const bloqueados = await this.bloqueadosEnResponde();
     for (const x of (dest ?? []) as any[]) {
+      if (bloqueados?.has(String(x.telefono ?? '').replace(/\D/g, ''))) {
+        mal++;
+        await this.db.from('responde_difusiones_destinatarios').update({ estado: 'fallido', error: 'la persona está bloqueada en RESPONDE' }).eq('difusion_id', id).eq('telefono', x.telefono);
+        continue;
+      }
       const r = await this.enviarPorWhatsapp({ to: x.telefono, text: d.texto || null, imagenUrl: d.imagen_url ?? null, referencia: `difusion/${id}`, linea: d.linea });
       if (r.enviado) { ok++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'enviado', enviado_en: new Date().toISOString() }).eq('difusion_id', id).eq('telefono', x.telefono); }
       else { mal++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'fallido', error: r.motivo ?? null }).eq('difusion_id', id).eq('telefono', x.telefono); }

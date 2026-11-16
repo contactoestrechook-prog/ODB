@@ -783,10 +783,84 @@ describe('una persona bloqueada en RESPONDE', () => {
     const llamadas: { fn: string; args: any }[] = [];
     s.respondeRpc = jest.fn(async (fn: string, args: any) => {
       llamadas.push({ fn, args });
+      if (fn === 'odb_bloqueados') return [CLIENTE];
       return fn === 'odb_estado_contacto' ? { existe: true, modo_humano: false, bloqueado: String(args?.p_whatsapp_id ?? '').includes(CLIENTE) } : { ok: true };
     });
     return llamadas;
   };
+
+  // «y que no reenvíe esa notificación» (16/11/2026): lo que sale solo tampoco
+  it('la respuesta de una consulta que quedó abierta no le sale', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_conversaciones: [{ linea: 'pedidos', telefono: CLIENTE, mensajes: [{ role: 'assistant', content: 'Hola' }], bot_activo: true }],
+      bot_consultas_internas: [{
+        id: 'c1', linea: 'pedidos', telefono_cliente: CLIENTE, nombre: 'Pablo', area: 'administracion', consulta: '¿Hay caja?', tema: 'la caja',
+        respuesta_admin: 'Sí, hay caja.', envio_iniciado_en: null, intentos: 0, proximo_intento_en: new Date(Date.now() - 60_000).toISOString(),
+        ultimo_error: 'reintento', enviado_a: ADMIN, respondido_en: null, gestion_version: 2, aviso_recordatorio_en: null,
+        creado_en: new Date(Date.now() - 30 * 60_000).toISOString(),
+      }],
+    }, { tomar_entrega_consulta_bot: (a: any) => ({ data: [{ id: a.p_id, envio_iniciado_en: null }], error: null }) });
+    const s = servicio(db);
+    bloqueadoEnResponde(s);
+    await s.seguirConsultasPendientes();
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_consultas_internas[0].respondido_en).toBeNull();
+    expect(db.tablas.bot_consultas_internas[0].aviso_recordatorio_en).toBeNull();
+  });
+
+  it('lo programado para el bloqueado se cancela; lo de otro cliente sale', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      mensajes_programados: [
+        { id: 'm1', linea: 'pedidos', telefono: CLIENTE, texto: 'Te recuerdo el retiro', enviar_en: new Date(Date.now() - 60_000).toISOString(), enviado_en: null, cancelado_en: null },
+        { id: 'm2', linea: 'pedidos', telefono: '5491177778888', texto: 'Te recuerdo el retiro', enviar_en: new Date(Date.now() - 60_000).toISOString(), enviado_en: null, cancelado_en: null },
+      ],
+    });
+    const s = servicio(db);
+    bloqueadoEnResponde(s);
+    await s.despacharProgramados();
+    expect(waha.envios().map((e) => e.cuerpo.chatId)).toEqual(['5491177778888@c.us']);
+    expect(db.tablas.mensajes_programados.find((m: any) => m.id === 'm1')).toMatchObject({ enviado_en: null, error: 'la persona está bloqueada en RESPONDE' });
+    expect(db.tablas.mensajes_programados.find((m: any) => m.id === 'm1').cancelado_en).toBeTruthy();
+  });
+
+  it('una difusión no le llega', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      responde_difusiones: [{ id: 'd1', linea: 'pedidos', texto: 'Llegó el Malbec', imagen_url: null }],
+      responde_difusiones_destinatarios: [{ difusion_id: 'd1', telefono: CLIENTE, estado: 'pendiente' }],
+    });
+    const s = servicio(db);
+    bloqueadoEnResponde(s);
+    await (s as any).despacharDifusion('d1');
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.responde_difusiones_destinatarios[0]).toMatchObject({ estado: 'fallido', error: 'la persona está bloqueada en RESPONDE' });
+  });
+
+  it('su charla que esperaba respuesta no vuelve a avisar: la espera se borra y no deja nota', async () => {
+    jest.useFakeTimers({ now: new Date('2026-11-16T15:00:00Z'), doNotFake: ['setTimeout', 'setInterval', 'setImmediate', 'nextTick', 'queueMicrotask'] });
+    try {
+      wahaFalso();
+      const db = baseEnMemoria({
+        lineas_whatsapp: [GENERAL, LOCAL],
+        bot_conversaciones: [{ linea: 'pedidos', telefono: CLIENTE, mensajes: [], bot_activo: false, derivada_motivo: 'Pausado desde RESPONDE',
+          esperando_desde: new Date(Date.now() - 40 * 60_000).toISOString(), esperando_texto: '¿Me pasás el precio del fernet?', esperando_aviso_en: null, esperando_avisos: 0 }],
+        bot_contactos: [],
+        bot_notas_equipo: [],
+      });
+      const s = servicio(db);
+      bloqueadoEnResponde(s);
+      await s.avisarEsperandoRespuesta();
+      expect(db.tablas.bot_conversaciones[0]).toMatchObject({ esperando_desde: null, esperando_texto: null });
+      expect(db.tablas.bot_notas_equipo).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   it('le escribe a cualquier línea: nadie le contesta, no queda esperando, no avisa y no se copia a RESPONDE', async () => {
     const waha = wahaFalso();
