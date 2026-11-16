@@ -169,7 +169,7 @@ export class SalonService {
     let q = this.db
       .from('ingresos_puerta')
       .select(`id, numero, numero_remito, notas, estado, creado_en, creado_por, confirmado_en, confirmado_por, numero_factura, motivo_rechazo, sucursal_id,
-        proveedor:proveedores(id, nombre), sucursal:sucursales(nombre),
+        proveedor:proveedores(id, nombre:razon_social), sucursal:sucursales(nombre),
         items:ingresos_puerta_items(cantidad, cantidad_confirmada, lote, vencimiento, producto:productos(id, sku, nombre))`)
       .order('creado_en', { ascending: false })
       .limit(100);
