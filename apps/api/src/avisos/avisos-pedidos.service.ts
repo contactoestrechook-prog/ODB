@@ -9,7 +9,7 @@ import { hayWhatsapp, Lineas, sesionDeAvisos, wahaUrlDe } from '../comun/lineas'
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
-  textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
+  textoDeAsignado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
 
 // TODA CONFIRMACIÓN DE PEDIDO SALE AL TELÉFONO DE ADMINISTRACIÓN (regla de
@@ -188,9 +188,23 @@ export class AvisosPedidosService {
     return { telefono, telefonoReal: await this.telefonoReal(telefono), nombre: (k as any)?.nombre ?? (k as any)?.nombre_wa ?? null, nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso, lineaWhatsapp: lineaWhatsapp || null };
   }
 
+  /** El celular de quien arma el pedido (Usuarios), para el aviso pedido_asignado. */
+  private async telefonoDeQuienArma(a: FilaAviso): Promise<string | null> {
+    const id = String(a.detalle?.usuario_id ?? '');
+    if (!id) return null;
+    const { data } = await this.db.from('usuarios').select('telefono').eq('id', id).maybeSingle();
+    const n = celularWhatsapp(String((data as any)?.telefono ?? ''));
+    return n.length >= 10 ? n : null;
+  }
+
   private async enviar(a: FilaAviso) {
-    const destino = await this.telefonoAdministracion();
-    if (!destino) return this.fallo(a, 'no hay teléfono de administración cargado (lineas_whatsapp.derivar_pagos_a)', false);
+    const aQuienArma = a.tipo === 'pedido_asignado';
+    const destino = aQuienArma ? await this.telefonoDeQuienArma(a) : await this.telefonoAdministracion();
+    if (!destino) {
+      return aQuienArma
+        ? this.omitir(a, 'la persona asignada no tiene un celular cargado en Usuarios')
+        : this.fallo(a, 'no hay teléfono de administración cargado (lineas_whatsapp.derivar_pagos_a)', false);
+    }
     const chatId = `${destino}@c.us`;
 
     // qué se manda
@@ -209,7 +223,15 @@ export class AvisosPedidosService {
       const pedido = a.pedido_id ? await this.pedidoParaAviso(a.pedido_id) : null;
       if (!pedido) return this.fallo(a, 'no encontré el pedido', false);
       cabeza = encabezado(a.tipo, codigoDe(pedido));
-      if (a.tipo === 'pedido_nuevo') {
+      if (aQuienArma) {
+        // entre que se asignó y que sale, se pudo cancelar, entregar o pasar a otra persona
+        if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);
+        const { data: asig } = await this.db.from('pedidos').select('asignado_a').eq('id', pedido.id).maybeSingle();
+        if (String((asig as any)?.asignado_a ?? '') !== String(a.detalle?.usuario_id ?? '')) return this.omitir(a, 'el pedido se le asignó a otra persona');
+        const nombre = a.detalle?.nombre ? String(a.detalle.nombre) : null;
+        texto = textoDeAsignado(pedido, { nombre, conRenglones: true });
+        if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDeAsignado(pedido, { nombre, conRenglones: false }) };
+      } else if (a.tipo === 'pedido_nuevo') {
         if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') {
           // el alta pudo haber salido sin quedar anotada (envío incierto, deploy,
           // tarjeta a medias): si salió, se marca y la base encola la BAJA; si no, se omite
@@ -287,7 +309,7 @@ export class AvisosPedidosService {
     let ultimo: Envio | null = null;
     if (tarjeta && a.ack !== -1) {
       try {
-        const urls = await this.subirTarjeta(tarjeta.pedido, codigoDe(tarjeta.pedido));
+        const urls = await this.subirTarjeta(tarjeta.pedido, codigoDe(tarjeta.pedido), aQuienArma ? 'PARA ARMAR' : undefined);
         if (urls?.length) {
           completo = true;
           for (let i = 0; i < urls.length; i++) {
@@ -378,7 +400,7 @@ export class AvisosPedidosService {
   }
 
   /** La tarjeta del pedido, subida al storage público (WAHA la baja de ahí). null si no se pudo. */
-  private async subirTarjeta(p: PedidoParaAviso, codigo: string): Promise<string[] | null> {
+  private async subirTarjeta(p: PedidoParaAviso, codigo: string, titulo = 'PEDIDO NUEVO'): Promise<string[] | null> {
     const domicilio = p.canal === 'domicilio';
     const cuando = cuandoLegible(p.entrega_fecha, p.entrega_franja)?.replace(/^el /, '') ?? null;
     const renglones = p.items.filter((i) => i.cantidad > 0).map((i) => ({
@@ -392,7 +414,7 @@ export class AvisosPedidosService {
         : { titulo: 'Retiro en la sucursal Saint Thomas', detalle: cuando || 'Sin día: lo antes posible' },
       confirmar: false,
       pie: '',
-      titulo: 'PEDIDO NUEVO',
+      titulo,
       subtitulo: codigo,
       nota: [p.cliente?.nombre, telefonoLegible(p.telefonoReal) ?? telefonoLegible(p.cliente?.telefono)].filter(Boolean).join(' · ') || undefined,
     });
@@ -429,7 +451,7 @@ export class AvisosPedidosService {
       ack: null, escalar_intentos: 0, escalar_proximo: null,
       ...extra,
     });
-    this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado a administración (${destino})${nota ? `: ${nota}` : ''}`);
+    this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado ${a.tipo === 'pedido_asignado' ? 'a quien lo arma' : 'a administración'} (${destino})${nota ? `: ${nota}` : ''}`);
   }
 
   private async omitir(a: FilaAviso, motivo: string) {
@@ -546,6 +568,9 @@ export class AvisosPedidosService {
     const salida: ProblemaDeAviso[] = [];
     for (const a of (data ?? []) as any[]) {
       if (a.visto_en) continue;
+      // el aviso a quien arma no se escala a los dueños ni pone la franja roja:
+      // tiene la comanda en la mano y el pedido en el sistema (16/11/2026)
+      if (a.tipo === 'pedido_asignado') continue;
       if (a.tipo === 'pedido_nuevo' && ['cancelado', 'entregado'].includes(String(a.pedidos?.estado ?? ''))) continue;
       const codigo = a.pedidos?.qr_retiro ? String(a.pedidos.qr_retiro) : a.detalle?.telefono ? `chat ${telefonoLegible(a.detalle.telefono) ?? a.detalle.telefono}` : String(a.id).slice(0, 8);
       if (a.estado === 'pendiente') {

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { terminosDeBusqueda } from '../comun/busqueda';
@@ -29,6 +29,8 @@ export function sirveEnSucursal(u: { rol: string; sucursal_id?: string | null },
 
 @Injectable()
 export class SalonService {
+  private readonly log = new Logger(SalonService.name);
+
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly compras: ComprasService,
@@ -297,7 +299,33 @@ export class SalonService {
       .update({ asignado_a: usuarioId, asignado_en: ahora, asignado_por: quien.sub ?? null, preparado_por: usuarioId, armado_terminado_en: null })
       .eq('id', pedidoId);
     if (e2) throw new BadRequestException(e2.message);
+    // CADA PEDIDO, AL CELULAR DE QUIEN LO ARMA (Leandro, 16/11/2026): sale por la
+    // cola de avisos de pedidos, que reintenta y mira el chat antes de repetir.
+    // Si no se pudo encolar, la asignación vale igual (tiene la comanda en la mano).
+    await this.encolarAvisoAsignado(pedidoId, usuarioId, (elegido as any).nombre ?? null)
+      .catch((e) => this.log.error(`no pude encolar el WhatsApp del pedido ${pedidoId} a ${(elegido as any).nombre}: ${e instanceof Error ? e.message : e}`));
     return { ok: true, asignadoA: usuarioId, nombre: (elegido as any).nombre, asignadoEn: ahora };
+  }
+
+  /** Un aviso por pedido: si se reasigna, se rearma para la persona nueva; a la misma no se le repite. */
+  async encolarAvisoAsignado(pedidoId: string, usuarioId: string, nombre: string | null) {
+    const detalle = { usuario_id: usuarioId, nombre };
+    const { data: previo, error } = await this.db.from('avisos_pedidos').select('id, detalle')
+      .eq('pedido_id', pedidoId).eq('tipo', 'pedido_asignado').maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!previo) {
+      const { error: e } = await this.db.from('avisos_pedidos').insert({ pedido_id: pedidoId, tipo: 'pedido_asignado', detalle });
+      if (e && (e as any).code !== '23505') throw new Error(e.message);
+      return;
+    }
+    if (String((previo as any).detalle?.usuario_id ?? '') === usuarioId) return;
+    const ahora = new Date().toISOString();
+    const { error: e } = await this.db.from('avisos_pedidos').update({
+      detalle, estado: 'pendiente', pendiente_desde: ahora, proximo_intento: ahora, intentos: 0, tomado_hasta: null,
+      destino: null, waha_id: null, waha_ids: [], enviado_en: null, entregado_en: null, ack: null, incierto: false,
+      ultimo_error: null, motivo: null,
+    }).eq('id', (previo as any).id);
+    if (e) throw new Error(e.message);
   }
 
   /** Los pedidos que tiene para armar, con el lugar de cada producto y lo que ya cargó. */

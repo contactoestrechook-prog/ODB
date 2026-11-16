@@ -10,7 +10,9 @@
 import { cuandoLegible } from '../comun/cuando';
 import { sinRestosDeMarcado } from '../comun/texto-limpio';
 
-export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar';
+// pedido_asignado es el único que NO va a administración: va al celular de quien
+// lo arma (16/11/2026, ver textoDeAsignado)
+export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado';
 
 export type PedidoParaAviso = {
   id: string;
@@ -112,6 +114,7 @@ const TITULOS: Record<TipoAviso, string> = {
   pedido_pagado: 'PEDIDO PAGADO',
   pedido_sin_cargar: 'PEDIDO CONFIRMADO SIN CARGAR',
   pedido_sin_tomar: 'PEDIDO SIN TOMAR',
+  pedido_asignado: 'PEDIDO PARA ARMAR',
 };
 
 /** El link al pedido en el panel: tocándolo desde el WhatsApp se abre con el botón "Lo tomo". */
@@ -180,6 +183,32 @@ export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: bool
     sinRestosDeMarcado(p.notas) ? `Notas: ${sinRestosDeMarcado(p.notas).slice(0, 300)}` : null,
     // quién lo recibe queda anotado (6/10/2026): el link abre el pedido en el panel con "Lo tomo"
     `Tomalo acá: ${linkDelPedido(p.id)}`,
+  ].filter(Boolean).join('\n');
+}
+
+/** La pantalla donde quien arma ve sus pedidos, con el lugar de cada producto. */
+export function linkDelSalon(): string {
+  return `${(process.env.ADMIN_URL ?? 'https://odb-admin-production.up.railway.app').replace(/\/$/, '')}/salon`;
+}
+
+/**
+ * CADA PEDIDO, AL CELULAR DE QUIEN LO ARMA (Leandro, 16/11/2026). Sale cuando
+ * en la caja se le asigna: qué lleva y cómo se entrega, sin precios (no cobra).
+ * Con `conRenglones`, también los productos (cuando no va la tarjeta).
+ */
+export function textoDeAsignado(p: PedidoParaAviso, opciones: { nombre?: string | null; conRenglones: boolean }): string {
+  const nombre = String(opciones.nombre ?? '').trim().split(/\s+/)[0];
+  const renglones = p.items.length
+    ? p.items.map((i) => `• ${Number(i.cantidad).toLocaleString('es-AR', { maximumFractionDigits: 3 })} × ${i.nombre}`)
+    : ['• (sin productos cargados: revisá el pedido en el sistema)'];
+  return [
+    encabezado('pedido_asignado', codigoDe(p)),
+    `${nombre ? `${nombre}, te` : 'Te'} asignaron este pedido para armar.`,
+    entregaDe(p),
+    clienteDe(p) ? `Cliente: ${clienteDe(p)}` : null,
+    ...(opciones.conRenglones ? renglones : []),
+    sinRestosDeMarcado(p.notas) ? `Notas: ${sinRestosDeMarcado(p.notas).slice(0, 300)}` : null,
+    `Lo ves en el sistema, con dónde está cada producto: ${linkDelSalon()}`,
   ].filter(Boolean).join('\n');
 }
 

@@ -799,7 +799,7 @@ export class PedidosService {
   async historial(pedidoId: string) {
     const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }] = await Promise.all([
       this.db.from('pedidos_historial').select('evento, estado_antes, estado_despues, usuario_id, detalle, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
-      this.db.from('avisos_pedidos').select('tipo, estado, enviado_en, entregado_en, visto_en, visto_por, escalado_en, motivo').eq('pedido_id', pedidoId),
+      this.db.from('avisos_pedidos').select('tipo, estado, enviado_en, entregado_en, visto_en, visto_por, escalado_en, motivo, detalle').eq('pedido_id', pedidoId),
       this.nombresDelEquipo(),
       this.db.from('pedidos').select('origen, qr_retiro, canal').eq('id', pedidoId).maybeSingle(),
     ]);
@@ -829,6 +829,13 @@ export class PedidosService {
     }
     const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
     for (const a of (avisos ?? []) as any[]) {
+      // el aviso a quien lo arma va a su celular, no a administración (16/11/2026)
+      if (a.tipo === 'pedido_asignado') {
+        const a_quien = a.detalle?.nombre ? String(a.detalle.nombre) : 'quien lo arma';
+        if (a.entregado_en) lineas.push({ cuando: a.entregado_en, que: `Le llegó el pedido por WhatsApp a ${a_quien}`, quien: null, tono: 'neutro' });
+        else if (a.enviado_en) lineas.push({ cuando: a.enviado_en, que: `Salió el pedido por WhatsApp a ${a_quien}`, quien: null, tono: 'neutro' });
+        continue;
+      }
       const de = TIPO_AVISO[String(a.tipo)] ?? 'un aviso';
       if (a.entregado_en) lineas.push({ cuando: a.entregado_en, que: `Le llegó a administración el WhatsApp con ${de}`, quien: null, tono: 'neutro' });
       else if (a.enviado_en) lineas.push({ cuando: a.enviado_en, que: `Salió el WhatsApp a administración con ${de}`, quien: null, tono: 'neutro' });

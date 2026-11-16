@@ -1,7 +1,7 @@
 import { AvisosPedidosService } from './avisos-pedidos.service';
 import {
   cuandoFue, encabezado, esperaParaEscalar, esperaParaReintentar, idLargoDeMensaje, origenDelPedido, telefonoLegible,
-  textoDeCancelado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type PedidoParaAviso,
+  textoDeAsignado, textoDeCancelado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type PedidoParaAviso,
 } from './aviso-pedido';
 
 // REGLA (Leandro, 3/10/2026): toda confirmación de pedido sale al teléfono de
@@ -752,5 +752,69 @@ describe('el pedido confirmado por comprobante (5/10/2026)', () => {
     const svc = new AvisosPedidosService(db);
     const p = await svc.pedidoParaAviso('p1');
     expect(p?.confirmadoPorComprobante).toBe('comprobante: $285.390');
+  });
+});
+
+// CADA PEDIDO, AL CELULAR DE QUIEN LO ARMA (Leandro, 16/11/2026)
+describe('el pedido asignado sale al celular de quien lo arma', () => {
+  const wsp = require('../comun/whatsapp');
+  const tarjeta = require('../comun/cartel-pedido-cuadrado');
+  let imagen: jest.SpyInstance; let texto: jest.SpyInstance; let carteles: jest.SpyInstance;
+  beforeEach(() => {
+    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
+    imagen = jest.spyOn(wsp, 'enviarImagenWhatsapp');
+    texto = jest.spyOn(wsp, 'enviarTextoWhatsapp');
+    carteles = jest.spyOn(tarjeta, 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
+  });
+  afterEach(() => jest.restoreAllMocks());
+  const ASIGNADO = { ...FILA, tipo: 'pedido_asignado' as const, detalle: { usuario_id: 'u-alexis', nombre: 'Alexis luna' } };
+  const conAsignado = (asignadoA: string | null, telefono: string | null = '5491155551326') =>
+    baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, asignado_a: asignadoA } }, usuarios: { data: { telefono } } });
+  const enviar = (db: any) => (new AvisosPedidosService(db) as any).enviar(ASIGNADO);
+
+  it('va a su celular (no a administración), con la tarjeta PARA ARMAR y el texto como epígrafe', async () => {
+    imagen.mockResolvedValue({ enviado: true, id: 'A1' });
+    const db = conAsignado('u-alexis');
+    await enviar(db);
+    expect(imagen).toHaveBeenCalledWith(db, '5491155551326', expect.any(String), expect.stringMatching(/^PEDIDO PARA ARMAR · PICKUP-5F2451C6C111\nAlexis, te asignaron este pedido para armar\./), 'aviso-pedido', expect.any(String));
+    expect(carteles.mock.calls[0][0]).toMatchObject({ titulo: 'PARA ARMAR', subtitulo: 'PICKUP-5F2451C6C111' });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', destino: '5491155551326', waha_id: 'A1' });
+  });
+
+  it('si mientras tanto se lo asignaron a otra persona, no sale', async () => {
+    const db = conAsignado('u-otra');
+    await enviar(db);
+    expect(imagen).not.toHaveBeenCalled();
+    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido', motivo: 'el pedido se le asignó a otra persona' });
+  });
+
+  it('aunque no salga, no se escala a los dueños ni pone la franja roja', async () => {
+    const hace1h = new Date(Date.now() - 60 * 60_000).toISOString();
+    const fila = { id: 'a1', pedido_id: 'p1', detalle: null, estado: 'pendiente', pendiente_desde: hace1h, creado_en: hace1h, pedidos: { qr_retiro: 'PICKUP-X', estado: 'en_preparacion' } };
+    const s = (tipo: string) => new AvisosPedidosService(baseFalsa({ avisos_pedidos: { data: [{ ...fila, tipo }], error: null } }));
+    expect(await s('pedido_nuevo').problemas()).toHaveLength(1);
+    expect(await s('pedido_asignado').problemas()).toEqual([]);
+  });
+
+  it('sin celular cargado en Usuarios, no sale y queda dicho por qué', async () => {
+    const db = conAsignado('u-alexis', null);
+    await enviar(db);
+    expect(imagen).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido', motivo: 'la persona asignada no tiene un celular cargado en Usuarios' });
+  });
+});
+
+describe('el texto para quien lo arma', () => {
+  it('dice qué lleva y cómo se entrega, sin precios, y dónde verlo en el sistema', () => {
+    process.env.ADMIN_URL = 'https://sistema.odbpremiummarket.com.ar';
+    const t = textoDeAsignado({ ...PEDIDO, items: [{ nombre: 'Quilmes x473cc', cantidad: 6, precio_unitario: 1800 }] }, { nombre: 'Alexis luna', conRenglones: true });
+    expect(t.split('\n')[0]).toBe('PEDIDO PARA ARMAR · PICKUP-5F2451C6C111');
+    expect(t).toContain('Alexis, te asignaron este pedido para armar.');
+    expect(t).toContain('• 6 × Quilmes x473cc');
+    expect(t).not.toMatch(/\$/);
+    expect(t).toContain('Notas: Retira mañana antes del mediodía en sucursal Saint Thomas.');
+    expect(t).toContain('https://sistema.odbpremiummarket.com.ar/salon');
+    delete process.env.ADMIN_URL;
   });
 });
