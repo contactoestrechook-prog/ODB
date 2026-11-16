@@ -3981,6 +3981,22 @@ export class BotService {
     return humano;
   }
 
+  // ¿La persona está bloqueada en RESPONDE? Se pregunta en cada mensaje: 30 s de
+  // memoria para no sumarle una vuelta a cada uno. Si RESPONDE no contesta, no
+  // está bloqueada (el bot sigue atendiendo como siempre).
+  private bloqueados = new Map<string, { bloqueado: boolean; hasta: number }>();
+  async respondeBloqueado(whatsappId: string): Promise<boolean> {
+    const k = String(whatsappId ?? '');
+    if (!k) return false;
+    const ya = this.bloqueados.get(k);
+    if (ya && ya.hasta > Date.now()) return ya.bloqueado;
+    const r = await this.respondeRpc('odb_estado_contacto', { p_whatsapp_id: k }).catch(() => null);
+    if (!r) return false;
+    const bloqueado = r.bloqueado === true;
+    this.bloqueados.set(k, { bloqueado, hasta: Date.now() + 30_000 });
+    return bloqueado;
+  }
+
   /** ¿El interruptor de RESPONDE es el de esta línea? Solo el de la principal (sin línea = la principal). */
   private async respondeMandaEn(linea: string | null | undefined): Promise<boolean> {
     return this.lineas.esPrincipal(linea);
@@ -5156,6 +5172,16 @@ export class BotService {
     // lo demás, como la respuesta de administración en la principal.
     const deLaCasa = await this.remitenteDeLaCasa(clave, real?.numero, !esLaPrincipal).catch(() => null);
     if (deLaCasa) return this.anotarDeLaCasa(linea, clave, p, deLaCasa);
+
+    // BLOQUEADO PARA SIEMPRE (Leandro, 16/11/2026): se bloquea desde la app de
+    // RESPONDE (menú de la conversación). No se contesta, no queda esperando
+    // respuesta, no abre consulta, no avisa a nadie y no se copia a RESPONDE: el
+    // mensaje solo queda en bot_entrantes. Antes el bloqueado se trataba como
+    // «atiende una persona» y cada mensaje terminaba en un aviso a administración.
+    if (await this.respondeBloqueado(esLid ? desde : identidad)) {
+      this.log.log(`bloqueado en RESPONDE: ${clave} escribió y no se atiende`);
+      return { contestado: false, motivo: 'bloqueado en RESPONDE' };
+    }
 
     // UN PROVEEDOR CONTESTANDO LA FECHA DE ENTREGA DE UN PEDIDO (23/10/2026).
     // Va antes que la charla: si quien escribe es un proveedor con una nota de

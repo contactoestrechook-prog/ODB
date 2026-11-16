@@ -294,6 +294,7 @@ select.sel { flex: 1; min-width: 0; height: 34px; border-radius: 10px; border: 1
 .btn.primario { background: var(--text); color: var(--panel); border-color: var(--text); }
 .btn.chico { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
 .btn.peligro { color: var(--rojo); }
+.btn.primario.peligro { background: var(--rojo); border-color: var(--rojo); color: #fff; }
 .btn:disabled { opacity: .5; cursor: default; }
 
 /* ===== Ventanas ===== */
@@ -448,6 +449,7 @@ body.embed .marca { display: none; }
       <button data-f="vos">Las atendés vos <span class="n"></span></button>
       <button data-f="ia">Responde la IA <span class="n"></span></button>
       <button data-f="derivadas">Pidieron una persona <span class="n"></span></button>
+      <button data-f="bloqueados" id="filtroBloq" class="oculto">Bloqueados <span class="n"></span></button>
     </nav>
     <div class="lista" id="lista" role="list"></div>
   </aside>
@@ -864,6 +866,9 @@ function pasaFiltro(f) {
   const lv = lineasVista();
   if (lv && S.linea && lineaDe(f, lv.ls) !== S.linea) return false;
   if (S.etiqueta && !(f.tags || []).includes(S.etiqueta)) return false;
+  // un bloqueado solo se ve en «Bloqueados» (16/11/2026): no ensucia la bandeja
+  if (S.filtro === 'bloqueados') return !!f.bloqueado;
+  if (f.bloqueado) return false;
   switch (S.filtro) {
     case 'noleidas': return f.no_leidos > 0;
     case 'mias': return !!(S.yo && S.yo.user_id && f.asignado_a === S.yo.user_id);
@@ -906,12 +911,13 @@ function ordenadas() {
 function pintarLista() {
   const todas = ordenadas();
   const yoId = S.yo && S.yo.user_id;
-  const cuenta = { todas: 0, noleidas: 0, mias: 0, sinasignar: 0, vos: 0, ia: 0, derivadas: 0 };
+  const cuenta = { todas: 0, noleidas: 0, mias: 0, sinasignar: 0, vos: 0, ia: 0, derivadas: 0, bloqueados: 0 };
   pintarLineas();
   const lvC = lineasVista();
   for (const f of todas) {
     if (S.etiqueta && !(f.tags || []).includes(S.etiqueta)) continue;
     if (lvC && S.linea && lineaDe(f, lvC.ls) !== S.linea) continue;
+    if (f.bloqueado) { cuenta.bloqueados++; continue; }
     cuenta.todas++;
     if (f.no_leidos > 0) cuenta.noleidas++;
     if (yoId && f.asignado_a === yoId) cuenta.mias++;
@@ -920,6 +926,7 @@ function pintarLista() {
     if (f.handoff) cuenta.derivadas++;
   }
   for (const b of document.querySelectorAll('#filtros button')) b.querySelector('.n').textContent = cuenta[b.dataset.f] || '';
+  $('#filtroBloq').classList.toggle('oculto', !cuenta.bloqueados && S.filtro !== 'bloqueados');
   const visibles = todas.filter((f) => pasaFiltro(f) && pasaBusca(f));
   const lista = $('#lista');
   const quedan = new Set(visibles.map((f) => f.id));
@@ -1274,7 +1281,8 @@ function pintarVoz(c0) {
   voz.dataset.quien = vos ? 'vos' : 'ia';
   let desc;
   clearTimeout(timerVoz);
-  if (!vos) desc = c.handoff ? '<b>Pidió hablar con una persona.</b> La IA sigue respondiendo.' : 'La IA responde esta conversación.';
+  if (c.bloqueado) desc = '<b>Bloqueado.</b> La IA no le contesta y sus mensajes no avisan. Para desbloquearlo: ⋯ → Desbloquear.';
+  else if (!vos) desc = c.handoff ? '<b>Pidió hablar con una persona.</b> La IA sigue respondiendo.' : 'La IA responde esta conversación.';
   else if (c.modo_humano_hasta) {
     const falta = new Date(c.modo_humano_hasta) - Date.now();
     const h = Math.floor(falta / 3600e3), mnt = Math.max(1, Math.round((falta % 3600e3) / 60e3));
@@ -1352,6 +1360,7 @@ async function cambiarContacto(cambios, aviso) {
   try {
     const r = await rpc('responde_app_contacto', { p_contact: id, p_cambios: cambios });
     const real = { asignado_a: r.asignado_a, fijada: r.fijada, tags: r.tags };
+    if ('bloqueado' in r) real.bloqueado = !!r.bloqueado;
     Object.assign(c, real); if (f) Object.assign(f, real);
     bloquear(id, 4000);
     if (cambios.tags) { const e = emp(c.tenant_id); for (const t of r.tags) if (!e.etiquetas.includes(t)) e.etiquetas.push(t); pintarSelEtiquetas(); }
@@ -1388,6 +1397,10 @@ function abrirMenuCharla(vista) {
     if (wa) h += '<button data-a="copiartel"><svg class="ico"><use href="#i-copiar"/></svg><span>Copiar el teléfono</span></button>';
     if (wa) h += '<button data-a="whatsapp"><svg class="ico"><use href="#i-wa"/></svg><span>Abrir en WhatsApp</span></button>';
     h += '<button data-a="exportar"><svg class="ico"><use href="#i-bajar"/></svg><span>Descargar la conversación</span></button>';
+    h += '<div class="menu-sep"></div>';
+    h += c.bloqueado
+      ? '<button data-a="desbloquear"><svg class="ico"><use href="#i-cerrar"/></svg><span>Desbloquear</span></button>'
+      : '<button data-a="bloquear" class="peligro"><svg class="ico"><use href="#i-cerrar"/></svg><span>Bloquear para siempre</span></button>';
   }
   menu.innerHTML = h; menu.classList.add('on');
 }
@@ -1419,6 +1432,21 @@ function accionCharla(a) {
   if (a === 'copiartel') copiar('+' + digitos(c.whatsapp_id));
   if (a === 'whatsapp') window.open('https://wa.me/' + digitos(c.whatsapp_id), '_blank', 'noopener');
   if (a === 'exportar') exportar();
+  if (a === 'bloquear') ventanaBloquear();
+  if (a === 'desbloquear') cambiarContacto({ bloqueado: false }, 'Desbloqueado: la IA le vuelve a contestar y la conversación vuelve a la lista.');
+}
+// BLOQUEAR PARA SIEMPRE (Leandro, 16/11/2026): ni la IA ni nadie le contesta,
+// no avisa y sale de la bandeja (queda en «Bloqueados», donde se desbloquea).
+function ventanaBloquear() {
+  const c = S.charla; if (!c) return;
+  const tel = digitos(c.whatsapp_id);
+  ventana('¿Bloquear a ' + nombreDe(c) + '?',
+    '<p class="ayuda">' + esc(nombreDe(c)) + (tel ? ' (+' + esc(tel) + ')' : '') + ' queda bloqueado para siempre:</p>' +
+    '<ul class="ayuda" style="margin:0 0 12px 18px;padding:0"><li>la IA no le contesta más, por ninguna línea;</li><li>sus mensajes no avisan a nadie;</li><li>la conversación sale de la lista y queda en «Bloqueados».</li></ul>' +
+    '<p class="ayuda">Se puede desbloquear cuando quieras desde el mismo menú.</p>' +
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><button class="btn" id="bloqCancelar">Cancelar</button><button class="btn primario peligro" id="bloqSi">Bloquear para siempre</button></div>');
+  $('#bloqCancelar').onclick = cerrarVentana;
+  $('#bloqSi').onclick = () => { cerrarVentana(); cambiarContacto({ bloqueado: true }, nombreDe(c) + ' quedó bloqueado. Lo ves en «Bloqueados».'); };
 }
 async function marcarNoLeida() {
   const id = S.abierto, f = S.filas.get(id);

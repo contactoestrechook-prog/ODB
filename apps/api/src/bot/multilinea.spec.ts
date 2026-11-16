@@ -777,6 +777,40 @@ function respondeFalso(s: any, inicial: Record<string, boolean> = {}) {
   return { humano, llamadas, de: (fn: string) => llamadas.filter((l) => l.fn === fn) };
 }
 
+// BLOQUEADO PARA SIEMPRE desde la app de RESPONDE (Leandro, 16/11/2026)
+describe('una persona bloqueada en RESPONDE', () => {
+  const bloqueadoEnResponde = (s: any) => {
+    const llamadas: { fn: string; args: any }[] = [];
+    s.respondeRpc = jest.fn(async (fn: string, args: any) => {
+      llamadas.push({ fn, args });
+      return fn === 'odb_estado_contacto' ? { existe: true, modo_humano: false, bloqueado: String(args?.p_whatsapp_id ?? '').includes(CLIENTE) } : { ok: true };
+    });
+    return llamadas;
+  };
+
+  it('le escribe a cualquier línea: nadie le contesta, no queda esperando, no avisa y no se copia a RESPONDE', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL], bot_conversaciones: [] });
+    const s = servicio(db);
+    const llamadas = bloqueadoEnResponde(s);
+    for (const [sesion, id] of [['odb', 'false_B1'], ['odb-local', 'false_B2']] as const) {
+      const r: any = await s.webhookWaha(mensajeDe(sesion, CLIENTE, 'Hola, ¿tienen fernet?', id));
+      expect(r).toMatchObject({ contestado: false, motivo: 'bloqueado en RESPONDE' });
+    }
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_conversaciones ?? []).toHaveLength(0);
+    expect(llamadas.filter((l) => l.fn !== 'odb_estado_contacto')).toEqual([]);
+    // 30 s de memoria: el segundo mensaje no vuelve a preguntar
+    expect(llamadas.filter((l) => l.fn === 'odb_estado_contacto')).toHaveLength(1);
+  });
+
+  it('si RESPONDE no contesta, no está bloqueado (el bot atiende como siempre)', async () => {
+    const s = servicio(baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] }));
+    (s as any).respondeRpc = jest.fn(async () => null);
+    expect(await (s as any).respondeBloqueado(CLIENTE)).toBe(false);
+  });
+});
+
 describe('Revisión 2 y 8: el interruptor de RESPONDE (un contacto para las dos líneas) es solo el de la general', () => {
   it('alguien del otro sector contesta desde su teléfono: se pausa SOLO la charla local y la general sigue atendiendo', async () => {
     const waha = wahaFalso();
