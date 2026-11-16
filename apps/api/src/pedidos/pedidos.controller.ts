@@ -79,7 +79,8 @@ export class PedidosController {
         orderId: Math.floor(100000 + Math.random() * 900000),
         customer: { name: 'Cliente PedidosYa' },
         items: [
-          { sku: 'CER-0001', name: 'Cerveza Quilmes lata 473', quantity: 6 },
+          // sin código: los de prueba (CER-0001, VIN-0005) están dados de baja
+          { name: 'Cerveza Quilmes lata 473', quantity: 6 },
           { name: 'fernet branca 750', quantity: 1 },
           { name: 'picada aceitunas verdes', quantity: 1 },
         ],
@@ -92,7 +93,7 @@ export class PedidosController {
           { name: 'coca cola original 2.25', quantity: 2 },
           { name: 'jamon crudo feteado', quantity: 1 },
           { name: 'queso brie', quantity: 1 },
-          { sku: 'VIN-0005', name: 'Zuccardi Serie A Malbec', quantity: 1 },
+          { name: 'Zuccardi Serie A Malbec', quantity: 1 },
         ],
       },
     ];

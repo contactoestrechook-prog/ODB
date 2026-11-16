@@ -49,7 +49,9 @@ const METROS_POR_MIN = 360;
 
 // Por dónde entró un pedido (6/10/2026). Los nuevos lo traen en pedidos.origen;
 // los viejos se deducen del código (PY-, TN-, WA-) como hacía la cola.
-export type OrigenPedido = 'bot' | 'web' | 'app' | 'panel' | 'pedidosya' | 'tiendanube';
+export type OrigenPedido = 'bot' | 'web' | 'app' | 'panel' | 'pedidosya' | 'tiendanube' | 'simulador';
+/** los pedidos del botón «Simular PedidosYa»: suenan en las cajas, pero no se entregan */
+export const ORIGEN_PRUEBA = 'simulador';
 export function origenDe(p: { origen?: string | null; qr_retiro?: string | null; canal?: string | null }): string {
   if (p.origen) return p.origen;
   const qr = String(p.qr_retiro ?? '');
@@ -66,7 +68,8 @@ const NOMBRE_ORIGEN: Record<string, string> = {
   panel: 'el panel (cargado a mano)',
   pedidosya: 'PedidosYa',
   tiendanube: 'Tiendanube',
-  charla: 'una charla de WhatsApp (pasada a pedido en el panel)',
+  simulador: 'el botón «Pedido de prueba» (no es un pedido real)',
+  charla:'una charla de WhatsApp (pasada a pedido en el panel)',
   pickup: 'la tienda web o la app',
   domicilio: 'la tienda web o la app',
 };
@@ -196,7 +199,8 @@ export class PedidosService {
 
   // --- Recepción desde PedidosYa (webhook o simulador) ---
   async recibirDePedidosYa(payload: PedidoYaPayload, opciones: { simulado?: boolean } = {}) {
-    const referencia = `PY-${payload.orderId}`;
+    // la prueba no lleva el «PY-» de PedidosYa: no la cobra ni la retira nadie
+    const referencia = `${opciones.simulado ? 'PRUEBA' : 'PY'}-${payload.orderId}`;
     const { data: existente } = await this.db
       .from('pedidos')
       .select('id')
@@ -210,10 +214,13 @@ export class PedidosService {
     for (const item of payload.items ?? []) {
       let productoId: string | null = null;
       if (item.sku) {
+        // solo un artículo activo: uno dado de baja no tiene stock y el pedido
+        // no se podría entregar (16/11/2026, la cerveza de prueba CER-0001)
         const { data } = await this.db
           .from('productos')
           .select('id')
           .eq('sku', item.sku)
+          .eq('activo', true)
           .maybeSingle();
         productoId = data?.id ?? null;
       }
@@ -258,9 +265,11 @@ export class PedidosService {
       reservar: false,
     });
     // El simulador del panel es una prueba: no se le avisa a administración
-    // (la base deja el aviso pendiente y se toma recién a los 10 segundos).
+    // (la base deja el aviso pendiente y se toma recién a los 10 segundos), y
+    // queda marcada como prueba en todas las pantallas y sin poder entregarse.
     if (opciones.simulado) {
       await this.db.from('avisos_pedidos').update({ estado: 'omitido', motivo: 'simulador de PedidosYa (prueba)' }).eq('pedido_id', pedidoId).then(() => null, () => null);
+      await this.db.from('pedidos').update({ origen: ORIGEN_PRUEBA }).eq('id', pedidoId).then(() => null, () => null);
     }
     return { pedidoId, renglones: items.length, sinMatch };
   }
@@ -853,6 +862,13 @@ export class PedidosService {
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
     if (!transicionValida(pedido.estado, estado)) {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
+    }
+
+    // UN PEDIDO DE PRUEBA NO ES UNA VENTA (16/11/2026). Juan Pablo quiso cerrar
+    // un pedido del botón «Simular PedidosYa» y el sistema le decía que no había
+    // la cerveza: era el artículo de prueba, dado de baja. Una prueba se cancela.
+    if (estado === 'entregado' && pedido.origen === ORIGEN_PRUEBA) {
+      throw new BadRequestException('Es un pedido de prueba (botón «Pedido de prueba»): no se entrega porque no es una venta. Cancelalo.');
     }
 
     // Un envío a domicilio se entrega DESPUÉS de salir (revisión del 21/10/2026).

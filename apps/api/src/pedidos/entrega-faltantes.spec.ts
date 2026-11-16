@@ -37,6 +37,14 @@ describe('entregar con faltantes', () => {
     expect(llamadas.find((l) => l.name === 'entregar_pedido')).toBeUndefined();
   });
 
+  it('un pedido de prueba (botón «Pedido de prueba») no se entrega: dice que se cancela', async () => {
+    // 16/11/2026: Juan Pablo quiso cerrar uno y el sistema decía que no había la cerveza de prueba
+    const { svc, llamadas } = armar({}, { id: 'p-1', estado: 'listo', origen: 'simulador', items: [], cliente: null });
+    const err = await svc.avanzar('p-1', 'entregado').catch((e) => e);
+    expect(err.message).toBe('Es un pedido de prueba (botón «Pedido de prueba»): no se entrega porque no es una venta. Cancelalo.');
+    expect(llamadas).toEqual([]);
+  });
+
   it('sin faltantes entrega como siempre', async () => {
     const { svc, llamadas } = armar({ faltantes_pedido: { data: [], error: null }, entregar_pedido: { data: { venta: { venta_id: 'v-1' } }, error: null } });
     await expect(svc.avanzar('p-1', 'entregado')).resolves.toMatchObject({ estado: 'entregado' });

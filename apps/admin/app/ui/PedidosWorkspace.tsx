@@ -216,7 +216,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
         </dl>
         <div className="grid w-full gap-2 sm:flex sm:w-auto">
           <Boton onClick={() => setWa(true)}>Pedido por WhatsApp</Boton>
-          {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })}>Simular PedidosYa</Boton>}
+          {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })} title="Crea un pedido de PRUEBA: suena en las cajas, pero no se entrega; se cancela">Pedido de prueba (PedidosYa)</Boton>}
         </div>
       </div>
 

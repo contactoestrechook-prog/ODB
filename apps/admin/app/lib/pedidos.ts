@@ -51,6 +51,8 @@ export const ORIGENES: Record<string, { label: string; tono: TonoEtiqueta }> = {
   app: { label: 'App', tono: 'info' },
   pedidosya: { label: 'PedidosYa', tono: 'error' },
   tiendanube: { label: 'Tiendanube', tono: 'info' },
+  // del botón «Pedido de prueba»: no se entrega, se cancela (16/11/2026)
+  simulador: { label: 'PRUEBA · no es un pedido real', tono: 'atencion' },
   // pedidos de antes del 6/10/2026 sin origen grabado
   pickup: { label: 'Web o app', tono: 'info' },
   domicilio: { label: 'Web o app', tono: 'info' },

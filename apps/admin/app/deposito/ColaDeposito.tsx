@@ -131,7 +131,7 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
           onClick={simular}
           disabled={ocupado === 'simular'}
         >
-          {ocupado === 'simular' ? 'Llegando…' : 'Simular pedido de PedidosYa'}
+          {ocupado === 'simular' ? 'Llegando…' : 'Pedido de prueba (PedidosYa)'}
         </Boton>
       </div>
 
