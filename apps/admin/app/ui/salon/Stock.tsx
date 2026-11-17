@@ -60,6 +60,7 @@ export function Stock({ sucursalPropia }: { sucursalPropia: string | null }) {
   const actual = lugares?.sucursales.find((s) => s.sucursalId === lugares.sucursalId);
   const categoria = lugares?.categorias.find((c) => (c.categoriaId ?? 'sin') === cat) ?? null;
   const pendientes = lugares?.categorias.filter((c) => c.sinLugar > 0) ?? [];
+  const siguienteCat = pendientes.find((c) => (c.categoriaId ?? 'sin') !== cat) ?? null;
 
   return (
     <div className="space-y-5">
@@ -135,7 +136,8 @@ export function Stock({ sucursalPropia }: { sucursalPropia: string | null }) {
 
           {categoria ? (
             <CargaCategoria key={`${suc}|${cat}`} sucursalId={suc} categoria={categoria} listaLugares={listaLugares}
-              onGuardado={(n, lugar) => { anotarLugar(lugar); sumarLugar(categoria.categoriaId, n); }} />
+              onGuardado={(n, lugar) => { anotarLugar(lugar); sumarLugar(categoria.categoriaId, n); }}
+              siguiente={siguienteCat} onSiguiente={() => siguienteCat && setCat(siguienteCat.categoriaId ?? 'sin')} />
           ) : <Tarjeta><p className="text-sm text-tinta/70">Elegí una categoría.</p></Tarjeta>}
         </div>
       )}
@@ -151,11 +153,14 @@ function nombreCat(n: string) {
 
 // ───────────────────────── una categoría ─────────────────────────
 
-function CargaCategoria({ sucursalId, categoria, listaLugares, onGuardado }: {
+function CargaCategoria({ sucursalId, categoria, listaLugares, onGuardado, siguiente, onSiguiente }: {
   sucursalId: string;
   categoria: Lugares['categorias'][number];
   listaLugares: string;
   onGuardado: (n: number, lugar: string) => void;
+  /** la próxima categoría con productos sin lugar */
+  siguiente: Lugares['categorias'][number] | null;
+  onSiguiente: () => void;
 }) {
   const [lista, setLista] = useState<SinLugar[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +202,7 @@ function CargaCategoria({ sucursalId, categoria, listaLugares, onGuardado }: {
           <h3 className="text-base font-bold text-tinta">{nombreCat(categoria.categoria)}</h3>
           <p className="text-sm text-tinta/70">{lista ? `${numero(faltan.length)} sin lugar de ${numero(categoria.conStock)} con stock` : 'Buscando…'}</p>
         </div>
+        {faltan.length > 0 && <p className="mt-0.5 text-xs text-tinta/60">Escribí el lugar de cada uno y tocá Enter: se guarda y pasa al siguiente.</p>}
         {/* toda la góndola de una */}
         {faltan.length > 0 && categoria.categoriaId && (
           <form onSubmit={(e) => { e.preventDefault(); ponerATodos(); }} className="mt-3 flex flex-wrap items-end gap-2">
@@ -208,13 +214,16 @@ function CargaCategoria({ sucursalId, categoria, listaLugares, onGuardado }: {
           </form>
         )}
         {aviso && <p className="mt-2 text-sm font-semibold text-ok">{aviso}</p>}
+        {lista && faltan.length === 0 && siguiente && (
+          <Boton tamano="chico" onClick={onSiguiente} className="mt-3">Seguir con {nombreCat(siguiente.categoria)} · faltan {numero(siguiente.sinLugar)}</Boton>
+        )}
         {error && <div className="mt-3"><Aviso tono="error">{error}</Aviso></div>}
       </div>
 
       {lista && lista.length > 0 && (
         <>
           <div className="hidden grid-cols-[minmax(0,1fr)_5rem_minmax(9rem,14rem)] gap-3 border-b border-black/[0.06] px-5 py-2 sm:grid">
-            <span className={ROTULO}>Producto</span><span className={unir(ROTULO, 'text-right')}>Stock</span><span className={ROTULO}>Lugar · Enter guarda y pasa al siguiente</span>
+            <span className={ROTULO}>Producto</span><span className={unir(ROTULO, 'text-right')}>Stock</span><span className={ROTULO}>Lugar</span>
           </div>
           <ul className="divide-y divide-black/[0.06]">
             {lista.map((p, i) => (
