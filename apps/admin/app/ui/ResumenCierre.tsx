@@ -28,13 +28,17 @@ function imprimirPlanilla(d: ResumenCierreDatos) {
     : '';
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cierre de caja</title>
 <style>
-  body{font-family:-apple-system,system-ui,Segoe UI,sans-serif;color:#141414;margin:24px;font-size:13px}
-  h1{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#666;margin:0}
-  h2{font-size:18px;margin:2px 0 0} .sub{color:#666;margin:2px 0 14px}
-  table{width:100%;border-collapse:collapse;margin-bottom:14px} td,th{padding:5px 6px;border-top:1px solid #e5e5e5;text-align:left}
-  th{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#666;background:#f5f1ea;border:0}
-  .n{text-align:right;font-variant-numeric:tabular-nums} .tot td{font-weight:700;border-top:2px solid #141414}
-  .dif td{font-weight:700} .small{color:#888;font-size:11px}
+  /* Sale por la térmica de la caja: sin grises ni fondos. La térmica no tiene gris:
+     lo arma con puntos sueltos y la letra sale cortada (Leandro, 17/11/2026:
+     «sale mal la tinta cuando imprimimos de nuestro sistema»). Todo en negro puro. */
+  *{color:#000 !important;background:transparent !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:-apple-system,system-ui,Segoe UI,sans-serif;margin:24px;font-size:13px}
+  h1{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:0}
+  h2{font-size:18px;margin:2px 0 0} .sub{margin:2px 0 14px}
+  table{width:100%;border-collapse:collapse;margin-bottom:14px} td,th{padding:5px 6px;text-align:left}
+  th{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #000}
+  .n{text-align:right;font-variant-numeric:tabular-nums} .tot td{font-weight:700;border-top:2px solid #000}
+  .dif td{font-weight:700} .small{font-size:11px}
   @media print{body{margin:10mm}}
 </style></head><body>
 <h1>${d.sesion.cerrada ? 'Cierre de caja' : 'Cómo va la caja'}</h1>
@@ -89,7 +93,7 @@ export function ResumenCierre({ sesionId, recargar = 0, imprimible = true }: { s
 
   return (
     <div id="cierre-caja-print" className="min-w-0 space-y-4 text-tinta">
-      <style>{`@media print { body * { visibility: hidden !important; } #cierre-caja-print, #cierre-caja-print * { visibility: visible !important; } #cierre-caja-print { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; } .no-print { display: none !important; } }`}</style>
+      <style>{`@media print { body * { visibility: hidden !important; } #cierre-caja-print, #cierre-caja-print * { visibility: visible !important; color: #000 !important; background: transparent !important; } #cierre-caja-print { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; } .no-print { display: none !important; } }`}</style>
 
       {/* cabecera */}
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
