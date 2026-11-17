@@ -382,7 +382,7 @@ function Cifras({
       <div className="col-span-2 border-b border-black/[0.06] p-4 sm:p-5 lg:col-span-1 lg:border-r lg:border-b-0">
         <p className={ROTULO}>Facturado en {nombreMes(mes)}{hastaTexto && <span className="normal-case tracking-normal"> · {hastaTexto}</span>}</p>
         <p className="importe mt-1.5 text-3xl font-bold leading-none tracking-tight text-tinta sm:text-4xl">{c ? pesos(c.neto) : SUMANDO}</p>
-        {comp && (
+        {comp && t!.hastaDia > 0 && (
           <div className="mt-2.5 space-y-1 text-sm">
             {delta != null ? (
               <p className={unir('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold', delta >= 0 ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}>
@@ -417,7 +417,7 @@ function Cifras({
       <CifraChica
         rotulo="Clientes que compraron"
         valor={c ? c.clientes.toLocaleString('es-AR') : null}
-        bajada={comp ? `${comp.anterior.clientes} del 1 al ${t!.hastaDia} de ${ant}` : null}
+        bajada={comp ? (mesCompleto ? `${comp.anterior.clientes} en ${ant}` : `${comp.anterior.clientes} del 1 al ${t!.hastaDia} de ${ant}`) : null}
         className="border-r border-black/[0.06]"
       />
       <CifraChica
