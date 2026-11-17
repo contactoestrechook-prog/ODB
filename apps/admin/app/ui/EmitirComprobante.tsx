@@ -30,9 +30,15 @@ const CASILLA = 'flex min-h-11 items-center gap-2.5 text-sm text-tinta';
 export function EmitirComprobante({
   sucursales,
   ventaInicial,
+  pedido,
+  sinBoton = false,
 }: {
   sucursales: Sucursal[];
   ventaInicial?: { id: string; total: number } | null;
+  /** Abrir desde afuera con un tipo elegido («Factura», «Nota de crédito»…): cada pedido nuevo trae otro `n`. */
+  pedido?: { tipo: string; n: number } | null;
+  /** Sin el botón propio: lo abren los botones de la pantalla (Facturación, 17/11/2026). */
+  sinBoton?: boolean;
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(!!ventaInicial);
@@ -52,6 +58,14 @@ export function EmitirComprobante({
   const [referenciaId, setReferenciaId] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+
+  // la pantalla pide abrir con un tipo («Nota de crédito», «Recibo»…)
+  useEffect(() => {
+    if (!pedido) return;
+    setTipo(pedido.tipo);
+    setError('');
+    setAbierto(true);
+  }, [pedido]);
 
   // sugerencias de clientes
   useEffect(() => {
@@ -128,9 +142,11 @@ export function EmitirComprobante({
 
   return (
     <>
-      <Boton onClick={() => setAbierto(true)} className="w-full sm:w-auto">
-        + Emitir comprobante
-      </Boton>
+      {!sinBoton && (
+        <Boton onClick={() => setAbierto(true)} className="w-full sm:w-auto">
+          + Emitir comprobante
+        </Boton>
+      )}
 
       <Modal
         abierto={abierto}

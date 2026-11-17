@@ -32,7 +32,8 @@ export default async function Salon() {
       verTodos={!esOp}
     />
   );
-  if (!esOp) return <Pantalla activo="/salon">{trabajo}</Pantalla>;
+  // los que mandan: la sala de control a lo ancho (rediseño del 17/11/2026)
+  if (!esOp) return <Pantalla activo="/salon" ancho="ancho" bajada="Quién arma cada pedido y por dónde va, dónde está cada producto y lo que entra por la puerta de depósito">{trabajo}</Pantalla>;
 
   const sucursal = (sucursales ?? []).find((s: any) => s.id === propia)?.nombre ?? null;
   return (

@@ -5,6 +5,10 @@ import { enviarPush } from './push';
 import { calcularIva, RenglonInvalidoError, type ItemComprobante } from './iva';
 import { saldosPorCliente, agruparResumen, numeroLindo } from './cuentas';
 import { libroIvaVentas, libroIvaCompras, resumenIva } from './libro-iva';
+import {
+  cifras, comprobantesDeNucleo, diaBA, diasDelMes, diasPromedio, mesAnterior, porDia, resumirMes, ticketsDelCrack, tramosDeDeuda,
+  type Comprobante, type ComprobanteNucleo, type RenglonCrack, type Sucursal,
+} from './tablero';
 
 // Tipos de comprobante estilo Tango. Las letras siguen la condición fiscal:
 // A discrimina IVA (responsable inscripto), B consumidor final, C monotributo.
@@ -345,6 +349,208 @@ export class FacturacionService {
       cuentasActivas: cuentas.filter((c) => c.saldo > 0).length,
       grupos,
     };
+  }
+
+  // ---------- tablero (17/11/2026) ----------
+
+  // Lee todo de a 1.000 (el tope de PostgREST), ordenado por id para no saltear
+  // filas. La primera página trae la cuenta y el resto se pide en paralelo
+  // (de a una tardaba 3,5 s el mes con el anterior).
+  private async todo<T>(armar: (conCuenta: boolean) => any): Promise<T[]> {
+    const pagina = async (off: number, conCuenta = false) => {
+      const { data, error, count } = await armar(conCuenta).order('id', { ascending: true }).range(off, off + 999);
+      if (error) throw new BadRequestException(error.message);
+      return { filas: (data ?? []) as T[], count: count as number | null };
+    };
+    const primera = await pagina(0, true);
+    const total = primera.count ?? primera.filas.length;
+    if (total <= 1000 || primera.filas.length < 1000) return primera.filas;
+    const resto = await Promise.all(Array.from({ length: Math.ceil(total / 1000) - 1 }, (_, i) => pagina((i + 1) * 1000)));
+    return [primera.filas, ...resto.map((r) => r.filas)].flat();
+  }
+
+  // El mes de facturación entero, de las dos fuentes: lo emitido en NÚCLEO y lo
+  // que el Crack le facturó a clientes con ficha. `sucursal`: 'st' | 'si' | todas.
+  async tablero(mesPedido?: string, sucursalPedida?: string) {
+    const hoy = diaBA(new Date().toISOString());
+    const mes = /^\d{4}-\d{2}$/.test(mesPedido ?? '') ? mesPedido! : hoy.slice(0, 7);
+    const anterior = mesAnterior(mes);
+    const sucursal: Sucursal | null = sucursalPedida === 'st' || sucursalPedida === 'si' ? sucursalPedida : null;
+    const desde = `${anterior}-01`;
+    const [y, m] = mes.split('-').map(Number);
+    const hasta = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10); // 1° del mes siguiente
+
+    const { data: sucs } = await this.db.from('sucursales').select('punto_venta_arca, arca_emisor');
+    const sucursalDePv: Record<number, Sucursal> = {};
+    for (const s of (sucs ?? []) as any[]) if (s.punto_venta_arca != null) sucursalDePv[Number(s.punto_venta_arca)] = s.arca_emisor === 'santa_ines' ? 'si' : 'st';
+
+    // por cobrar: la misma fuente que Cuentas corrientes (saldo de cada cuenta);
+    // arranca junto con lo demás
+    const cobrarP = (async () => {
+      let qc = this.db
+        .from('clientes')
+        .select('id, nombre, razon_social, telefono, saldo_cta_cte, limite_credito, sucursal')
+        .eq('cta_cte_habilitada', true)
+        .eq('cta_cte_tipo', 'cliente')
+        .gt('saldo_cta_cte', 0)
+        .order('saldo_cta_cte', { ascending: false });
+      if (sucursal === 'si') qc = qc.eq('sucursal', 'si');
+      if (sucursal === 'st') qc = qc.or('sucursal.is.null,sucursal.eq.st');
+      const { data: deudores, error: eDeu } = await qc;
+      if (eDeu) throw new BadRequestException(eDeu.message);
+      const listaDeu = (deudores ?? []) as any[];
+      const dias = new Map<string, number | null>();
+      if (listaDeu.length) {
+        const { data: ant } = await this.db.rpc('deuda_antiguedad', { p_clientes: listaDeu.map((c) => c.id) });
+        for (const a of (ant ?? []) as any[]) dias.set(a.cliente_id, a.dias == null ? null : Number(a.dias));
+      }
+      const cuentasDeu = listaDeu.map((c) => ({ id: c.id, saldo: Number(c.saldo_cta_cte), dias: dias.get(c.id) ?? null }));
+      return { listaDeu, dias, cuentasDeu };
+    })();
+    cobrarP.catch(() => undefined); // si falla, el error sale en el await de abajo (y no tumba el proceso antes)
+
+    const [renglones, nucleo, frescuraSt, frescuraSi, arcaPend, arcaErr] = await Promise.all([
+      this.todo<RenglonCrack & { id: number }>((conCuenta) => {
+        let q = this.db
+          .from('compras_cliente_historico')
+          .select('id, cliente_id, fecha, sucursal, ticket, cantidad, precio_unitario, medio_pago', conCuenta ? { count: 'exact' } : undefined)
+          .gte('fecha', desde)
+          .lt('fecha', hasta);
+        if (sucursal) q = q.eq('sucursal', sucursal);
+        return q;
+      }),
+      this.todo<ComprobanteNucleo>((conCuenta) =>
+        this.db
+          .from('comprobantes')
+          .select('id, tipo, punto_venta, numero, emitido_en, total, estado, condicion_pago, cliente_id, receptor, cae', conCuenta ? { count: 'exact' } : undefined)
+          .gte('emitido_en', `${desde}T03:00:00Z`)
+          .lt('emitido_en', `${hasta}T03:00:00Z`),
+      ),
+      this.db.from('compras_cliente_historico').select('fecha').eq('sucursal', 'st').order('fecha', { ascending: false }).limit(1),
+      this.db.from('compras_cliente_historico').select('fecha').eq('sucursal', 'si').order('fecha', { ascending: false }).limit(1),
+      this.db.from('comprobantes_arca').select('*', { count: 'exact', head: true }).eq('estado', 'pendiente'),
+      this.db.from('comprobantes_arca').select('*', { count: 'exact', head: true }).eq('estado', 'error'),
+    ]);
+
+    let todos = [...ticketsDelCrack(renglones), ...comprobantesDeNucleo(nucleo, sucursalDePv)];
+    if (sucursal) todos = todos.filter((c) => c.sucursal === sucursal);
+    const delMes = todos.filter((c) => c.fecha.slice(0, 7) === mes);
+    const delAnterior = todos.filter((c) => c.fecha.slice(0, 7) === anterior);
+
+    // Hasta qué día hay datos: lo del Crack llega con cada carga. Se compara con
+    // el mes anterior hasta ese mismo día (si no, se compara medio mes con uno entero).
+    const frescura = { st: frescuraSt.data?.[0]?.fecha ?? null, si: frescuraSi.data?.[0]?.fecha ?? null } as Record<Sucursal, string | null>;
+    const cortes = (sucursal ? [frescura[sucursal]] : [frescura.st, frescura.si]).filter(Boolean) as string[];
+    const finMes = `${mes}-${String(diasDelMes(mes)).padStart(2, '0')}`;
+    const tope = hoy < finMes ? hoy : finMes;
+    // el corte para comparar: el día más viejo hasta el que llegan TODAS las sucursales elegidas
+    const corte = cortes.length ? cortes.reduce((a, b) => (a < b ? a : b)) : tope;
+    const corteComparar = corte < tope ? corte : tope;
+    const hastaDia = corteComparar.slice(0, 7) === mes ? Number(corteComparar.slice(8, 10)) : corteComparar < `${mes}-01` ? 0 : diasDelMes(mes);
+    // hasta dónde se dibuja: el último día con datos de alguna sucursal
+    const ultimoConDatos = cortes.length ? cortes.reduce((a, b) => (a > b ? a : b)) : tope;
+    const dibujarHasta = ultimoConDatos.slice(0, 7) === mes ? Number(ultimoConDatos.slice(8, 10)) : ultimoConDatos < `${mes}-01` ? 0 : diasDelMes(mes);
+    const hastaElDia = (c: Comprobante) => Number(c.fecha.slice(8, 10)) <= hastaDia;
+
+    const resumen = resumirMes(delMes);
+    const anteriorAlCorte = cifras(delAnterior.filter(hastaElDia));
+    const actualAlCorte = cifras(delMes.filter(hastaElDia));
+
+    // nombres de los clientes que aparecen en el mes
+    const idsClientes = [...new Set(delMes.map((c) => c.clienteId).filter(Boolean) as string[])];
+    const clientes = new Map<string, any>();
+    for (let i = 0; i < idsClientes.length; i += 200) {
+      const { data } = await this.db
+        .from('clientes')
+        .select('id, nombre, razon_social, telefono, saldo_cta_cte')
+        .in('id', idsClientes.slice(i, i + 200));
+      for (const c of (data ?? []) as any[]) clientes.set(c.id, c);
+    }
+    const nombreDe = (id: string | null, receptor?: string | null) => {
+      const c = id ? clientes.get(id) : null;
+      return c?.razon_social || c?.nombre || receptor || 'Consumidor final';
+    };
+
+    const { listaDeu, dias, cuentasDeu } = await cobrarP;
+
+    const comprobantes = delMes
+      .slice()
+      .sort((a, b) => (a.fecha === b.fecha ? b.numero.localeCompare(a.numero) : b.fecha.localeCompare(a.fecha)))
+      .map((c) => ({ ...c, cliente: nombreDe(c.clienteId, c.receptor) }));
+
+    return {
+      mes,
+      anterior,
+      sucursal: sucursal ?? 'todas',
+      hoy,
+      frescura,
+      hastaDia,
+      dibujarHasta,
+      cifras: resumen.cifras,
+      comparacion: { actual: actualAlCorte, anterior: anteriorAlCorte, anteriorMesEntero: cifras(delAnterior) },
+      porDia: porDia(delMes, mes),
+      porDiaAnterior: porDia(delAnterior, anterior),
+      porMedio: resumen.porMedio,
+      porTipo: resumen.porTipo,
+      notasPorTipo: resumen.notasPorTipo,
+      porSucursal: resumen.porSucursal,
+      clientes: resumen.porCliente.slice(0, 12).map((p) => {
+        const c = clientes.get(p.clave);
+        return { id: p.clave, nombre: nombreDe(p.clave), telefono: c?.telefono ?? null, total: p.total, comprobantes: p.comprobantes, saldo: c ? Number(c.saldo_cta_cte ?? 0) : null };
+      }),
+      clientesTotal: resumen.porCliente.length,
+      cobrar: {
+        total: Math.round(cuentasDeu.reduce((s, c) => s + c.saldo, 0)),
+        cuentas: cuentasDeu.length,
+        diasPromedio: diasPromedio(cuentasDeu),
+        tramos: tramosDeDeuda(cuentasDeu),
+        deudores: listaDeu.slice(0, 10).map((c) => ({
+          id: c.id,
+          nombre: c.razon_social || c.nombre || 'Sin nombre',
+          telefono: c.telefono ?? null,
+          saldo: Math.round(Number(c.saldo_cta_cte)),
+          limite: c.limite_credito != null ? Number(c.limite_credito) : null,
+          dias: dias.get(c.id) ?? null,
+        })),
+      },
+      arca: { pendientes: arcaPend.count ?? 0, errores: arcaErr.count ?? 0 },
+      comprobantes,
+    };
+  }
+
+  // Los renglones de un ticket del Crack: qué se llevó, con el nombre del producto
+  async ticketCrack(q: { sucursal?: string; ticket?: string; fecha?: string; cliente?: string }) {
+    if (!q.ticket || !q.fecha || !q.cliente) throw new BadRequestException('Falta el ticket, la fecha o el cliente');
+    let query = this.db
+      .from('compras_cliente_historico')
+      .select('codigo_producto, cantidad, precio_unitario, medio_pago')
+      .eq('ticket', q.ticket)
+      .eq('fecha', q.fecha)
+      .eq('cliente_id', q.cliente)
+      .order('id', { ascending: true })
+      .limit(500);
+    if (q.sucursal) query = query.eq('sucursal', q.sucursal);
+    const { data, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    const filas = (data ?? []) as any[];
+    const codigos = [...new Set(filas.map((f) => String(f.codigo_producto)))];
+    const nombres = new Map<string, { nombre: string; id: string }>();
+    for (let i = 0; i < codigos.length; i += 200) {
+      const { data: prods } = await this.db.from('productos').select('id, nombre, codigo_legacy').in('codigo_legacy', codigos.slice(i, i + 200));
+      for (const p of (prods ?? []) as any[]) nombres.set(String(p.codigo_legacy), { nombre: p.nombre, id: p.id });
+    }
+    return filas.map((f) => {
+      const cantidad = Number(f.cantidad);
+      const precio = Number(f.precio_unitario);
+      return {
+        codigo: String(f.codigo_producto),
+        productoId: nombres.get(String(f.codigo_producto))?.id ?? null,
+        nombre: nombres.get(String(f.codigo_producto))?.nombre ?? `Código ${f.codigo_producto}`,
+        cantidad,
+        precio,
+        subtotal: Math.round(cantidad * precio * 100) / 100,
+      };
+    });
   }
 
   async cuentas() {

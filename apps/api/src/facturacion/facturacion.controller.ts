@@ -40,6 +40,20 @@ export class FacturacionController {
     return this.servicio.resumen();
   }
 
+  // El tablero de la pantalla (17/11/2026): el mes de facturación con lo del
+  // Crack y lo de NÚCLEO, por cobrar con su antigüedad y el estado de ARCA.
+  @Roles('gerente', 'dueno')
+  @Get('tablero')
+  tablero(@Query('mes') mes?: string, @Query('sucursal') sucursal?: string) {
+    return this.servicio.tablero(mes, sucursal);
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('ticket')
+  ticket(@Query() q: { sucursal?: string; ticket?: string; fecha?: string; cliente?: string }) {
+    return this.servicio.ticketCrack(q);
+  }
+
   @Roles('gerente', 'dueno')
   @Get('libro-iva')
   libroIva(@Query('periodo') periodo?: string) {

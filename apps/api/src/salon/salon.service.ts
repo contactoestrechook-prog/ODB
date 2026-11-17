@@ -478,6 +478,7 @@ export class SalonService {
         cliente: p.cliente?.nombre?.trim() || p.contacto_nombre?.trim() || null,
         notas: p.notas ?? null,
         sucursal: p.sucursal?.nombre ?? null,
+        sucursalId: p.sucursal_id ?? null,
         asignadoA: p.asignado_a,
         asignadoNombre: nombres.get(p.asignado_a) ?? null,
         asignadoEn: p.asignado_en,

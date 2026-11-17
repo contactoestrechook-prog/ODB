@@ -4,26 +4,20 @@ import { Pantalla } from '../ui/kit/Pantalla';
 
 export const dynamic = 'force-dynamic';
 
+// El tablero del mes lo pide la pantalla misma (GET /facturacion/tablero):
+// así la página abre en el momento y las flechas del mes no recargan todo.
 export default async function Facturacion({
   searchParams,
 }: {
   searchParams: Promise<{ venta?: string; total?: string }>;
 }) {
   const params = await searchParams;
-  const [rr, rc, rs] = await Promise.all([
-    apiFetch('/facturacion/resumen'),
-    apiFetch('/facturacion/cuentas'),
-    apiFetch('/sucursales'),
-  ]);
-  const resumen = rr.ok ? await rr.json() : { grupos: {}, facturadoHoy: 0, ivaMes: 0, porCobrar: 0, cuentasActivas: 0 };
-  const cuentas = rc.ok ? await rc.json() : [];
-  const sucursales = rs.ok ? await rs.json() : [];
+  const rs = await apiFetch('/sucursales').catch(() => null);
+  const sucursales = rs?.ok ? await rs.json() : [];
 
   return (
-    <Pantalla activo="/facturacion" ancho="ancho">
+    <Pantalla activo="/facturacion" ancho="completo">
       <FacturacionWorkspace
-        resumen={resumen}
-        cuentas={cuentas}
         sucursales={sucursales}
         ventaInicial={params.venta ? { id: params.venta, total: Number(params.total ?? 0) } : null}
       />

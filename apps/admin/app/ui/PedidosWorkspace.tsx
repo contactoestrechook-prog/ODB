@@ -291,9 +291,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
               suyo y, si el ancho da, pone las tarjetas de a dos (6/11/2026) */}
           <div className="grid gap-4 md:grid-cols-3">
             {cols.map(({ etapa, lista }) => (
-              <section key={etapa.paso} aria-labelledby={`etapa-${etapa.paso}`} className={unir('flex min-w-0 flex-col overflow-hidden rounded-2xl md:max-h-[calc(100dvh-7rem)] md:min-h-72', etapa.fondo)}>
-                {/* la cabecera de la etapa: color lleno, número de paso y la cuenta grande */}
-                <header className={unir('flex items-center gap-3 px-4 py-3 text-white', etapa.cabecera)}>
+              <section key={etapa.paso} aria-labelledby={`etapa-${etapa.paso}`} className={unir('flex min-w-0 flex-col rounded-2xl md:max-h-[calc(100dvh-7rem)] md:min-h-72', etapa.fondo)}>
+                {/* la cabecera de la etapa: color lleno, número de paso y la cuenta grande.
+                    En el celular las columnas van una abajo de la otra: la cabecera queda
+                    pegada bajo la barra negra mientras se recorre su lista. */}
+                <header className={unir('flex items-center gap-3 rounded-t-2xl px-4 py-3 text-white max-md:sticky max-md:top-(--alto-barra-movil) max-md:z-contenido', etapa.cabecera)}>
                   <span aria-hidden="true" className={unir('importe flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold', etapa.numero)}>{etapa.paso}</span>
                   <div className="min-w-0 flex-1">
                     <h2 id={`etapa-${etapa.paso}`} className="truncate text-[15px] font-bold leading-tight">{etapa.titulo}</h2>
