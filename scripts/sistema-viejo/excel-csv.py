@@ -8,7 +8,12 @@ def todas(ruta):
     out, a = [], 0
     while True:
         req = urllib.request.Request(f"{ENV['SUPABASE_URL'].strip()}/rest/v1/{ruta}", headers={'apikey': ENV['SUPABASE_SERVICE_KEY'].strip(), 'Authorization': 'Bearer ' + ENV['SUPABASE_SERVICE_KEY'].strip(), 'Range': f'{a}-{a+999}'})
-        d = json.load(urllib.request.urlopen(req)); out += d
+        for intento in range(8):  # el proxy a veces corta la respuesta a la mitad (17/11/2026)
+            try: d = json.load(urllib.request.urlopen(req)); break
+            except Exception:
+                if intento == 7: raise
+                import time; time.sleep(1 + intento)
+        out += d
         if len(d) < 1000: return out
         a += 1000
 nom = {x['id']: (x['sku'], x['nombre']) for x in todas('productos?select=id,sku,nombre')}
@@ -26,13 +31,16 @@ def hoja(titulo, enc, filas):
 hoja('Stock', ['SKU', 'Producto', 'NÚCLEO hoy', 'Crack', 'Solo en NÚCLEO (compras)', 'Queda'], sorted([[*nom.get(a['producto_id'], ('', ''))][:2] + [a['antes'], a['crack'], a['solo_nucleo'], a['objetivo']] for a in p['stock']], key=lambda f: -abs(f[5] - f[2])))
 hoja('Precios que cambian', ['SKU', 'Producto', 'Precio nuevo'], [[*nom.get(a['producto_id'], ('', ''))][:2] + [a['precio']] for a in p['precios']])
 hoja('Precio NÚCLEO más nuevo', ['SKU', 'Producto', 'NÚCLEO (se queda)', 'Crack (actualizar la caja)'], r['precio_nucleo_mas_nuevo'])
-hoja('Saltos +-60% (revisar)', ['SKU', 'Producto', 'Precio hoy', 'Crack'], r['salto_mas_60'])
+hoja('Precio cambió en los dos', ['SKU', 'Producto', 'NÚCLEO hoy', 'Crack en la carga anterior', 'Crack ahora'], r.get('precio_cambio_en_los_dos', []))
+hoja('Saltos +-60% (revisar)',['SKU', 'Producto', 'Precio hoy', 'Crack'], r['salto_mas_60'])
 hoja('Precios basura (revisar)', ['Código', 'Producto', 'Crack', 'NÚCLEO'], r['precio_basura'])
 hoja('Ya existían (se vinculan)', ['Código Crack', 'Nombre en el Crack', 'SKU NÚCLEO', 'Nombre en NÚCLEO', 'Por', 'Puntaje'], [[v['codigo'], v['nombre_crack'], v['sku'], v['nombre_nucleo'], v['motivo'], v['puntaje']] for v in p.get('vincular', [])])
 hoja('Posibles duplicados (revisar)', ['Código Crack', 'Nombre en el Crack', 'SKU NÚCLEO', 'Nombre en NÚCLEO', 'Puntaje'], r.get('posible_duplicado', []))
 hoja('Altas de productos',['Código', 'Nombre', 'Rubro', 'Precio', 'Costo', 'Alcohol'], [[a['codigo'], a['nombre'], a['rubro'], a['precio'], a['costo'], 'sí' if a['es_alcohol'] else ''] for a in p['altas']])
 hoja('Clientes nuevos', ['Código', 'Nombre', 'Teléfono', 'Saldo'], [[a['codigo_legacy'], a['nombre'], a['telefono'], a['saldo']] for a in p['clientes_altas']])
 hoja('Cuenta corriente', ['Cliente', 'Saldo NÚCLEO', 'Saldo Crack', 'Ajuste'], [[a['cliente_id'], a['saldo_nucleo'], a['saldo_crack'], a['monto']] for a in p['ctacte_ajustes']])
-hoja('Barras de otro producto', ['EAN', 'Código Crack', 'EAN leído'], r['barra_de_otro_producto'])
+hoja('Clientes código repetido', ['Código Crack', 'Nombre en el Crack', 'Saldo Crack', 'Ficha en NÚCLEO'], r.get('cliente_codigo_repetido_en_el_crack', []))
+hoja('Barra unidad y caja a la vez', ['EAN', 'Código Crack', 'Dice', 'Unidades'], r.get('barra_unidad_y_caja', []))
+hoja('Barras de otro producto',['EAN', 'Código Crack', 'EAN leído'], r['barra_de_otro_producto'])
 hoja('Proveedores no encontrados', ['Código', 'Razón social', 'CUIT'], r['proveedores_no_encontrados'])
 wb.save(f'{D}/carga-crack-{p["referencia"].replace("export-", "")}.xlsx'); print('ok')

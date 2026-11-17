@@ -60,16 +60,21 @@ Desde octubre el Crack exporta nueve CSV (`articulos`, `clientes`, `codigobarras
 1. Pasarlos a UTF-8 con Python (`decode('cp1252', errors='replace')`), NO con
    `iconv`: el 10/11 `iconv` cortó `ventas.csv` en el 3/11 sin avisar y la
    simulación daba la mitad de los cambios. Contar líneas antes y después.
-2. `python3 simular-csv.py <carpeta>`: solo lee y arma `plan.json`, `revision.json`
-   y `resumen.txt`. Arriba del archivo van `T_ULTIMA` (la carga anterior) y `CORTE`.
-   `python3 excel-csv.py <carpeta>` arma el Excel para el dueño.
-3. Guardar `plan.json` en una fila de `auditoria` (accion `importacion_sistema_viejo`)
-   y correr `aplicar-csv.sql` con el id de esa fila: primero `__ENSAYO__ = true`.
+2. `python3 -I simular-csv.py <carpeta>`: solo lee y arma `plan.json`, `revision.json`
+   y `resumen.txt`. Desde el 17/11/2026 no se edita nada a mano: el corte sale de
+   `stock.csv` y la carga anterior, de la base (la última sincronización de Sant Thomas
+   anterior al corte). Si Sant Thomas ya se sincronizó después del corte, frena: el
+   archivo es viejo. `python3 excel-csv.py <carpeta>` arma el Excel para el dueño
+   (sin `-I`: necesita openpyxl).
+3. Guardar `plan.json` en una fila de `auditoria` (accion `importacion_sistema_viejo`,
+   entidad `carga`, entidad_id = la `referencia` del plan) y correr `aplicar-csv.sql`
+   cambiando `__FILA__` por el id de esa fila y `__ENSAYO__` por `true`; después, `false`.
 4. Historiales: `importar-ctacte-clientes.mjs` y `importar-compras-clientes.mjs` con
    origen nuevo; después borrar lo viejo superpuesto (toda la cuenta corriente vieja;
    las compras viejas desde la primera fecha del export nuevo).
-5. Volver a simular: tiene que dar todo en 0 (salvo redondeo de los por peso). Y el
-   libro: `stock.cantidad` = suma de `movimientos_stock`.
+5. Volver a simular con `--verificar` (sin eso frena, porque el corte ya es viejo):
+   tiene que dar todo en 0 (salvo redondeo de los por peso). Y el libro:
+   `stock.cantidad` = suma de `movimientos_stock`.
 
 Criterio (lo nuevo del 10/11):
 - **Stock de Sant Thomas = Crack + lo que entró o salió SOLO en NÚCLEO desde la carga
@@ -77,8 +82,9 @@ Criterio (lo nuevo del 10/11):
   producto: si el Crack también tuvo esa compra (su stock subió), no se cuenta dos
   veces. Las ventas de prueba de NÚCLEO no cuentan. Se aplica como diferencia sobre
   el stock del momento: lo que se mueva entre la simulación y la aplicación se conserva.
-- Precios: la lista 1 del Crack, salvo que NÚCLEO la haya remarcado después de la carga
-  anterior (NÚCLEO es más nuevo: esa lista se le pasa al dueño para la caja del Crack).
+- Precios: la lista 1 del Crack, salvo que NÚCLEO la haya remarcado y el Crack siga con
+  el precio de la carga anterior (NÚCLEO es más nuevo: esa lista se le pasa al dueño para
+  la caja del Crack). Ver «17/11/2026» abajo: la regla cambió.
 - Costo e IVA: los de NÚCLEO no se pisan (vienen de sus facturas); solo se completa lo vacío.
 - Clientes: altas solo con saldo, cuenta corriente o compras en el último año.
 - Cuenta corriente: el saldo del Crack manda (contra `clientes.saldo_cta_cte`, que es
@@ -94,3 +100,44 @@ Criterio (lo nuevo del 10/11):
 - **Lo decidido en NÚCLEO manda sobre el Crack** (Leandro, 10/11/2026: «que respete lo que hizo Jackie»). La tabla `proveedor_decidido` tiene un proveedor por producto: Jackie pasó 26 Mutti y Garofalo a Marquisse. La simulación no le agrega el proveedor del Crack y el espejo usa el decidido como destino, así que nunca lo saca.
 - `python3 espejo-proveedores.py <carpeta>` deja los vínculos igual que el Crack: saca los que el Crack no tiene, salvo los que tienen una compra real en NÚCLEO (factura, código o alias del proveedor), y agrega los que faltan. El 10/11 sacó 1.309 y agregó 13.
 - «distrisur» y «Distribuidora de Galletitas y Alimentos del Sur SA» se unificaron en la segunda, la de las facturas.
+
+## Carga del 17/11/2026 (auditorías 1189, 1190/1192, 1193, 1196, 1199, 1200)
+
+Lo que se arregló en los scripts después de esa carga:
+
+- **Vincular en vez de duplicar** (`vincular.py`). Cuando Ana carga una factura con un
+  producto nuevo, NÚCLEO lo crea SIN código del Crack (SKU 409xx); días después el Crack
+  le pone código al mismo artículo y la carga lo daba de alta otra vez, con la compra
+  contada dos veces. El 10/11 duplicó 2 y el 17/11, 17 (se unificaron a mano: auditorías
+  1196 y 1199). Ahora, antes de dar de alta, se busca el artículo entre los productos
+  activos sin código: por la barra de la unidad o por el nombre (sin tildes ni signos, con
+  errores de tipeo, y si los dos dicen un tamaño distinto —250 g / 500 g— no es el mismo).
+  Lo seguro va a `plan['vincular']`: ese producto recibe el código y sigue la carga como
+  uno existente (stock con la regla de siempre, precio, barras, proveedor). Lo dudoso se da
+  de alta igual y va a la planilla como «posible duplicado». Probado con los 19 casos
+  reales: 19 bien, ninguna de las 36 altas verdaderas confundida.
+- **Precios: manda el que cambió último.** La regla vieja respetaba lo que NÚCLEO remarcó
+  solo si era posterior a la carga ANTERIOR; en la carga siguiente se pisaba con el precio
+  viejo del Crack aunque nadie lo hubiera cambiado en la caja. El 17/11 volvieron atrás 91
+  precios que NÚCLEO había remarcado del 4/11 al 10/11 (se restauraron: auditoría 1200).
+  Ahora cada plan guarda el precio de cada artículo en el Crack (`precios_crack`; al de la
+  fila 1190 se le agregó a mano) y la carga siguiente compara: si el Crack sigue igual,
+  manda NÚCLEO (a la lista para la caja); si el Crack cambió y NÚCLEO no desde la carga
+  anterior, manda el Crack; si cambiaron los dos, a revisión. Los precios de una carga van
+  sin `creado_por`; los de NÚCLEO, con el usuario: así se distinguen.
+- **Códigos de cliente repetidos en el Crack** (17 el 17/11, dos clientes cada uno): no se
+  dan de alta ni se les ajusta el saldo; van a revisión con el nombre de la ficha de NÚCLEO.
+- **La misma barra como unidad y como caja** (Levite 1367, Alambrado 2101, Fond de Cave
+  6680): no se saca; va a revisión.
+- **Fechas solas** (ver el paso 2) y `aplicar-csv.sql` con `__FILA__`: la referencia, el
+  corte y los textos de cuenta corriente salen del plan.
+
+Trampas del día:
+- **«Poner al día» ANTES que la carga completa**, nunca después. Las altas de la carga
+  dejan movimientos `importacion` que corren la «última sincronización»: si después se
+  pone al día, las compras cargadas solo en NÚCLEO desde la carga anterior se pierden.
+  (Si se usa solo esta carga, el stock y las ventas entran por acá y no hace falta.)
+- El lector de la pantalla (`apps/admin/app/lib/puesta-al-dia.ts`) lee los CSV
+  ORIGINALES (cp1252); con los ya pasados a UTF-8 no encuentra las columnas.
+- Desde la Mac, en el sandbox: el `fetch` de Node necesita `NODE_USE_ENV_PROXY=1`, y las
+  lecturas largas a veces llegan cortadas (los scripts reintentan).
