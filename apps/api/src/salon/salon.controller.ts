@@ -21,6 +21,25 @@ export class SalonController {
     return this.salon.guardarUbicacion(dto ?? {}, req.usuario ?? {});
   }
 
+  // cuánto tiene lugar y qué falta (17/11/2026)
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Get('lugares')
+  lugares(@Query('sucursalId') sucursalId: string, @Req() req: any) {
+    return this.salon.lugares(sucursalId || undefined, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Get('sin-lugar')
+  sinLugar(@Query('sucursalId') sucursalId: string, @Query('categoriaId') categoriaId: string, @Req() req: any) {
+    return this.salon.sinLugar(sucursalId, categoriaId || undefined, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'gerente', 'dueno')
+  @Patch('ubicacion/categoria')
+  lugarDeCategoria(@Body() dto: any, @Req() req: any) {
+    return this.salon.lugarDeCategoria(dto ?? {}, req.usuario ?? {});
+  }
+
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Get('codigo/:codigo')
   codigo(@Param('codigo') codigo: string) {

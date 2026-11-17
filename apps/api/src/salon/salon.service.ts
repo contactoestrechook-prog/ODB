@@ -5,6 +5,7 @@ import { terminosDeBusqueda } from '../comun/busqueda';
 import { ComprasService } from '../compras/compras.service';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { tiemposPorPreparador } from './tiempos';
+import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
 
 // OP SALÓN (Leandro, 5/11/2026). Tres trabajos del que está en el salón:
 //  1. el stock y DÓNDE está cada cosa (stock.ubicacion, por sucursal);
@@ -118,6 +119,108 @@ export class SalonService {
       if (e2) throw new BadRequestException(e2.message);
     }
     return { ok: true, ubicacion };
+  }
+
+  /**
+   * Cuánto del stock tiene su lugar (17/11/2026): por sucursal, por categoría de
+   * la sucursal elegida y los lugares ya usados. El op salón ve solo la suya.
+   */
+  async lugares(sucursalId: string | undefined, quien: Usuario = {}) {
+    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
+    const [{ data: sucs }, { data: cats }] = await Promise.all([
+      this.db.from('sucursales').select('id, nombre'),
+      this.db.from('categorias').select('id, nombre'),
+    ]);
+    const sucursales = ((sucs ?? []) as any[]).filter((s) => !propia || s.id === propia);
+    // PostgREST devuelve de a 1.000: la primera página trae el total y el resto
+    // se pide junto (17/11/2026: 9.000 filas, 10 páginas; de a una tardaba 2,5 s)
+    const pagina = (desde: number, contar = false) => {
+      let q = this.db
+        .from('stock')
+        .select('sucursal_id, cantidad, ubicacion, productos!inner(activo, categoria_id)', contar ? { count: 'exact' } : undefined)
+        .eq('productos.activo', true)
+        .order('producto_id')
+        .order('sucursal_id')
+        .range(desde, desde + 999);
+      if (propia) q = q.eq('sucursal_id', propia);
+      return q;
+    };
+    const primera = await pagina(0, true);
+    if (primera.error) throw new BadRequestException(this.faltaMigracion(primera.error.message));
+    const total = Math.min(primera.count ?? 0, 60_000);
+    const resto = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(total / 1000) - 1) }, (_, i) => pagina((i + 1) * 1000)));
+    const filas: FilaStockLugar[] = [];
+    for (const r of [primera, ...resto]) {
+      if (r.error) throw new BadRequestException(r.error.message);
+      for (const f of (r.data ?? []) as any[]) {
+        filas.push({ sucursal_id: f.sucursal_id, cantidad: f.cantidad, ubicacion: f.ubicacion, categoria_id: f.productos?.categoria_id ?? null });
+      }
+    }
+    const base = resumirLugares(filas, null);
+    const elegida = propia ?? (sucursales.some((s) => s.id === sucursalId) ? sucursalId! : base.sucursales[0]?.sucursalId ?? sucursales[0]?.id ?? null);
+    const r = resumirLugares(filas, elegida);
+    const nombreSuc = new Map(sucursales.map((s) => [s.id, s.nombre]));
+    const nombreCat = new Map(((cats ?? []) as any[]).map((c) => [c.id, c.nombre]));
+    return {
+      sucursalId: elegida,
+      sucursales: sucursales.map((s) => {
+        const c = r.sucursales.find((x) => x.sucursalId === s.id);
+        return { sucursalId: s.id, sucursal: s.nombre, conStock: c?.conStock ?? 0, conLugar: c?.conLugar ?? 0 };
+      }).sort((a, b) => b.conStock - a.conStock),
+      categorias: r.categorias.map((c) => ({ ...c, categoria: c.categoriaId ? nombreCat.get(c.categoriaId) ?? 'Sin nombre' : 'Sin categoría' })),
+      lugaresUsados: r.lugaresUsados,
+      sucursal: elegida ? nombreSuc.get(elegida) ?? null : null,
+    };
+  }
+
+  /** Lo que tiene stock y no tiene lugar, de una categoría (o de todas, los primeros 200). */
+  async sinLugar(sucursalId: string, categoriaId: string | undefined, quien: Usuario = {}) {
+    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
+    const suc = propia ?? sucursalId;
+    if (!suc) throw new BadRequestException('Falta la sucursal');
+    let q = this.db
+      .from('stock')
+      .select('producto_id, cantidad, ubicacion, productos!inner(id, sku, nombre, activo, categoria_id)')
+      .eq('sucursal_id', suc)
+      .gt('cantidad', 0)
+      .eq('productos.activo', true)
+      .or('ubicacion.is.null,ubicacion.eq.')
+      .limit(categoriaId ? 1000 : 200);
+    if (categoriaId === 'sin') q = q.is('productos.categoria_id', null);
+    else if (categoriaId) q = q.eq('productos.categoria_id', categoriaId);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    return ((data ?? []) as any[])
+      .filter((f) => !tieneLugar(f.ubicacion))
+      .map((f) => ({ productoId: f.producto_id, sku: f.productos?.sku ?? null, nombre: f.productos?.nombre ?? 'Producto', cantidad: Number(f.cantidad) || 0 }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }
+
+  /**
+   * Toda una categoría al mismo lugar («los Malbec están en la góndola 3»). Solo
+   * a los que no tienen lugar: no pisa lo que ya se afinó a mano.
+   */
+  async lugarDeCategoria(dto: { sucursalId: string; categoriaId: string; ubicacion?: string }, quien: Usuario = {}) {
+    const usuarioId = quien.sub;
+    if (!dto.sucursalId || !dto.categoriaId) throw new BadRequestException('Faltan la sucursal o la categoría');
+    if (quien.rol === 'op_salon' && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+      throw new ForbiddenException('Solo cargás lugares de tu sucursal');
+    }
+    const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80);
+    if (!ubicacion) throw new BadRequestException('Escribí el lugar');
+    const pendientes = await this.sinLugar(dto.sucursalId, dto.categoriaId, quien);
+    const ids = pendientes.map((p) => p.productoId);
+    const ahora = new Date().toISOString();
+    // de a 100: la lista de ids va en la dirección del pedido
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await this.db
+        .from('stock')
+        .update({ ubicacion, ubicacion_por: usuarioId ?? null, ubicacion_en: ahora })
+        .eq('sucursal_id', dto.sucursalId)
+        .in('producto_id', ids.slice(i, i + 100));
+      if (error) throw new BadRequestException(error.message);
+    }
+    return { ok: true, ubicacion, actualizados: ids.length };
   }
 
   async codigo(codigo: string) {

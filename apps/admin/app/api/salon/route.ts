@@ -14,12 +14,15 @@ async function reenviar(ruta: string, init: RequestInit = {}) {
 }
 const id = (v: unknown) => encodeURIComponent(String(v ?? ''));
 
-// Op salón (5/11/2026). GET ?recurso=stock&q=… | codigo&codigo=… | ingresos&estado=… |
+// Op salón (5/11/2026). GET ?recurso=stock&q=… | lugares[&sucursalId] | sinlugar&sucursalId[&categoriaId] | codigo&codigo=… | ingresos&estado=… |
 // preparadores | pedidos[&todos=1] | tiempos&dias=7
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   switch (q.get('recurso')) {
     case 'stock': return reenviar(`/salon/stock?q=${id(q.get('q'))}`);
+    // cuánto tiene lugar y qué falta (17/11/2026)
+    case 'lugares': return reenviar(`/salon/lugares${q.get('sucursalId') ? `?sucursalId=${id(q.get('sucursalId'))}` : ''}`);
+    case 'sinlugar': return reenviar(`/salon/sin-lugar?sucursalId=${id(q.get('sucursalId'))}${q.get('categoriaId') ? `&categoriaId=${id(q.get('categoriaId'))}` : ''}`);
     case 'codigo': return reenviar(`/salon/codigo/${id(q.get('codigo'))}`);
     case 'ingresos': return reenviar(`/salon/ingresos?estado=${id(q.get('estado') ?? 'espera_factura')}`);
     case 'preparadores': return reenviar(`/salon/preparadores${q.get('pedidoId') ? `?pedidoId=${id(q.get('pedidoId'))}` : ''}`);
@@ -35,6 +38,7 @@ export async function POST(req: Request) {
   const cuerpo = (x: unknown) => ({ method: 'POST', body: JSON.stringify(x ?? {}) });
   switch (b?.accion) {
     case 'ubicacion': return reenviar('/salon/ubicacion', { method: 'PATCH', body: JSON.stringify({ productoId: b.productoId, sucursalId: b.sucursalId, ubicacion: b.ubicacion }) });
+    case 'lugarcategoria': return reenviar('/salon/ubicacion/categoria', { method: 'PATCH', body: JSON.stringify({ sucursalId: b.sucursalId, categoriaId: b.categoriaId, ubicacion: b.ubicacion }) });
     case 'ingreso': return reenviar('/salon/ingresos', cuerpo({ proveedorId: b.proveedorId, sucursalId: b.sucursalId, numeroRemito: b.numeroRemito, notas: b.notas, items: b.items }));
     case 'confirmar': return reenviar(`/salon/ingresos/${id(b.ingresoId)}/confirmar`, cuerpo({ numeroFactura: b.numeroFactura, items: b.items }));
     case 'rechazar': return reenviar(`/salon/ingresos/${id(b.ingresoId)}/rechazar`, cuerpo({ motivo: b.motivo }));

@@ -49,6 +49,44 @@ const origenClave = (p: PedidoCola) => {
   return o === 'whatsapp' ? 'panel' : o;
 };
 
+// Las tres etapas del tablero, cada una con su color (Leandro, 17/11/2026: «los
+// títulos de en qué estadio está cada pedido no se notan casi; diferentes
+// colores»). Rojo marca, ciruela (dato-3) y verde: ni azul ni ámbar, que ya usan
+// las etiquetas de Tienda web/App y «Sin tomar» (regla: nunca azul + amarillo).
+// Las clases van escritas enteras para que Tailwind las encuentre.
+type Etapa = {
+  paso: number; titulo: string; bajada: string; vacio: string; estados: string[];
+  cabecera: string; numero: string; fondo: string; franja: string;
+};
+const ETAPAS: Etapa[] = [
+  {
+    paso: 1, titulo: 'Nuevos', bajada: 'Entraron · falta tomarlos y armarlos', vacio: 'No entró nada nuevo', estados: ['recibido', 'pagado'],
+    cabecera: 'bg-marca', numero: 'text-marca', fondo: 'bg-marca-suave', franja: 'border-l-marca',
+  },
+  {
+    paso: 2, titulo: 'En preparación', bajada: 'Se están armando', vacio: 'Nadie está armando nada', estados: ['en_preparacion'],
+    cabecera: 'bg-dato-3', numero: 'text-dato-3', fondo: 'bg-[#F2EBF4]', franja: 'border-l-dato-3',
+  },
+  {
+    paso: 3, titulo: 'Listos', bajada: 'En la mesa de retiro o esperando reparto', vacio: 'La mesa de retiro está vacía', estados: ['listo'],
+    cabecera: 'bg-ok', numero: 'text-ok', fondo: 'bg-ok-suave', franja: 'border-l-ok',
+  },
+];
+const etapaDe = (p: PedidoCola) => ETAPAS.find((e) => e.estados.includes(p.estado)) ?? ETAPAS[0];
+// El botón que pasa el pedido a otra columna se pinta del color de esa columna
+// (Preparar = ciruela, Marcar listo = verde). El kit no resuelve choques de
+// clases: el `!` de Tailwind hace que estas ganen sobre las de la variante.
+const BOTON_HACIA: Record<string, { lleno: string; borde: string }> = {
+  en_preparacion: {
+    lleno: 'bg-dato-3! hover:bg-[#673D74]! focus-visible:outline-dato-3!',
+    borde: 'border-dato-3/45! text-dato-3! hover:bg-[#F2EBF4]! focus-visible:outline-dato-3!',
+  },
+  listo: {
+    lleno: 'bg-ok! hover:bg-[#11552F]! focus-visible:outline-ok!',
+    borde: 'border-ok/45! text-ok! hover:bg-ok-suave! focus-visible:outline-ok!',
+  },
+};
+
 const MEDIOS = [
   { valor: 'efectivo', etiqueta: 'Efectivo' },
   { valor: 'tarjeta', etiqueta: 'Tarjeta' },
@@ -189,11 +227,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
   const visibles = (filtro === 'todos' ? pedidos : pedidos.filter((p) => origenClave(p) === filtro))
     .slice()
     .sort((a, b) => String(b.creado_en).localeCompare(String(a.creado_en)));
-  const cols = [
-    { titulo: 'Nuevos', lista: visibles.filter((p) => ['recibido', 'pagado'].includes(p.estado)) },
-    { titulo: 'En preparación', lista: visibles.filter((p) => p.estado === 'en_preparacion') },
-    { titulo: 'Listos · mesa de retiro', lista: visibles.filter((p) => p.estado === 'listo') },
-  ];
+  const cols = ETAPAS.map((etapa) => ({ etapa, lista: visibles.filter((p) => etapa.estados.includes(p.estado)) }));
   const cuentaSinTomar = pedidos.filter(sinTomar).length;
   const porOrigen = useMemo(() => {
     const m: Record<string, number> = {};
@@ -256,15 +290,20 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
           {/* Tres carriles que ocupan el alto de la pantalla; cada uno desplaza lo
               suyo y, si el ancho da, pone las tarjetas de a dos (6/11/2026) */}
           <div className="grid gap-4 md:grid-cols-3">
-            {cols.map(({ titulo, lista }) => (
-              <section key={titulo} className="flex min-w-0 flex-col rounded-2xl bg-crema-hondo/45 md:max-h-[calc(100dvh-7rem)] md:min-h-72">
-                <h2 className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 text-sm font-semibold text-tinta">
-                  {titulo}
-                  <span className={unir('importe rounded-full px-2 text-xs font-semibold leading-5', lista.length ? 'bg-tinta text-white' : 'bg-crema-hondo text-tinta/60')}>{lista.length}</span>
-                </h2>
-                <div className="min-h-0 flex-1 px-3 pb-3 md:overflow-y-auto">
+            {cols.map(({ etapa, lista }) => (
+              <section key={etapa.paso} aria-labelledby={`etapa-${etapa.paso}`} className={unir('flex min-w-0 flex-col overflow-hidden rounded-2xl md:max-h-[calc(100dvh-7rem)] md:min-h-72', etapa.fondo)}>
+                {/* la cabecera de la etapa: color lleno, número de paso y la cuenta grande */}
+                <header className={unir('flex items-center gap-3 px-4 py-3 text-white', etapa.cabecera)}>
+                  <span aria-hidden="true" className={unir('importe flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold', etapa.numero)}>{etapa.paso}</span>
+                  <div className="min-w-0 flex-1">
+                    <h2 id={`etapa-${etapa.paso}`} className="truncate text-[15px] font-bold leading-tight">{etapa.titulo}</h2>
+                    <p className="truncate text-xs leading-snug text-white/85">{etapa.bajada}</p>
+                  </div>
+                  <span className="importe shrink-0 text-[26px] font-bold leading-none tracking-tight" aria-label={`${lista.length} ${lista.length === 1 ? 'pedido' : 'pedidos'}`}>{lista.length}</span>
+                </header>
+                <div className="min-h-0 flex-1 p-3 md:overflow-y-auto">
                 <div className="grid items-start gap-3 min-[1800px]:grid-cols-2">
-                {lista.length === 0 && <p className="col-span-full py-8 text-center text-xs text-tinta/60">Nada por acá</p>}
+                {lista.length === 0 && <p className="col-span-full py-8 text-center text-xs text-tinta/60">{etapa.vacio}</p>}
                 {lista.map((p) => (
                   <TarjetaPedido
                     key={p.id}
@@ -394,8 +433,9 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }
   const sig = siguientePaso(p);
   const tel = telefonoLegible(p.clienteTelefono);
   const tarde = sinTomar(p) && (p.minutos ?? 0) >= 15;
+  const hacia = sig ? BOTON_HACIA[sig.estado] : undefined;
   return (
-    <Tarjeta className={unir(tarde && 'ring-2 ring-marca/40')}>
+    <Tarjeta className={unir('border-l-4', etapaDe(p).franja, tarde && 'ring-2 ring-marca/40')}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Etiqueta tono={origen.tono}>{origen.label}</Etiqueta>
@@ -434,10 +474,10 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }
         {sinTomar(p) ? (
           <>
             <Boton tamano="chico" onClick={onTomar} cargando={trabajando} className="flex-1">Lo tomo</Boton>
-            {sig && <Boton tamano="chico" variante="secundario" onClick={() => onAvanzar(sig.estado)} disabled={trabajando} className="flex-1">{sig.label}</Boton>}
+            {sig && <Boton tamano="chico" variante="secundario" onClick={() => onAvanzar(sig.estado)} disabled={trabajando} className={unir('flex-1', hacia?.borde)}>{sig.label}</Boton>}
           </>
         ) : (
-          sig && <Boton tamano="chico" onClick={() => onAvanzar(sig.estado)} cargando={trabajando} className="flex-1">{sig.label}</Boton>
+          sig && <Boton tamano="chico" onClick={() => onAvanzar(sig.estado)} cargando={trabajando} className={unir('flex-1', hacia?.lleno)}>{sig.label}</Boton>
         )}
         <Boton tamano="chico" variante="fantasma" onClick={onAbrir}>Detalle</Boton>
       </div>
