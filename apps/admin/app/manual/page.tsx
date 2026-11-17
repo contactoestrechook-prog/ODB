@@ -21,7 +21,7 @@ export default async function ManualPage() {
   } catch {
     // sin novedades
   }
-  const pantallas = Object.fromEntries(GRUPOS.flatMap((g) => g.items.map((i) => [i.href, i.label])));
+  const pantallas = Object.fromEntries(GRUPOS.flatMap((g) => g.items.map((i) => [i.href, i.nombre ?? i.label])));
   return (
     <Pantalla activo="/manual" ancho="angosto">
       <Manual rol={rol} pantallas={pantallas} novedades={novedades} />

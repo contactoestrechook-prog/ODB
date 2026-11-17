@@ -28,8 +28,8 @@ function pantallasPara(rol: string | null) {
     const ruta = i.href.split('?')[0];
     return {
       href: i.href,
-      nombre: i.label,
-      grupo: [g.titulo, i.sub].filter(Boolean).join(' › '),
+      nombre: i.nombre ?? i.label,
+      grupo: [g.titulo, i.familia].filter(Boolean).join(' › '),
       bajada: TITULOS[ruta]?.bajada ?? '',
       puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.includes(String(rol))),
     };

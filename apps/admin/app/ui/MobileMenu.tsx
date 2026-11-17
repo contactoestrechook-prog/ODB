@@ -1,36 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { InstalarApp } from './InstalarApp';
 import { CampanaAlertas } from './CampanaAlertas';
 
-import { MenuNav, type GrupoMenu } from './MenuNav';
+import { MenuNav, PieMenu, type GrupoMenu } from './MenuNav';
 
 type Grupo = GrupoMenu;
-
-// Sobre el negro: texto white/70, rótulos y los íconos apagados white/55 (el
-// mínimo que se lee); nada por debajo de eso.
-const ENLACE =
-  'group flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50';
-const ENLACE_PIE = `${ENLACE} text-white/70 hover:bg-white/[0.06] hover:text-white`;
-
-function Icono({ d, activo = false }: { d: string; activo?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`size-[18px] shrink-0 ${activo ? 'text-white' : 'text-white/55'}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={d} />
-    </svg>
-  );
-}
 
 /**
  * Navegación del celular: la barra negra de arriba (menú, título de la
@@ -46,6 +21,7 @@ export function MobileMenu({
   pendientes = {},
   esDuenio = false,
   avisosCelular = false,
+  nombre = null,
 }: {
   grupos: Grupo[];
   iconos: Record<string, string>;
@@ -57,6 +33,8 @@ export function MobileMenu({
   esDuenio?: boolean;
   /** Su rol recibe avisos al celular: el enlace y la invitación de la campanita (6/11/2026). */
   avisosCelular?: boolean;
+  /** El nombre de quien entró, para «Mi cuenta». */
+  nombre?: string | null;
 }) {
   const [abierto, setAbierto] = useState(false);
   const botonMenu = useRef<HTMLButtonElement>(null);
@@ -175,26 +153,8 @@ export function MobileMenu({
               <MenuNav grupos={grupos} iconos={iconos} activo={activo} pendientes={pendientes} movil onElegir={() => setAbierto(false)} />
             </nav>
 
-            <div className="space-y-0.5 border-t border-white/10 px-3 py-2">
-              <Link href="/manual" onClick={() => setAbierto(false)} className={ENLACE_PIE}>
-                <Icono d={iconos.manual} />
-                Manual del sistema
-              </Link>
-              {avisosCelular && (
-                <Link href="/avisos" onClick={() => setAbierto(false)} className={ENLACE_PIE}>
-                  <Icono d={iconos.celular} />
-                  Avisos en el celular
-                </Link>
-              )}
-              <Link href="/cambiar-clave" onClick={() => setAbierto(false)} className={ENLACE_PIE}>
-                <Icono d={iconos.clave} />
-                Cambiar mi contraseña
-              </Link>
-              <InstalarApp />
-              <a href="/api/salir" className={ENLACE_PIE}>
-                <Icono d={iconos.salir} />
-                Cerrar sesión
-              </a>
+            <div className="border-t border-white/10 px-3 py-2">
+              <PieMenu iconos={iconos} activo={activo} nombre={nombre} avisosCelular={avisosCelular} movil onElegir={() => setAbierto(false)} />
             </div>
           </aside>
         </div>
