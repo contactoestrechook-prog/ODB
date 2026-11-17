@@ -527,7 +527,7 @@ function Resumen({
     <div className="grid gap-4 lg:grid-cols-12">
       {/* día por día */}
       <Bloque
-        className="lg:col-span-8"
+        className="flex flex-col lg:col-span-8"
         titulo="Facturado por día"
         bajada={`Tocá un día para ver sus comprobantes. La línea gris es el mismo día de ${nombreMes(t.anterior)}.`}
         accion={
@@ -539,6 +539,7 @@ function Resumen({
         }
       >
         {conDatos ? (
+          <div className="min-h-0 flex-1">
           <FacturacionDias
             dias={dias}
             anterior={t.porDiaAnterior}
@@ -548,6 +549,7 @@ function Resumen({
             nombreAnterior={nombreMes(t.anterior)}
             onElegirDia={(fecha) => onComprobantes({ dia: fecha })}
           />
+          </div>
         ) : (
           <Vacio titulo={`No hay comprobantes de ${mesLargo(mes)}`} texto="Lo del sistema anterior llega con cada carga de sus archivos." />
         )}

@@ -72,15 +72,20 @@ export function FacturacionDias({
 }) {
   const caja = useRef<HTMLDivElement>(null);
   const [ancho, setAncho] = useState(720);
+  const [altoCaja, setAltoCaja] = useState(0);
   const [encima, setEncima] = useState<number | null>(null);
   useEffect(() => {
     if (!caja.current) return;
-    const ro = new ResizeObserver(([e]) => setAncho(Math.max(300, Math.round(e.contentRect.width))));
+    const ro = new ResizeObserver(([e]) => {
+      setAncho(Math.max(300, Math.round(e.contentRect.width)));
+      setAltoCaja(Math.round(e.contentRect.height));
+    });
     ro.observe(caja.current);
     return () => ro.disconnect();
   }, []);
 
-  const alto = ancho < 520 ? 210 : 300;
+  // alto: el que le deja el bloque (termina parejo con la columna de al lado), nunca menos que el mínimo
+  const alto = Math.max(ancho < 520 ? 210 : 300, altoCaja);
   // en el celular los montos van adentro, arriba de cada raya: al costado no entran
   const angosto = ancho < 520;
   const izq = angosto ? 4 : IZQ;
@@ -123,8 +128,8 @@ export function FacturacionDias({
   };
 
   return (
-    <div ref={caja} className="relative w-full select-none" onMouseLeave={() => setEncima(null)}>
-      <svg width={ancho} height={alto} role="img" aria-label="Facturado por día del mes, con el mes anterior como referencia" className="block">
+    <div ref={caja} className="relative h-full min-h-[210px] w-full select-none sm:min-h-[300px]" onMouseLeave={() => setEncima(null)}>
+      <svg width={ancho} height={alto} style={{ position: 'absolute', inset: 0 }} role="img" aria-label="Facturado por día del mes, con el mes anterior como referencia" className="block">
         <defs>
           <pattern id="raya-sin-datos" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" stroke="currentColor" strokeWidth="1.5" className="text-tinta/10" />
