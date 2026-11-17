@@ -1,62 +1,39 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, PlacaRoja, unir, type TonoEtiqueta } from '../ui/kit';
-import { numero, pesos as formatoPesos } from '../lib/formato';
-import { conCodigo } from '../lib/codigo-producto';
+import { Aviso, Boton, FOCO, IconoCerrar, unir } from '../ui/kit';
+import { pesos as formatoPesos } from '../lib/formato';
 import { textoVisible } from '../lib/texto';
+import { NotaDePedido, type PedidoDeposito } from './NotaDePedido';
 import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from '../ui/FaltantesAlEntregar';
 import { ModalDespachar } from '../ui/EnvioPartes';
 
-type Pedido = {
-  id: string;
-  estado: string;
-  origen: string;
-  /** 'domicilio' = envío: listo, no se «entrega» acá, se despacha con alguien que lo lleve */
-  canal?: string | null;
-  destino_direccion?: string | null;
-  clienteNombre?: string | null;
-  repartidor_id?: string | null;
-  programado?: boolean;
-  entregaEtiqueta?: string | null;
-  notas?: string | null;
-  total: number;
-  qr_retiro: string | null;
-  minutos: number;
-  sucursal: { nombre: string } | null;
-  cliente: { dni: string; tipo: string } | null;
-  // precio_unitario y sku ya venían en la cola (apps/api/src/pedidos › cola)
-  items: { cantidad: number; precio_unitario?: number | string | null; producto: { nombre: string; sku?: string } | null }[];
-};
+type Pedido = PedidoDeposito;
 
-const pesos = (n: number) => formatoPesos(n);
+const pesos = (n: number | string) => formatoPesos(Number(n) || 0);
 
-// La cantidad tal cual, hasta 2 decimales: un fiambre por peso puede ser
-// 0,5 kg y antes, redondeada, se leía "1×" (2/10/2026).
-const cantidadDe = (v: unknown) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
-
-// Vista breve de la tarjeta cerrada: los primeros tres productos en una línea.
-function resumenItems(items: Pedido['items']): string {
-  const primeros = items.slice(0, 3).map((i) => `${numero(cantidadDe(i.cantidad), 2)}× ${conCodigo(i.producto?.nombre ?? '—', i.producto)}`);
-  const resto = items.length - primeros.length;
-  return primeros.join(' · ') + (resto > 0 ? ` +${resto} más` : '');
-}
-
-const ORIGEN_CHIP: Record<string, { label: string; tono: TonoEtiqueta }> = {
-  pedidosya: { label: 'PedidosYa', tono: 'error' },
-  web: { label: 'Web', tono: 'info' },
-  pickup: { label: 'Pick-up', tono: 'info' },
-  whatsapp: { label: 'WhatsApp', tono: 'ok' },
-  mostrador: { label: 'Mostrador', tono: 'neutro' },
-};
-
+// Las clases van escritas enteras para que Tailwind las encuentre. Mismos
+// colores que las etapas de Pedidos (PedidosWorkspace › ETAPAS); el botón que
+// pasa el pedido a la columna siguiente se pinta del color de esa columna.
 const COLUMNAS = [
-  { estado: 'recibido', titulo: 'Recibidos', accion: 'en_preparacion', botenLabel: 'Empezar a preparar' },
-  { estado: 'en_preparacion', titulo: 'En preparación', accion: 'listo', botenLabel: 'Marcar listo' },
-  { estado: 'listo', titulo: 'Listos para retirar o salir', accion: 'entregado', botenLabel: 'Entregar' },
+  {
+    estado: 'recibido', paso: 1, titulo: 'Recibidos', bajada: 'Entraron · falta empezar a armarlos', vacio: 'No entró nada nuevo',
+    accion: 'en_preparacion', botenLabel: 'Empezar a preparar',
+    cabecera: 'bg-marca', numero: 'text-marca', fondo: 'bg-marca-suave', franja: 'border-l-marca',
+    boton: 'bg-dato-3! hover:bg-[#673D74]! focus-visible:outline-dato-3!',
+  },
+  {
+    estado: 'en_preparacion', paso: 2, titulo: 'En preparación', bajada: 'Se están armando', vacio: 'Nadie está armando nada',
+    accion: 'listo', botenLabel: 'Marcar listo',
+    cabecera: 'bg-dato-3', numero: 'text-dato-3', fondo: 'bg-[#F2EBF4]', franja: 'border-l-dato-3',
+    boton: 'bg-ok! hover:bg-[#11552F]! focus-visible:outline-ok!',
+  },
+  {
+    estado: 'listo', paso: 3, titulo: 'Listos para retirar o salir', bajada: 'En la mesa de retiro o esperando reparto', vacio: 'La mesa de retiro está vacía',
+    accion: 'entregado', botenLabel: 'Entregar',
+    cabecera: 'bg-ok', numero: 'text-ok', fondo: 'bg-ok-suave', franja: 'border-l-ok',
+    boton: '',
+  },
 ];
 
 export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRepartidor?: boolean }) {
@@ -137,6 +114,8 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
 
       {aviso && <Aviso tono="neutro">{aviso}</Aviso>}
 
+      {/* Las tres etapas con su color, igual que en Pedidos: rojo, ciruela y verde
+          (Leandro, 17/11/2026: «los títulos de en qué estadio está cada pedido no se notan») */}
       <div className="grid gap-4 md:grid-cols-3">
         {COLUMNAS.map((col) => {
           const enColumna = pedidos
@@ -146,152 +125,58 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
             // y dentro de cada grupo, arriba los más nuevos (6/11/2026)
             .sort((a, b) => Number(!!a.programado) - Number(!!b.programado) || (a.minutos ?? 0) - (b.minutos ?? 0));
           return (
-            <section key={col.estado} className="flex min-w-0 flex-col rounded-2xl bg-crema-hondo/50 p-3 md:max-h-[calc(100dvh-7rem)] md:min-h-72">
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <h2 className="text-sm font-semibold text-tinta">{col.titulo}</h2>
-                <span className="importe rounded-full bg-white px-2 text-xs font-semibold leading-5 text-tinta/70">
-                  {enColumna.length}
-                </span>
-              </div>
+            <section key={col.estado} aria-labelledby={`dep-${col.paso}`} className={unir('flex min-w-0 flex-col rounded-2xl md:max-h-[calc(100dvh-7rem)] md:min-h-72', col.fondo)}>
+              <header className={unir('flex items-center gap-3 rounded-t-2xl px-4 py-3 text-white max-md:sticky max-md:top-(--alto-barra-movil) max-md:z-contenido', col.cabecera)}>
+                <span aria-hidden="true" className={unir('importe flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold', col.numero)}>{col.paso}</span>
+                <div className="min-w-0 flex-1">
+                  <h2 id={`dep-${col.paso}`} className="truncate text-base font-bold leading-tight">{col.titulo}</h2>
+                  <p className="truncate text-xs leading-snug text-white/85">{col.bajada}</p>
+                </div>
+                <span className="importe shrink-0 text-2xl font-bold leading-none tracking-tight" aria-label={`${enColumna.length} ${enColumna.length === 1 ? 'pedido' : 'pedidos'}`}>{enColumna.length}</span>
+              </header>
               {/* cada carril desplaza lo suyo y, si el ancho da, va de a dos (6/11/2026) */}
-              <div className="min-h-0 flex-1 md:overflow-y-auto">
-              <div className="grid items-start gap-2 min-[1800px]:grid-cols-2">
+              <div className="min-h-0 flex-1 p-3 md:overflow-y-auto">
+              <div className="grid items-start gap-3 min-[1800px]:grid-cols-2">
                 {enColumna.map((p) => {
-                  const chip = ORIGEN_CHIP[p.origen] ?? ORIGEN_CHIP.web;
-                  // Placa roja (2/10/2026): "siempre que se detallen productos vamos
-                  // a usar el paquete gráfico de pedidos". Entera es muy alta para un
-                  // tablero de tres columnas, así que la tarjeta tiene dos vistas: la
-                  // breve (los datos de siempre, los primeros tres productos en una
-                  // línea y los botones) y la placa PEDIDO, que se abre sola en "En
-                  // preparación", donde se arma el pedido y hace falta la lista
-                  // completa. "Ver pedido" / "Ver menos" pasa de una a otra.
+                  // sin tocar, se abren solos los que se están armando: ahí hace falta todo
                   const abierto = abiertos[p.id] ?? col.estado === 'en_preparacion';
-                  const alternar = (
-                    <Boton
-                      variante="fantasma"
-                      tamano="chico"
-                      aria-expanded={abierto}
-                      onClick={() => setAbiertos((a) => ({ ...a, [p.id]: !abierto }))}
-                      className={abierto ? 'mr-auto' : undefined}
-                    >
-                      {abierto ? 'Ver menos' : 'Ver pedido'}
-                    </Boton>
-                  );
                   const envioListo = p.canal === 'domicilio' && col.estado === 'listo';
-                  const botones = (
-                    <>
-                      <Boton
-                        onClick={() => (envioListo ? (setErrorDespacho(null), setDespachando(p)) : avanzar(p, col.accion))}
-                        disabled={ocupado === p.id}
-                        className="flex-1"
-                      >
-                        {ocupado === p.id ? '…' : envioListo ? 'Despachar' : col.botenLabel}
-                      </Boton>
-                      <button
-                        type="button"
-                        onClick={() => avanzar(p, 'cancelado')}
-                        disabled={ocupado === p.id}
-                        className={unir(
-                          'grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-tinta/70 transition-colors hover:border-marca/50 hover:text-marca-hondo disabled:opacity-50 sm:size-10',
-                          FOCO,
-                        )}
-                        title="Cancelar pedido (libera el stock)"
-                        aria-label="Cancelar pedido (libera el stock)"
-                      >
-                        <IconoCerrar className="size-5" />
-                      </button>
-                    </>
-                  );
-                  const minutos = (
-                    <span
-                      className={
-                        'shrink-0 text-xs font-medium ' +
-                        (p.minutos > 20 ? 'text-marca-hondo' : 'text-tinta/60')
-                      }
-                    >
-                      hace {p.minutos} min
-                    </span>
-                  );
-
-                  if (abierto) {
-                    return (
-                      <PlacaRoja
-                        key={p.id}
-                        titulo="PEDIDO"
-                        sub={[p.qr_retiro, chip.label].filter(Boolean).join(' · ')}
-                        renglones={p.items.map((i, j) => {
-                          const cantidad = cantidadDe(i.cantidad);
-                          // el unitario con el que entró el pedido: "2 × $1.500" y el subtotal, como en la tarjeta del bot
-                          const unitario = Number(i.precio_unitario);
-                          const conPrecio = i.precio_unitario != null && i.precio_unitario !== '' && Number.isFinite(unitario);
-                          return {
-                            clave: String(j),
-                            cantidad,
-                            nombre: conCodigo(i.producto?.nombre ?? '—', i.producto),
-                            detalle: conPrecio ? `${numero(cantidad, 2)} × ${pesos(unitario)}` : undefined,
-                            importe: conPrecio ? pesos(cantidad * unitario) : undefined,
-                          };
-                        })}
-                        total={{ etiqueta: 'Total', valor: pesos(p.total) }}
-                        recuadro={
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                              {minutos}
-                              {p.entregaEtiqueta && (
-                                <Etiqueta tono={p.programado ? 'neutro' : 'error'}>{p.entregaEtiqueta}</Etiqueta>
-                              )}
-                              {p.sucursal?.nombre && (
-                                <span className="min-w-0 break-words text-xs text-tinta/60">{p.sucursal.nombre}</span>
-                              )}
-                            </div>
-                            {textoVisible(p.notas) && <p className="break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
-                          </div>
-                        }
-                        acciones={
-                          <>
-                            {alternar}
-                            {botones}
-                          </>
-                        }
-                      />
-                    );
-                  }
-
                   return (
-                    <div key={p.id} className="min-w-0 rounded-2xl border border-black/[0.06] bg-white p-3 shadow-tarjeta">
-                      <div className="flex items-center justify-between gap-2">
-                        <Etiqueta tono={chip.tono}>
-                          {chip.label}
-                        </Etiqueta>
-                        {minutos}
-                      </div>
-                      {p.entregaEtiqueta && (
-                        <div className="mt-1">
-                          <Etiqueta tono={p.programado ? 'neutro' : 'error'}>
-                            {p.entregaEtiqueta}
-                          </Etiqueta>
-                        </div>
-                      )}
-                      {p.qr_retiro && (
-                        <p className="mt-1 break-all font-mono text-xs text-tinta/60">{p.qr_retiro}</p>
-                      )}
-                      {textoVisible(p.notas) && <p className="mt-1 break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
-                      <p className="mt-2 break-words text-sm leading-snug text-tinta">{resumenItems(p.items)}</p>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                        <div className="flex min-w-0 items-baseline gap-2">
-                          <Monto valor={p.total} className="text-sm font-semibold text-tinta" />
-                          <span className="min-w-0 truncate text-xs text-tinta/60">{p.sucursal?.nombre}</span>
-                        </div>
-                        {alternar}
-                      </div>
-                      <div className="mt-2 flex gap-2">
-                        {botones}
-                      </div>
-                    </div>
+                    <NotaDePedido
+                      key={p.id}
+                      p={p}
+                      franja={col.franja}
+                      abierto={abierto}
+                      onAlternar={() => setAbiertos((a) => ({ ...a, [p.id]: !abierto }))}
+                      acciones={
+                        <>
+                          <Boton
+                            onClick={() => (envioListo ? (setErrorDespacho(null), setDespachando(p)) : avanzar(p, col.accion))}
+                            disabled={ocupado === p.id}
+                            className={unir('min-w-40 flex-1 sm:flex-none', col.boton)}
+                          >
+                            {ocupado === p.id ? '…' : envioListo ? 'Despachar' : col.botenLabel}
+                          </Boton>
+                          <button
+                            type="button"
+                            onClick={() => avanzar(p, 'cancelado')}
+                            disabled={ocupado === p.id}
+                            className={unir(
+                              'grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-tinta/70 transition-colors hover:border-marca/50 hover:text-marca-hondo disabled:opacity-50 sm:size-10',
+                              FOCO,
+                            )}
+                            title="Cancelar pedido (libera el stock)"
+                            aria-label="Cancelar pedido (libera el stock)"
+                          >
+                            <IconoCerrar className="size-5" />
+                          </button>
+                        </>
+                      }
+                    />
                   );
                 })}
                 {enColumna.length === 0 && (
-                  <p className="px-1 py-6 text-center text-xs text-tinta/60">vacío</p>
+                  <p className="col-span-full px-1 py-8 text-center text-sm text-tinta/60">{col.vacio}</p>
                 )}
               </div>
               </div>
