@@ -1,20 +1,36 @@
--- APLICAR la carga del Crack del 10/11/2026 (auditoría 1062). Todo o nada.
--- __ENSAYO__ = true termina con un error que trae los números y vuelve todo atrás.
+-- APLICAR una carga del Crack: la fila de auditoría que guardó el plan de simular-csv.py
+-- (la primera fue la del 10/11/2026, fila 1062). Todo o nada.
+-- Reemplazar __FILA__ por el id de esa fila y __ENSAYO__ por true (termina con un error que
+-- trae los números y vuelve todo atrás) o por false. La referencia y el corte salen del plan.
 do $$
 declare
   ensayo boolean := __ENSAYO__;
-  a jsonb := (select datos_despues from auditoria where id = 1062);
+  a jsonb := (select datos_despues from auditoria where id = __FILA__);
   v_suc uuid := (a->>'sucursal_id')::uuid; v_lista uuid := (a->>'lista_id')::uuid;
-  v_ref text := 'export-1011';
-  v_concepto text := 'Ajuste de saldo del sistema anterior (corte 10/11/2026 11:20)';
+  v_ref text := a->>'referencia';
+  v_corte text := to_char((a->>'corte')::timestamptz at time zone 'America/Argentina/Buenos_Aires', 'FMDD/FMMM/YYYY HH24:MI');
+  v_concepto text := 'Ajuste de saldo del sistema anterior (corte ' || v_corte || ')';
+  v_stock_ref text := 'stock-' || replace(a->>'referencia', 'export-', '');
   e jsonb; v_prod uuid; v_cli uuid; v_act numeric; v_delta numeric; v_nuevo numeric;
   n_altas int := 0; n_vinc int := 0; n_comp int := 0; n_prec int := 0; n_stock int := 0; n_bar int := 0; n_barq int := 0;
-  n_cli int := 0; n_clic int := 0; n_cc int := 0; n_vh int := 0; n_pp int := 0; u_stock numeric := 0;
+  n_cli int := 0; n_clic int := 0; n_cc int := 0; n_vh int := 0; n_pp int := 0; u_stock numeric := 0; n_vcr int := 0;
 begin
-  if a is null then raise exception 'No está la fila 1062'; end if;
+  if a is null or v_ref is null or a->>'corte' is null then raise exception 'No está la fila de la carga o le falta la referencia o el corte'; end if;
   if exists (select 1 from auditoria where accion = 'importacion_sistema_viejo_aplicada' and entidad_id = v_ref) then
     raise exception 'La carga % ya se aplicó', v_ref;
   end if;
+
+  -- 0. VINCULAR (17/11/2026): el artículo nuevo del Crack que NÚCLEO ya tenía sin código (lo creó
+  --    al cargar una factura) recibe el código; no se crea otro. Las secciones que siguen lo
+  --    tratan como uno existente (stock, precio, barras, proveedor).
+  for e in select * from jsonb_array_elements(coalesce(a->'vincular', '[]'::jsonb)) loop
+    if exists (select 1 from productos where codigo_legacy = e->>'codigo') then
+      raise exception 'El código % ya está en otro producto: volver a simular', e->>'codigo';
+    end if;
+    update productos set codigo_legacy = e->>'codigo' where id = (e->>'producto_id')::uuid and codigo_legacy is null;
+    if not found then raise exception 'El producto % ya tiene código del Crack: volver a simular', e->>'sku'; end if;
+    n_vcr := n_vcr + 1;
+  end loop;
 
   -- 1. altas de productos (o vincular si el SKU ya existe sin código viejo)
   for e in select * from jsonb_array_elements(a->'altas') loop
@@ -30,7 +46,7 @@ begin
     returning id into v_prod;
     insert into precios (lista_id, producto_id, precio, vigente_desde) values (v_lista, v_prod, (e->>'precio')::numeric, now());
     if coalesce((e->>'stock')::numeric, 0) > 0 then
-      perform registrar_movimiento(v_prod, v_suc, 'ajuste', (e->>'stock')::numeric, 'Alta desde el sistema anterior (' || v_ref || ')', 'importacion', 'stock-1011', null);
+      perform registrar_movimiento(v_prod, v_suc, 'ajuste', (e->>'stock')::numeric, 'Alta desde el sistema anterior (' || v_ref || ')', 'importacion', v_stock_ref, null);
     end if;
     n_altas := n_altas + 1;
   end loop;
@@ -59,7 +75,7 @@ begin
     v_nuevo := greatest(0, v_act + ((e->>'objetivo')::numeric - (e->>'antes')::numeric));
     v_delta := round(v_nuevo - v_act, 3);
     if abs(v_delta) >= 0.001 then
-      perform registrar_movimiento(v_prod, v_suc, 'ajuste', v_delta, 'Sincronización con sistema anterior (' || v_ref || ')', 'importacion', 'stock-1011', null);
+      perform registrar_movimiento(v_prod, v_suc, 'ajuste', v_delta, 'Sincronización con sistema anterior (' || v_ref || ')', 'importacion', v_stock_ref, null);
       n_stock := n_stock + 1; u_stock := u_stock + abs(v_delta);
     end if;
   end loop;
@@ -83,7 +99,7 @@ begin
     returning id into v_cli;
     if coalesce((e->>'saldo')::numeric, 0) <> 0 then
       insert into cuenta_corriente (cliente_id, concepto, debe, haber)
-      values (v_cli, 'Saldo inicial del sistema anterior (corte 10/11/2026 11:20)', greatest((e->>'saldo')::numeric, 0), greatest(-(e->>'saldo')::numeric, 0));
+      values (v_cli, 'Saldo inicial del sistema anterior (corte ' || v_corte || ')', greatest((e->>'saldo')::numeric, 0), greatest(-(e->>'saldo')::numeric, 0));
     end if;
     n_cli := n_cli + 1;
   end loop;
@@ -105,7 +121,7 @@ begin
     n_cc := n_cc + 1;
   end loop;
 
-  -- 8. ventas por producto del 24/10 al 9/11 (estadísticas y Analista)
+  -- 8. ventas por producto de los días que faltaban (estadísticas y Analista)
   insert into ventas_historicas (producto_id, sku, codigo_legacy, nombre, sucursal_id, unidades, desde, hasta, origen)
   select (f->>'producto_id')::uuid, f->>'sku', f->>'codigo', f->>'nombre', v_suc, (f->>'unidades')::numeric,
          (a->'ventas_historicas'->>'desde')::date, (a->'ventas_historicas'->>'hasta')::date, v_ref
@@ -121,12 +137,12 @@ begin
 
   insert into auditoria (accion, entidad, entidad_id, datos_despues)
   values ('importacion_sistema_viejo_aplicada', 'carga', v_ref, jsonb_build_object(
-    'fila_plan', 1062, 'altas', n_altas, 'vinculados', n_vinc, 'costos_completados', n_comp, 'precios', n_prec,
+    'fila_plan', __FILA__, 'vinculados_sin_codigo', n_vcr, 'altas', n_altas, 'vinculados', n_vinc, 'costos_completados', n_comp, 'precios', n_prec,
     'stock_ajustes', n_stock, 'stock_unidades', u_stock, 'barras_nuevas', n_bar, 'barras_caja_quitadas', n_barq,
     'clientes_altas', n_cli, 'clientes_completados', n_clic, 'ctacte_ajustes', n_cc, 'ventas_historicas', n_vh, 'proveedor_productos', n_pp));
 
   if ensayo then
-    raise exception 'ENSAYO OK (se vuelve todo atrás): altas % (vinculados %), costos %, precios %, stock % ajustes (% u.), barras +% / -%, clientes +% (completados %), cta cte %, ventas %, proveedor↔producto %',
-      n_altas, n_vinc, n_comp, n_prec, n_stock, round(u_stock), n_bar, n_barq, n_cli, n_clic, n_cc, n_vh, n_pp;
+    raise exception 'ENSAYO OK (se vuelve todo atrás): ya existían sin código % · altas % (vinculados por SKU %), costos %, precios %, stock % ajustes (% u.), barras +% / -%, clientes +% (completados %), cta cte %, ventas %, proveedor↔producto %',
+      n_vcr, n_altas, n_vinc, n_comp, n_prec, n_stock, round(u_stock), n_bar, n_barq, n_cli, n_clic, n_cc, n_vh, n_pp;
   end if;
 end $$;

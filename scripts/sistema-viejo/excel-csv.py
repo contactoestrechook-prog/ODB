@@ -13,7 +13,7 @@ def todas(ruta):
         a += 1000
 nom = {x['id']: (x['sku'], x['nombre']) for x in todas('productos?select=id,sku,nombre')}
 wb = openpyxl.Workbook(); ws = wb.active; ws.title = 'Resumen'
-ws.append(['Carga del sistema anterior (Crack) · corte 10/11/2026 11:20 · Sant Thomas']); ws['A1'].font = Font(bold=True, size=14)
+ws.append([f'Carga del sistema anterior (Crack) · corte {p["corte"][:16].replace("T", " ")} · Sant Thomas']); ws['A1'].font = Font(bold=True, size=14)
 ws.append(['Simulación: todavía NO se aplicó nada.']); ws.append([])
 for l in res: ws.append([l]); ws.cell(ws.max_row, 1).alignment = Alignment(wrap_text=True)
 ws.column_dimensions['A'].width = 160
@@ -28,9 +28,11 @@ hoja('Precios que cambian', ['SKU', 'Producto', 'Precio nuevo'], [[*nom.get(a['p
 hoja('Precio NÚCLEO más nuevo', ['SKU', 'Producto', 'NÚCLEO (se queda)', 'Crack (actualizar la caja)'], r['precio_nucleo_mas_nuevo'])
 hoja('Saltos +-60% (revisar)', ['SKU', 'Producto', 'Precio hoy', 'Crack'], r['salto_mas_60'])
 hoja('Precios basura (revisar)', ['Código', 'Producto', 'Crack', 'NÚCLEO'], r['precio_basura'])
-hoja('Altas de productos', ['Código', 'Nombre', 'Rubro', 'Precio', 'Costo', 'Alcohol'], [[a['codigo'], a['nombre'], a['rubro'], a['precio'], a['costo'], 'sí' if a['es_alcohol'] else ''] for a in p['altas']])
+hoja('Ya existían (se vinculan)', ['Código Crack', 'Nombre en el Crack', 'SKU NÚCLEO', 'Nombre en NÚCLEO', 'Por', 'Puntaje'], [[v['codigo'], v['nombre_crack'], v['sku'], v['nombre_nucleo'], v['motivo'], v['puntaje']] for v in p.get('vincular', [])])
+hoja('Posibles duplicados (revisar)', ['Código Crack', 'Nombre en el Crack', 'SKU NÚCLEO', 'Nombre en NÚCLEO', 'Puntaje'], r.get('posible_duplicado', []))
+hoja('Altas de productos',['Código', 'Nombre', 'Rubro', 'Precio', 'Costo', 'Alcohol'], [[a['codigo'], a['nombre'], a['rubro'], a['precio'], a['costo'], 'sí' if a['es_alcohol'] else ''] for a in p['altas']])
 hoja('Clientes nuevos', ['Código', 'Nombre', 'Teléfono', 'Saldo'], [[a['codigo_legacy'], a['nombre'], a['telefono'], a['saldo']] for a in p['clientes_altas']])
 hoja('Cuenta corriente', ['Cliente', 'Saldo NÚCLEO', 'Saldo Crack', 'Ajuste'], [[a['cliente_id'], a['saldo_nucleo'], a['saldo_crack'], a['monto']] for a in p['ctacte_ajustes']])
 hoja('Barras de otro producto', ['EAN', 'Código Crack', 'EAN leído'], r['barra_de_otro_producto'])
 hoja('Proveedores no encontrados', ['Código', 'Razón social', 'CUIT'], r['proveedores_no_encontrados'])
-wb.save(f'{D}/carga-crack-10-11.xlsx'); print('ok')
+wb.save(f'{D}/carga-crack-{p["referencia"].replace("export-", "")}.xlsx'); print('ok')

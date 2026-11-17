@@ -1,22 +1,41 @@
-# SIMULACIÓN de la carga del Crack del 10/11/2026 (solo lee). Arma plan.json y
-# resumen.txt en la carpeta de los CSV. Criterio por sección (ver resumen).
-import csv, json, sys, re, math, urllib.request, collections, datetime, unicodedata
+# SIMULACIÓN de la carga del Crack de Sant Thomas (solo lee). Arma plan.json,
+# revision.json y resumen.txt en la carpeta de los CSV. Criterio por sección (ver resumen).
+# Desde el 17/11/2026 las fechas ya no se editan a mano: el corte sale del archivo de
+# stock y la carga anterior, de la base (ver «fechas» más abajo).
+import csv, json, sys, re, math, urllib.request, collections, datetime, unicodedata, os, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # con python3 -I no entra solo
+import vincular as vinc
 
 D = sys.argv[1]
 ENV = dict(l.split('=', 1) for l in open('/Users/leandroalonso/Projects/odb/apps/api/.env').read().splitlines() if re.match(r'^[A-Z0-9_]+=', l))
 URL, KEY = ENV['SUPABASE_URL'].strip(), ENV['SUPABASE_SERVICE_KEY'].strip()
 ST = '229906e6-df69-48eb-b027-2b57fefb89fe'
-T_ULTIMA = '2026-11-03T20:40:00Z'  # la carga anterior (export-0311, 17:36)
-CORTE = '2026-11-10T11:20:16-03:00'
 
 def todas(ruta):
     out, a = [], 0
     while True:
         req = urllib.request.Request(f'{URL}/rest/v1/{ruta}', headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Range': f'{a}-{a+999}'})
-        d = json.load(urllib.request.urlopen(req))
+        for intento in range(8):  # el proxy a veces corta la respuesta a la mitad (17/11/2026)
+            try: d = json.load(urllib.request.urlopen(req)); break
+            except Exception:
+                if intento == 7: raise
+                time.sleep(1 + intento)
         out += d
         if len(d) < 1000: return out
         a += 1000
+
+# ---------- fechas ----------
+# T_ULTIMA: la última sincronización del stock de Sant Thomas (la carga completa o «Poner al
+# día», la misma regla que la pantalla): lo que se movió después es lo que pasó solo en NÚCLEO.
+# T_PRECIOS: la última carga completa (los precios solo entran por acá): un precio de NÚCLEO
+# posterior es más nuevo que el del Crack.
+def _primero(ruta):
+    d = todas(ruta); return d[0]['creado_en'].replace('+00:00', 'Z') if d else ''  # «+» en la URL se lee como espacio
+T_ULTIMA = max(_primero(f'movimientos_stock?select=creado_en&sucursal_id=eq.{ST}&referencia_tipo=eq.importacion&order=creado_en.desc&limit=1'),
+               _primero(f'auditoria?select=creado_en&accion=eq.puesta_al_dia_aplicada&datos_despues->>sucursal_id=eq.{ST}&order=creado_en.desc&limit=1'))
+T_PRECIOS = _primero('auditoria?select=creado_en&accion=eq.importacion_sistema_viejo_aplicada&entidad_id=like.export-*&order=creado_en.desc&limit=1')
+def dia_local(iso): return (datetime.datetime.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S') - datetime.timedelta(hours=3)).date()  # la base guarda UTC
+def corto(f): return f'{f.day}/{f.month}'
 
 def filas(f):
     r = list(csv.reader(open(f'{D}/{f}.csv', encoding='utf-8'), delimiter=';'))
@@ -54,7 +73,16 @@ _, bar = filas('codigobarras'); _, cli = filas('clientes'); _, cta = filas('ctac
 # de NÚCLEO (el 10/11: +7 y −7 al 12252, Gin y Raid; −17 y +17 al 10610, vino y Procenex; +0,705
 # y −0,705 al 8139, espumante y queso). Van a revisión y la carga no les toca nada.
 repetidos_crack = {c for c, n in collections.Counter(r[0].strip() for r in art if r[0].strip()).items() if n > 1}
-plan = {'referencia': 'export-1011', 'corte': CORTE, 'sucursal_id': ST, 'lista_id': lista['id']}
+# el corte, del archivo de stock («17/11/2026 12:20:32»)
+_c = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?', stk[0][3].strip())
+CORTE = f'{_c[3]}-{int(_c[2]):02d}-{int(_c[1]):02d}T{int(_c[4]):02d}:{_c[5]}:{_c[6] or "00"}-03:00'
+DIA_CORTE = datetime.date(int(_c[3]), int(_c[2]), int(_c[1]))
+CORTE_TXT = f'{int(_c[1])}/{int(_c[2])}/{_c[3]} {int(_c[4]):02d}:{_c[5]}'
+REF = f'export-{int(_c[1]):02d}{int(_c[2]):02d}'
+if T_ULTIMA and datetime.datetime.strptime(CORTE[:19], '%Y-%m-%dT%H:%M:%S') + datetime.timedelta(hours=3) <= datetime.datetime.strptime(T_ULTIMA[:19], '%Y-%m-%dT%H:%M:%S'):
+    if '--verificar' not in sys.argv:  # volver a simular después de aplicar: ahí el corte ya es viejo y está bien
+        sys.exit(f'FRENO: el corte del archivo ({CORTE_TXT}) es anterior a la última sincronización de Sant Thomas ({T_ULTIMA}). Bajá un export nuevo (o, para verificar una carga recién aplicada, agregá --verificar).')
+plan = {'referencia': REF, 'corte': CORTE, 'sucursal_id': ST, 'lista_id': lista['id']}
 rev = collections.defaultdict(list)  # a revisión (no se aplica)
 res = []
 
@@ -81,10 +109,25 @@ for r in art:
     altas.append({'codigo': cod, 'nombre': r[1].strip(), 'categoria_id': cat[0][0] if cat else None, 'rubro': r[2],
                   'es_alcohol': bool(ALCOHOL.search(norm(r[2]) + ' ')), 'precio': precio, 'costo': costo,
                   'alicuota_iva': num(r[4]), 'plu': r[10].strip() or None})
+# VINCULAR EN VEZ DE DUPLICAR (17/11/2026, vincular.py): el artículo nuevo del Crack puede ser
+# un producto que NÚCLEO ya creó al cargar una factura, sin código del Crack. Ese recibe el
+# código y sigue como uno existente (stock, precio, barras, proveedor); no se crea otro.
+sin_codigo = [p for p in prods if not p['codigo_legacy'] and p['activo']]
+barras_unidad = collections.defaultdict(set)
+for r in bar:
+    if len(r) > 3 and (num(r[3]) or 0) in (0, 1): barras_unidad[r[0].strip()].add(re.sub(r'\D', '', r[1]))
+vinc_ok, rev['posible_duplicado'] = vinc.buscar(altas, sin_codigo, barras_unidad, barras)
+plan['vincular'] = []
+for a in altas:
+    if a['codigo'] not in vinc_ok: continue
+    p, motivo, nota = vinc_ok[a['codigo']]
+    existentes[a['codigo']] = p
+    plan['vincular'].append({'codigo': a['codigo'], 'producto_id': p['id'], 'sku': p['sku'], 'nombre_nucleo': p['nombre'], 'nombre_crack': a['nombre'], 'motivo': motivo, 'puntaje': nota})
+altas = [a for a in altas if a['codigo'] not in vinc_ok]
 stock_crack = {r[0].strip(): max(0.0, num(r[2]) or 0) for r in stk}
 for x in altas: x['stock'] = round(stock_crack.get(x['codigo'], 0.0), 3)
 plan['altas'] = altas
-res.append(f'1. PRODUCTOS: {len(existentes)} ya están en NÚCLEO; {len(altas)} altas nuevas ({sum(1 for a in altas if not a["categoria_id"])} sin categoría por su rubro); {len(rev["codigo_repetido_en_odb"])} códigos repetidos en NÚCLEO, {len(repetidos_crack)} repetidos en el Crack ({", ".join(sorted(repetidos_crack))}) y {len(rev["alta_sin_precio_valido"])} altas sin precio válido, a revisión.')
+res.append(f'1. PRODUCTOS: {len(existentes)} ya están en NÚCLEO; {len(plan["vincular"])} artículos nuevos del Crack que NÚCLEO ya tenía sin código (de una factura) se VINCULAN en vez de duplicarse ({sum(1 for v in plan["vincular"] if v["motivo"] == "barra")} por barra, {sum(1 for v in plan["vincular"] if v["motivo"] == "nombre")} por nombre); {len(rev["posible_duplicado"])} posibles duplicados se dan de alta igual y van a revisión; {len(altas)} altas nuevas ({sum(1 for a in altas if not a["categoria_id"])} sin categoría por su rubro); {len(rev["codigo_repetido_en_odb"])} códigos repetidos en NÚCLEO, {len(repetidos_crack)} repetidos en el Crack ({", ".join(sorted(repetidos_crack))}) y {len(rev["alta_sin_precio_valido"])} altas sin precio válido, a revisión.')
 
 # ---------- 2. completar datos que NÚCLEO no tiene (IVA, PLU, costo vacío) ----------
 completar = []
@@ -111,14 +154,14 @@ for r in art:
     if act and abs(float(act['precio']) - nuevo) < 0.01: continue
     if nuevo < 100:
         rev['precio_basura'].append([r[0], r[1], r[6], act and act['precio']]); continue
-    if act and act['vigente_desde'] > T_ULTIMA:
+    if act and T_PRECIOS and act['vigente_desde'] > T_PRECIOS:
         # NÚCLEO lo cambió después de la carga anterior (remarcó una compra): NÚCLEO es más nuevo
         precio_nucleo_mas_nuevo.append([p['sku'], p['nombre'], act['precio'], nuevo]); continue
     if act and float(act['precio']) > 0 and abs(nuevo / float(act['precio']) - 1) > 0.6:
         rev['salto_mas_60'].append([p['sku'], p['nombre'], act['precio'], nuevo]); continue
     precio_nuevo.append({'producto_id': p['id'], 'precio': nuevo})
 plan['precios'] = precio_nuevo
-res.append(f'3. PRECIOS (lista 1 del Crack → Minorista de NÚCLEO, vigencia nueva, nunca se borra el historial): {len(precio_nuevo)} cambian; {len(precio_nucleo_mas_nuevo)} NO, porque NÚCLEO los remarcó después del 3/11 (hay que pasarlos al Crack); {len(rev["salto_mas_60"])} saltos de más de ±60 % y {len(rev["precio_basura"])} precios basura, a revisión.')
+res.append(f'3. PRECIOS (lista 1 del Crack → Minorista de NÚCLEO, vigencia nueva, nunca se borra el historial): {len(precio_nuevo)} cambian; {len(precio_nucleo_mas_nuevo)} NO, porque NÚCLEO los remarcó después de la carga anterior ({corto(dia_local(T_PRECIOS)) if T_PRECIOS else "—"}) (hay que pasarlos al Crack); {len(rev["salto_mas_60"])} saltos de más de ±60 % y {len(rev["precio_basura"])} precios basura, a revisión.')
 
 # ---------- 4. stock de Sant Thomas ----------
 # objetivo = lo que dice el Crack + lo que entró o salió SOLO en NÚCLEO desde la carga anterior
@@ -129,11 +172,13 @@ for m in movs:
     if m['tipo'] == 'venta' or m['referencia_tipo'] in ('venta_prueba', 'importacion'): continue
     solo_nucleo[m['producto_id']] += q
     if m['tipo'] == 'compra': compras_n[m['producto_id']] += q
-# lo que vendió el Crack desde el 3/11 (fecha sin hora: el 3/11 entero cuenta, alcanza para ver si el Crack tuvo compras)
+# lo que vendió el Crack desde el día de la última sincronización (fecha sin hora: ese día entero
+# cuenta, alcanza para ver si el Crack tuvo compras)
+DIA_ULTIMA = dia_local(T_ULTIMA) if T_ULTIMA else datetime.date(2000, 1, 1)
 vend_crack = collections.defaultdict(float)
 for r in ven:
     d, mm, aa = (int(x) for x in r[0].split('/'))
-    if aa == 2026 and mm == 11 and d >= 3: vend_crack[r[3]] += num(r[4]) or 0
+    if datetime.date(aa, mm, d) >= DIA_ULTIMA: vend_crack[r[3]] += num(r[4]) or 0
 ajustes, dobles = [], 0
 for r in stk:
     cod = r[0].strip(); p = existentes.get(cod)
@@ -141,16 +186,16 @@ for r in stk:
     crack = num(r[2]) or 0
     pid = p['id']; antes = stock_n.get(pid, 0.0)
     extra = solo_nucleo.get(pid, 0.0)
-    # si el Crack también tuvo esa compra (su stock subió desde el 3/11), no se cuenta dos veces
+    # si el Crack también tuvo esa compra (su stock subió desde la última sincronización), no se cuenta dos veces
     if compras_n.get(pid):
-        base_t = antes - todo_desde.get(pid, 0.0)  # lo que quedó el 3/11 (= el Crack de ese día)
+        base_t = antes - todo_desde.get(pid, 0.0)  # lo que quedó en la última sincronización (= el Crack de ese día)
         entradas_crack = max(0.0, crack - base_t + vend_crack.get(cod, 0.0))
         quita = min(compras_n[pid], entradas_crack)
         if quita > 0.0005: dobles += 1; extra -= quita
     objetivo = round(max(0.0, crack + extra), 3)
     if abs(objetivo - antes) >= 0.001: ajustes.append({'producto_id': pid, 'objetivo': objetivo, 'antes': round(antes, 3), 'crack': crack, 'solo_nucleo': round(extra, 3)})
 plan['stock'] = ajustes
-res.append(f'4. STOCK SANT THOMAS: {len(ajustes)} productos se ajustan. Objetivo = el stock del Crack (corte 10/11 11:20) + lo que entró o salió solo en NÚCLEO desde el 3/11 ({sum(1 for v in solo_nucleo.values() if v)} productos: las compras de Ana y las correcciones). {dobles} compras que el Crack también tenía no se cuentan dos veces. Las ventas de prueba de NÚCLEO no cuentan. Negativos → 0. Santa Inés no se toca (no está en el Crack).')
+res.append(f'4. STOCK SANT THOMAS: {len(ajustes)} productos se ajustan. Objetivo = el stock del Crack (corte {CORTE_TXT}) + lo que entró o salió solo en NÚCLEO desde la última sincronización, el {corto(DIA_ULTIMA)} ({sum(1 for v in solo_nucleo.values() if v)} productos: las compras de Ana y las correcciones). {dobles} compras que el Crack también tenía no se cuentan dos veces. Las ventas de prueba de NÚCLEO no cuentan. Negativos → 0. Santa Inés no se toca (no está en el Crack).')
 
 # ---------- 5. códigos de barras ----------
 agregar, quitar_caja = [], []
@@ -210,10 +255,16 @@ for cod, s in saldo_crack.items():
 altas_saldo = sum(1 for a in cli_altas if saldo_crack.get(a['codigo_legacy']))
 for a in cli_altas: a['saldo'] = saldo_crack.get(a['codigo_legacy'], 0)
 plan['ctacte_ajustes'] = ajustes_cc
-res.append(f'7. CUENTA CORRIENTE: en NÚCLEO no hubo cobros ni ventas a cuenta desde el 24/10: el saldo del Crack manda. {len(ajustes_cc)} clientes se ajustan («Ajuste de saldo del sistema anterior (corte 10/11/2026 11:20)»), por un neto de ${sum(a["monto"] for a in ajustes_cc):,.0f}; {altas_saldo} altas traen saldo. El historial de movimientos del Crack ({len(cta)} renglones) reemplaza al del 3/11.')
+# el saldo del Crack manda SOLO si NÚCLEO no tuvo cobros ni ventas a cuenta propios desde la carga anterior
+propios = [m for m in todas(f'cuenta_corriente?select=concepto&creado_en=gt.{T_PRECIOS}&order=id') if not re.match(r'(Ajuste de saldo|Saldo inicial) del sistema', m['concepto'] or '')] if T_PRECIOS else []
+if propios: rev['ctacte_movimientos_de_nucleo'] = [[m['concepto']] for m in propios]
+res.append(f'7. CUENTA CORRIENTE: ' + (f'OJO: NÚCLEO tuvo {len(propios)} movimientos propios desde la carga anterior (a revisión): el saldo del Crack los pisaría. ' if propios else 'en NÚCLEO no hubo cobros ni ventas a cuenta propios desde la carga anterior: el saldo del Crack manda. ') + f'{len(ajustes_cc)} clientes se ajustan («Ajuste de saldo del sistema anterior (corte {CORTE_TXT})»), por un neto de ${sum(a["monto"] for a in ajustes_cc):,.0f}; {altas_saldo} altas traen saldo. El historial de movimientos del Crack ({len(cta)} renglones) reemplaza al anterior.')
 
 # ---------- 8. ventas: historial por cliente y unidades por producto ----------
-desde_ultima = datetime.date(2026, 10, 24); hasta = datetime.date(2026, 11, 9)
+# desde el día siguiente a lo ya cargado (por esta carga o por «Poner al día») hasta el día antes del corte
+_vh = todas(f'ventas_historicas?select=hasta&sucursal_id=eq.{ST}&order=hasta.desc&limit=1')
+desde_ultima = (datetime.date.fromisoformat(_vh[0]['hasta'][:10]) + datetime.timedelta(days=1)) if _vh else DIA_CORTE - datetime.timedelta(days=60)
+hasta = DIA_CORTE - datetime.timedelta(days=1)
 por_prod = collections.defaultdict(float); con_cliente = 0
 for r in ven:
     d, mm, aa = (int(x) for x in r[0].split('/')); f = datetime.date(aa, mm, d)
@@ -221,7 +272,7 @@ for r in ven:
     if r[7].strip() and r[7].strip().lower() != 'clientes local': con_cliente += 1
 vh = [{'codigo': c, 'producto_id': existentes[c]['id'], 'sku': existentes[c]['sku'], 'nombre': existentes[c]['nombre'], 'unidades': round(u, 3)} for c, u in por_prod.items() if c in existentes and u]
 plan['ventas_historicas'] = {'desde': str(desde_ultima), 'hasta': str(hasta), 'filas': vh}
-res.append(f'8. VENTAS: unidades vendidas por producto del 24/10 al 9/11 ({len(vh)} productos, {sum(v["unidades"] for v in vh):,.0f} unidades) para las estadísticas y el Analista (ya estaba hasta el 23/10). Las compras de cada cliente ({con_cliente} renglones con cliente) reemplazan a las del 3/11 desde el 10/11/2025.')
+res.append((f'8. VENTAS: unidades vendidas por producto del {corto(desde_ultima)} al {corto(hasta)} ({len(vh)} productos, {sum(v["unidades"] for v in vh):,.0f} unidades) para las estadísticas y el Analista.' if desde_ultima <= hasta else f'8. VENTAS: ya están cargadas hasta el {corto(hasta)} (nada nuevo).') + f' Las compras de cada cliente ({con_cliente} renglones con cliente) reemplazan a las anteriores desde la primera fecha del archivo.')
 
 # ---------- 9. quién vende cada producto: IGUAL que el Crack ----------
 # Leandro, 10/11/2026: «es nada más agarrar los productos como los exporta el Crack
