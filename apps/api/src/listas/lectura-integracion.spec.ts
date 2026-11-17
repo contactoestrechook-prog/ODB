@@ -2,12 +2,33 @@ import { ListasService } from './listas.service';
 
 let mockDatos: any;
 let mockRequest: any;
+// todos los pedidos a la IA, en orden; mockDatos puede ser una función (n.º de pedido → respuesta)
+let mockPedidos: any[] = [];
 jest.mock('@anthropic-ai/sdk', () => ({ __esModule: true, default: class {
   messages = { stream: (request: any) => {
     mockRequest = request;
-    return { finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(mockDatos) }], usage: {} }) };
+    mockPedidos.push(request);
+    const n = mockPedidos.length;
+    return { finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(typeof mockDatos === 'function' ? mockDatos(n) : mockDatos) }], usage: {} }) };
   } };
 } }));
+
+/** Una base que contesta por tabla; lo que no se nombra vuelve vacío. */
+function baseCon(tablas: Record<string, any[]>) {
+  const consulta = (filas: any[]) => {
+    const b: any = new Proxy({}, { get: (_t, k) => {
+      if (k === 'then') return (ok: any, err: any) => Promise.resolve({ data: filas, error: null }).then(ok, err);
+      if (k === 'single' || k === 'maybeSingle') return async () => ({ data: null, error: null });
+      return () => b;
+    } });
+    return b;
+  };
+  return {
+    storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+    rpc: () => consulta([]),
+    from: (tabla: string) => consulta(tablas[tabla] ?? []),
+  };
+}
 
 function baseSimulada() {
   return { storage: { from: () => ({ upload: async () => ({ error: null }) }) }, from: () => {
@@ -106,4 +127,73 @@ describe('lectura inicial y reapertura', () => {
     const pedido = await s.analizarComprobanteFoto(archivo, 'lo pintado se devolvió y del Pronto ingresaron 3 bultos');
     expect((pedido.items as any[]).map((i) => [i.devueltoAMano, i.recibidoAMano])).toEqual([[true, null], [false, 28]]);
   });
+
+  // 17/11/2026: las reglas del proveedor solo llegaban al lector si se leía el QR
+  // de ARCA (17 de 31 lecturas). Sin QR, el proveedor se sabe después de leer: si
+  // tiene reglas, el comprobante se lee otra vez con ellas.
+  describe('las reglas llegan al lector aunque no se lea el QR', () => {
+    const FARINA = { id: 'p-farina', razon_social: 'La Farina', cuit: '30565574759' };
+    const REGLA = 'En los renglones de figacitas y figazas «x N unidades», la Cantidad del papel son paquetes que entran al stock tal cual.';
+    const leido = (dudas: string[]) => ({
+      proveedor: { nombre: 'LA FARINA', cuit: '30565574759' },
+      items: [{ codigo: null, descripcion: 'Figacita de manteca x 9 unidades', unidadesPorBulto: 9, cantidad: 24, precio: 3490, importe: 83760, devueltoAMano: false, recibidoAMano: 0, impuestoInternoUnitario: 0 }],
+      dudas: dudas.map((pregunta) => ({ referencia: null, pregunta })),
+    });
+    const archivo = { buffer: Buffer.from('mock'), mimetype: 'application/pdf', originalname: 'mock.pdf' } as any;
+    const textoDelPedido = (r: any) => String((r.messages[0].content as any[]).find((c) => c.type === 'text')?.text ?? '');
+    const lector = (tablas: Record<string, any[]>) => {
+      const s = new ListasService(baseCon(tablas) as any);
+      (s as any).sugerirMatchConIA = async () => new Map();
+      return s;
+    };
+    beforeEach(() => { mockPedidos = []; delete process.env.ODB_RELEER_CON_REGLAS; });
+
+    it('proveedor reconocido por el CUIT leído y con reglas: se lee dos veces y queda la segunda', async () => {
+      mockDatos = (n: number) => leido(n === 1 ? ['¿La cantidad 24 son paquetes o hay que multiplicar por 9?'] : []);
+      const r: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(2);
+      // la primera va sin reglas; la segunda las lleva, con el emisor ya identificado
+      expect(textoDelPedido(mockPedidos[0])).not.toContain('figacitas y figazas');
+      expect(textoDelPedido(mockPedidos[1])).toContain(REGLA);
+      expect(textoDelPedido(mockPedidos[1])).toContain('El emisor de este comprobante ya se identificó: La Farina');
+      expect(textoDelPedido(mockPedidos[1])).toContain('NO dejes dudas sobre lo que ya contestan');
+      expect(r.releidaConReglas).toBe(true);
+      expect(r.reglasAplicadas).toBe(1);
+      expect(r.proveedor.match.id).toBe('p-farina');
+      // la duda que la regla ya contesta no vuelve
+      expect((r.dudas as any[]).map((d) => d.pregunta).join(' ')).not.toContain('multiplicar por 9');
+      expect(r.items).toHaveLength(1);
+    });
+
+    it('si la segunda lectura falla o vuelve vacía, queda la primera', async () => {
+      mockDatos = (n: number) => { if (n >= 2) throw new Error('se cortó'); return leido(['duda de la primera']); };
+      const r: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(r.releidaConReglas).toBe(false);
+      expect(r.reglasAplicadas).toBe(0);
+      expect(r.items).toHaveLength(1);
+      expect((r.dudas as any[]).map((d) => d.pregunta)).toContain('duda de la primera');
+      mockPedidos = [];
+      mockDatos = (n: number) => (n === 1 ? leido(['duda de la primera']) : { ...leido([]), items: [] });
+      const vacia: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(2);
+      expect(vacia.releidaConReglas).toBe(false);
+      expect(vacia.items).toHaveLength(1);
+    });
+
+    it('sin reglas, sin proveedor o con el interruptor apagado se lee una sola vez', async () => {
+      mockDatos = leido([]);
+      const sinReglas: any = await lector({ proveedores: [FARINA] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(1);
+      expect(sinReglas.releidaConReglas).toBe(false);
+      mockPedidos = [];
+      await lector({ proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(1);
+      mockPedidos = [];
+      process.env.ODB_RELEER_CON_REGLAS = '0';
+      const apagado: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(1);
+      expect(apagado.releidaConReglas).toBe(false);
+    });
+  });
 });
+

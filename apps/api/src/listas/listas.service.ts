@@ -861,160 +861,175 @@ export class ListasService {
     const qr: QrArca | null = await buscarQrArca(archivo);
     const { data: candidatosProv } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('activo', true);
     const proveedorDelQr = qr ? ((candidatosProv ?? []) as any[]).find((p) => String(p.cuit ?? '').replace(/\D/g, '') === qr.cuit) ?? null : null;
-    const reglasProveedor = proveedorDelQr ? await this.reglasDeLectura(proveedorDelQr.id) : [];
+    let reglasProveedor = proveedorDelQr ? await this.reglasDeLectura(proveedorDelQr.id) : [];
     this.log.log(`QR de ARCA: ${qr ? `${qr.cuit} ${numeroDelQr(qr)} $${qr.importe}` : 'no se encontró'} · ${reglasProveedor.length} reglas · ${Date.now() - tQr} ms`);
 
-    const contenido: Anthropic.ContentBlockParam[] = [
-      esPdf
-        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.buffer.toString('base64') } }
-        : { type: 'image', source: { type: 'base64', media_type: mediaType!, data: archivo.buffer.toString('base64') } },
-      {
-        type: 'text',
-        text:
-          'Leé el comprobante adjunto siguiendo las instrucciones del sistema.' +
-          (qr
-            ? `\n\nEl QR de ARCA de este comprobante ya se leyó y es exacto: emisor CUIT ${qr.cuit}${proveedorDelQr ? ` (${proveedorDelQr.razon_social})` : ''}, número ${numeroDelQr(qr)}, fecha ${qr.fecha ?? '—'}, TOTAL $${totalEnPesos(qr).toFixed(2)}. El total del pie tiene que ser ese: si al leer te da otro, revisá el pie y los renglones antes de contestar.`
-            : '') +
-          (reglasProveedor.length
-            ? '\n\nReglas que administración dejó para las facturas de este proveedor (aplicalas siempre):\n' + reglasProveedor.map((r) => `- ${r}`).join('\n')
-            : '') +
-          (aclaraciones && aclaraciones.trim()
-            ? '\n\nEl operador ya revisó una primera lectura y te aclara lo siguiente (tenelo en cuenta y NO vuelvas a preguntar por esto): ' + aclaraciones.trim()
-            : ''),
-      },
-    ];
-
-    // Un tropiezo del lector (saturación, un corte) NO puede costarle a nadie
-    // volver a sacar la foto: se reintenta una vez sola antes de darse por
-    // vencido. Y el error REAL queda en el log: hasta ahora se lo tragaba el
-    // catch, así que cuando alguien avisaba "no me lee el remito" no había con
-    // qué diagnosticarlo.
-    // Cuánto tarda cada parte, siempre. "Va lento" sin un número no se puede
-    // arreglar: hay DOS llamadas a la IA en fila (leer el comprobante y
-    // matchear los renglones) y hasta ahora no había forma de saber cuál pesa.
     const t0 = Date.now();
     let msLectura = 0;
-    let datos: any;
-    let ultimoError: any = null;
-    // RELEVO (13/11/2026, comun/relevo-ia.ts): 91 lecturas de dos semanas
-    // tardaron 11 s la mitad y 35 s la más lenta (42 renglones). Si a los 60 s
-    // no terminó, sale otra lectura igual y gana la primera que llegue.
-    // Regulable con ODB_LECTURA_RELEVO (segundos).
-    const esperaRelevo = relevoMs('ODB_LECTURA_RELEVO', 60);
-    for (let intento = 1; intento <= 2; intento++) {
-      try {
-        const { valor: respuesta } = await conRelevo((signal) => claude.messages
-          .stream({
-            // Sonnet 5.5 desde el 7/10/2026 (decisión de Leandro). Medido con tres
-            // facturas reales de Distri Sur: lee 21–33 s contra 54–127 s de
-            // Sonnet 5, cuesta ≈ USD 0,05 por factura (≈ 0,12 antes), deja
-            // números, pie e IVA perfectos y lee la columna %Des. que Sonnet 5
-            // se salteó el 15/9. Flojo en algún dígito de los códigos de
-            // artículo (9094UU → 3094UU): Opus 5.5 los leyó todos.
-            model: 'claude-sonnet-5-5',
-            // caché de UNA HORA: las facturas se cargan salteadas a lo largo de la
-            // mañana y con los 5 minutos por defecto casi nunca se aprovechaba
-            system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral', ttl: '1h' } }],
-            // 64k: una factura de dos hojas con 60 renglones, más el
-            // razonamiento —que cuenta contra este mismo tope—, no entra en
-            // 16k. Con 16k, La Serenísima moría justo en el límite y salía
-            // una pantalla vacía "sin dudas". Ya streameamos, así que un tope
-            // alto no arriesga timeouts.
-            max_tokens: 64000,
-            // Esfuerzo MEDIO (2026-09-07). Estaba en alto y una factura de 31
-            // renglones tardaba 4 a 5 MINUTOS: de los 32.460 tokens que generaba,
-            // el JSON de la factura eran ~4.000 y el resto era razonamiento. Con
-            // el gateway cortando a los 5 minutos, la pantalla mostraba "upstream
-            // error" con la lectura ya terminada del lado del servidor.
-            //
-            // 'medium' corta ese razonamiento a la mitad y mantiene la lectura de
-            // columnas (lo que se rompía en 'low' era cruzar la fila de al lado en
-            // FOTOS de papel). Si alguna vez una foto difícil sale mal, se sube a
-            // 'high' con ODB_ESFUERZO_LECTURA sin deploy, y el operador siempre
-            // tiene el botón de volver a leer con aclaraciones.
-            //
-            // Se probó bajarlo. Sobre un PDF nativo, con las columnas limpias,
-            // daba los mismos números en menos de la mitad de tiempo. Pero
-            // sobre la FOTO de un papel —columnas apretadas, anotaciones a mano
-            // encima de los renglones— empezó a tomar números de la fila de al
-            // lado: el precio de la cerveza de abajo en el renglón de arriba.
-            // Ese error es plausible y silencioso, porque el número que carga
-            // es un precio real de la misma factura, y termina en el precio de
-            // venta. Esperar un minuto más es más barato que remarcar mal.
-            //
-            // Regulable con ODB_ESFUERZO_LECTURA por si alguna vez conviene
-            // acelerar una carga puntual.
-            output_config: {
-              format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any },
-              effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'medium') as any,
-            },
-            messages: [{ role: 'user', content: contenido }],
-          }, { signal })
-          .finalMessage(), {
-          relevoMs: esperaRelevo,
-          alRelevar: () => this.log.warn(`lectura del comprobante: lleva ${esperaRelevo / 1000} s sin terminar, sale una segunda lectura`),
-        });
-        // Quedarse sin espacio es un ERROR, no un resultado. Antes, si el tope
-        // se agotaba durante el razonamiento, no había bloque de texto, el
-        // JSON quedaba en '{}' y la pantalla mostraba un comprobante vacío con
-        // "la IA no tuvo dudas" — el peor modo de fallar, porque parece que la
-        // factura no tiene nada.
-        if (respuesta.stop_reason === 'max_tokens') {
-          throw new Error('max_tokens: el comprobante no entró en el espacio de salida');
-        }
-        const bloque = respuesta.content.find((b) => b.type === 'text');
-        if (!bloque || !('text' in bloque) || !bloque.text.trim()) {
-          throw new Error('sin_texto: la respuesta no trajo el JSON del comprobante');
-        }
-        datos = JSON.parse(bloque.text);
-        if (!(datos.items ?? []).length && !datos.impuestos?.total && !datos.proveedor?.nombre) {
-          throw new Error('vacio: la lectura no trajo renglones ni pie ni proveedor');
-        }
-        msLectura = Date.now() - t0;
-        const u: any = (respuesta as any).usage ?? {};
-        this.log.log(
-          `lectura del comprobante: ${(msLectura / 1000).toFixed(1)}s · ${(datos.items ?? []).length} renglones · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'} · ${Math.round((u.output_tokens ?? 0) / Math.max(1, msLectura / 1000))} tok/s`,
-        );
-        ultimoError = null;
-        break;
-      } catch (e: any) {
-        ultimoError = e;
-        const estado = e?.status ?? e?.statusCode;
-        this.log.error(
-          `lectura de comprobante falló (intento ${intento}/2) · estado=${estado ?? '?'} · tipo=${e?.error?.error?.type ?? e?.name ?? '?'} · ${String(e?.message ?? e).slice(0, 300)}`,
-        );
-        // 429/5xx y cortes de red son pasajeros: vale la pena insistir. Un
-        // archivo que la API rechaza (imagen inválida, formato) no mejora
-        // reintentando.
-        const pasajero = estado === 429 || (typeof estado === 'number' && estado >= 500) || /timeout|socket|network|ECONNRESET|overloaded/i.test(String(e?.message ?? ''));
-        if (!pasajero || intento === 2) break;
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-    if (ultimoError) {
-      const msg = String(ultimoError?.message ?? ultimoError);
-      const estado = ultimoError?.status ?? ultimoError?.statusCode;
-      if (/max_tokens|sin_texto|vacio/.test(msg)) {
-        throw new BadRequestException('No pude terminar de leer el comprobante completo. Volvé a intentar; si vuelve a pasar, subí las hojas de a una.');
-      }
-      if (/image|too large|dimensions|media_type|invalid.*base64/i.test(msg)) {
-        throw new BadRequestException('No pude leer la imagen: probá con una foto más nítida o el PDF de la factura.');
-      }
-      if (estado === 429 || /overloaded/i.test(msg)) {
-        throw new BadRequestException('El lector está saturado en este momento. Esperá un minuto y volvé a subir la misma foto.');
-      }
-      throw new BadRequestException('La IA no pudo leer el comprobante, probá de nuevo en un momento.');
-    }
+    // UNA LECTURA DEL COMPROBANTE, con las reglas del proveedor que se le pasen.
+    // 17/11/2026: es una función porque el comprobante se puede leer dos veces.
+    // Las reglas solo llegaban al lector si el QR de ARCA decía quién era el
+    // proveedor (17 de las 31 lecturas, desde el 9/11, de un proveedor que ya
+    // tenía reglas). En las otras 14 la primera lectura volvía a preguntar lo
+    // que ya estaba explicado. Ver «LAS REGLAS LLEGAN AL LECTOR», más abajo.
+    const leerCon = async (reglas: string[], emisor: { razon_social?: string | null; cuit?: string | null } | null) => {
+      const contenido: Anthropic.ContentBlockParam[] = [
+        esPdf
+          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.buffer.toString('base64') } }
+          : { type: 'image', source: { type: 'base64', media_type: mediaType!, data: archivo.buffer.toString('base64') } },
+        {
+          type: 'text',
+          text:
+            'Leé el comprobante adjunto siguiendo las instrucciones del sistema.' +
+            (qr
+              ? `\n\nEl QR de ARCA de este comprobante ya se leyó y es exacto: emisor CUIT ${qr.cuit}${proveedorDelQr ? ` (${proveedorDelQr.razon_social})` : ''}, número ${numeroDelQr(qr)}, fecha ${qr.fecha ?? '—'}, TOTAL $${totalEnPesos(qr).toFixed(2)}. El total del pie tiene que ser ese: si al leer te da otro, revisá el pie y los renglones antes de contestar.`
+              : '') +
+            (!qr && emisor?.razon_social
+              ? `\n\nEl emisor de este comprobante ya se identificó: ${emisor.razon_social}${emisor.cuit ? ` (CUIT ${emisor.cuit})` : ''}.`
+              : '') +
+            (reglas.length
+              ? `\n\nLo que administración ya explicó sobre los comprobantes de este proveedor (${reglas.length === 1 ? 'una regla' : `${reglas.length} reglas`}). Usalas para LEER este papel: qué columna es la cantidad o el precio, qué es la marca, qué no es un renglón, qué quiere decir cada cosa. NO dejes dudas sobre lo que ya contestan. Varias hablan de lo que pasa DESPUÉS de leer (cómo entra al stock, el costo, a qué producto se vincula): esas las aplica el sistema; por ellas no cambies la cantidad, el precio ni el importe impresos, que se copian del papel como siempre.\n` + reglas.map((r) => `- ${r}`).join('\n')
+              : '') +
+            (aclaraciones && aclaraciones.trim()
+              ? '\n\nEl operador ya revisó una primera lectura y te aclara lo siguiente (tenelo en cuenta y NO vuelvas a preguntar por esto): ' + aclaraciones.trim()
+              : ''),
+        },
+      ];
 
-    // Validación del pie: anti-permutación (por etiqueta), identidad y régimen
-    // especial. Agrega dudas si algo no cierra; nunca rechaza el comprobante.
-    // Antes de validar el pie: si el QR cambia el total, la validación lo ve.
-    const controlQr = qr ? controlarConQr(datos, qr, this.cuitsPropios()) : null;
-    if (controlQr) datos.dudas = [...controlQr.dudas, ...(Array.isArray(datos.dudas) ? datos.dudas : [])];
-    // la alícuota y la base de cada percepción vienen en el texto de su etiqueta
-    // (no como campos: el esquema no admite más; ver compras/percepciones-impresas.ts)
-    percepcionesDelPie(datos);
-    const regimenEspecial = this.validarPie(datos);
+      // Un tropiezo del lector (saturación, un corte) NO puede costarle a nadie
+      // volver a sacar la foto: se reintenta una vez sola antes de darse por
+      // vencido. Y el error REAL queda en el log: hasta ahora se lo tragaba el
+      // catch, así que cuando alguien avisaba "no me lee el remito" no había con
+      // qué diagnosticarlo.
+      // Cuánto tarda cada parte, siempre. "Va lento" sin un número no se puede
+      // arreglar: hay DOS llamadas a la IA en fila (leer el comprobante y
+      // matchear los renglones) y hasta ahora no había forma de saber cuál pesa.
+      const tEsta = Date.now();
+      let datos: any;
+      let ultimoError: any = null;
+      // RELEVO (13/11/2026, comun/relevo-ia.ts): 91 lecturas de dos semanas
+      // tardaron 11 s la mitad y 35 s la más lenta (42 renglones). Si a los 60 s
+      // no terminó, sale otra lectura igual y gana la primera que llegue.
+      // Regulable con ODB_LECTURA_RELEVO (segundos).
+      const esperaRelevo = relevoMs('ODB_LECTURA_RELEVO', 60);
+      for (let intento = 1; intento <= 2; intento++) {
+        try {
+          const { valor: respuesta } = await conRelevo((signal) => claude.messages
+            .stream({
+              // Sonnet 5.5 desde el 7/10/2026 (decisión de Leandro). Medido con tres
+              // facturas reales de Distri Sur: lee 21–33 s contra 54–127 s de
+              // Sonnet 5, cuesta ≈ USD 0,05 por factura (≈ 0,12 antes), deja
+              // números, pie e IVA perfectos y lee la columna %Des. que Sonnet 5
+              // se salteó el 15/9. Flojo en algún dígito de los códigos de
+              // artículo (9094UU → 3094UU): Opus 5.5 los leyó todos.
+              model: 'claude-sonnet-5-5',
+              // caché de UNA HORA: las facturas se cargan salteadas a lo largo de la
+              // mañana y con los 5 minutos por defecto casi nunca se aprovechaba
+              system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+              // 64k: una factura de dos hojas con 60 renglones, más el
+              // razonamiento —que cuenta contra este mismo tope—, no entra en
+              // 16k. Con 16k, La Serenísima moría justo en el límite y salía
+              // una pantalla vacía "sin dudas". Ya streameamos, así que un tope
+              // alto no arriesga timeouts.
+              max_tokens: 64000,
+              // Esfuerzo MEDIO (2026-09-07). Estaba en alto y una factura de 31
+              // renglones tardaba 4 a 5 MINUTOS: de los 32.460 tokens que generaba,
+              // el JSON de la factura eran ~4.000 y el resto era razonamiento. Con
+              // el gateway cortando a los 5 minutos, la pantalla mostraba "upstream
+              // error" con la lectura ya terminada del lado del servidor.
+              //
+              // 'medium' corta ese razonamiento a la mitad y mantiene la lectura de
+              // columnas (lo que se rompía en 'low' era cruzar la fila de al lado en
+              // FOTOS de papel). Si alguna vez una foto difícil sale mal, se sube a
+              // 'high' con ODB_ESFUERZO_LECTURA sin deploy, y el operador siempre
+              // tiene el botón de volver a leer con aclaraciones.
+              //
+              // Se probó bajarlo. Sobre un PDF nativo, con las columnas limpias,
+              // daba los mismos números en menos de la mitad de tiempo. Pero
+              // sobre la FOTO de un papel —columnas apretadas, anotaciones a mano
+              // encima de los renglones— empezó a tomar números de la fila de al
+              // lado: el precio de la cerveza de abajo en el renglón de arriba.
+              // Ese error es plausible y silencioso, porque el número que carga
+              // es un precio real de la misma factura, y termina en el precio de
+              // venta. Esperar un minuto más es más barato que remarcar mal.
+              //
+              // Regulable con ODB_ESFUERZO_LECTURA por si alguna vez conviene
+              // acelerar una carga puntual.
+              output_config: {
+                format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any },
+                effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'medium') as any,
+              },
+              messages: [{ role: 'user', content: contenido }],
+            }, { signal })
+            .finalMessage(), {
+            relevoMs: esperaRelevo,
+            alRelevar: () => this.log.warn(`lectura del comprobante: lleva ${esperaRelevo / 1000} s sin terminar, sale una segunda lectura`),
+          });
+          // Quedarse sin espacio es un ERROR, no un resultado. Antes, si el tope
+          // se agotaba durante el razonamiento, no había bloque de texto, el
+          // JSON quedaba en '{}' y la pantalla mostraba un comprobante vacío con
+          // "la IA no tuvo dudas" — el peor modo de fallar, porque parece que la
+          // factura no tiene nada.
+          if (respuesta.stop_reason === 'max_tokens') {
+            throw new Error('max_tokens: el comprobante no entró en el espacio de salida');
+          }
+          const bloque = respuesta.content.find((b) => b.type === 'text');
+          if (!bloque || !('text' in bloque) || !bloque.text.trim()) {
+            throw new Error('sin_texto: la respuesta no trajo el JSON del comprobante');
+          }
+          datos = JSON.parse(bloque.text);
+          if (!(datos.items ?? []).length && !datos.impuestos?.total && !datos.proveedor?.nombre) {
+            throw new Error('vacio: la lectura no trajo renglones ni pie ni proveedor');
+          }
+          const msEsta = Date.now() - tEsta;
+          msLectura += msEsta;
+          const u: any = (respuesta as any).usage ?? {};
+          this.log.log(
+            `lectura del comprobante: ${(msEsta / 1000).toFixed(1)}s · ${(datos.items ?? []).length} renglones · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'} · ${Math.round((u.output_tokens ?? 0) / Math.max(1, msEsta / 1000))} tok/s`,
+          );
+          ultimoError = null;
+          break;
+        } catch (e: any) {
+          ultimoError = e;
+          const estado = e?.status ?? e?.statusCode;
+          this.log.error(
+            `lectura de comprobante falló (intento ${intento}/2) · estado=${estado ?? '?'} · tipo=${e?.error?.error?.type ?? e?.name ?? '?'} · ${String(e?.message ?? e).slice(0, 300)}`,
+          );
+          // 429/5xx y cortes de red son pasajeros: vale la pena insistir. Un
+          // archivo que la API rechaza (imagen inválida, formato) no mejora
+          // reintentando.
+          const pasajero = estado === 429 || (typeof estado === 'number' && estado >= 500) || /timeout|socket|network|ECONNRESET|overloaded/i.test(String(e?.message ?? ''));
+          if (!pasajero || intento === 2) break;
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      if (ultimoError) {
+        const msg = String(ultimoError?.message ?? ultimoError);
+        const estado = ultimoError?.status ?? ultimoError?.statusCode;
+        if (/max_tokens|sin_texto|vacio/.test(msg)) {
+          throw new BadRequestException('No pude terminar de leer el comprobante completo. Volvé a intentar; si vuelve a pasar, subí las hojas de a una.');
+        }
+        if (/image|too large|dimensions|media_type|invalid.*base64/i.test(msg)) {
+          throw new BadRequestException('No pude leer la imagen: probá con una foto más nítida o el PDF de la factura.');
+        }
+        if (estado === 429 || /overloaded/i.test(msg)) {
+          throw new BadRequestException('El lector está saturado en este momento. Esperá un minuto y volvé a subir la misma foto.');
+        }
+        throw new BadRequestException('La IA no pudo leer el comprobante, probá de nuevo en un momento.');
+      }
+
+      // Validación del pie: anti-permutación (por etiqueta), identidad y régimen
+      // especial. Agrega dudas si algo no cierra; nunca rechaza el comprobante.
+      // Antes de validar el pie: si el QR cambia el total, la validación lo ve.
+      const controlQr = qr ? controlarConQr(datos, qr, this.cuitsPropios()) : null;
+      if (controlQr) datos.dudas = [...controlQr.dudas, ...(Array.isArray(datos.dudas) ? datos.dudas : [])];
+      // la alícuota y la base de cada percepción vienen en el texto de su etiqueta
+      // (no como campos: el esquema no admite más; ver compras/percepciones-impresas.ts)
+      percepcionesDelPie(datos);
+      const regimenEspecial = this.validarPie(datos);
+      return { datos, controlQr, regimenEspecial };
+    };
+    let { datos, controlQr, regimenEspecial } = await leerCon(reglasProveedor, proveedorDelQr);
 
     // proveedor: por CUIT exacto y, si no, por nombre con dos candados (ver
     // compras/proveedor-match.ts: el caso Diamandes → Vistalba del 2026-09-08)
@@ -1032,6 +1047,34 @@ export class ListasService {
         this.log.warn(`proveedor por sus artículos: ${e?.message ?? e}`);
         return null;
       });
+    }
+
+    // LAS REGLAS LLEGAN AL LECTOR AUNQUE NO SE LEA EL QR (17/11/2026, Leandro:
+    // «Ana le tiene que explicar y no aprende»). Sin QR, quién es el proveedor se
+    // sabe recién acá, después de leer (por el CUIT o el nombre leídos, o por sus
+    // artículos). Si ese proveedor tiene reglas y el lector no las recibió, el
+    // comprobante se lee OTRA VEZ con ellas: unos segundos más, en segundo plano,
+    // a cambio de que la lectura no repita la pregunta que ya se contestó. El
+    // proveedor queda el que se identificó en la primera. Si la segunda falla o
+    // vuelve vacía, queda la primera. Se apaga con ODB_RELEER_CON_REGLAS=0.
+    let releidaConReglas = false;
+    if (proveedor?.id && !reglasProveedor.length && process.env.ODB_RELEER_CON_REGLAS !== '0') {
+      const reglas = await this.reglasDeLectura(proveedor.id).catch(() => [] as string[]);
+      if (reglas.length) {
+        try {
+          const segunda = await leerCon(reglas, proveedor);
+          if ((segunda.datos?.items ?? []).length) {
+            this.log.log(`relectura con ${reglas.length} regla(s) de ${proveedor.razon_social}: renglones ${(datos.items ?? []).length} → ${(segunda.datos.items ?? []).length} · dudas ${(datos.dudas ?? []).length} → ${(segunda.datos.dudas ?? []).length}`);
+            ({ datos, controlQr, regimenEspecial } = segunda);
+            reglasProveedor = reglas;
+            releidaConReglas = true;
+          } else {
+            this.log.warn(`la relectura con las reglas de ${proveedor.razon_social} volvió sin renglones: queda la primera lectura`);
+          }
+        } catch (e: any) {
+          this.log.warn(`la relectura con las reglas de ${proveedor.razon_social} falló (${e?.message ?? e}): queda la primera lectura`);
+        }
+      }
     }
 
     // productos: mismo matching que listas/pedidos (código prov → EAN → similitud)
@@ -1230,6 +1273,8 @@ export class ListasService {
       // lo que dice el QR de ARCA y lo que corrigió (null = el papel no lo tiene o no se pudo leer)
       qrArca: controlQr?.qrArca ?? null,
       reglasAplicadas: reglasProveedor.length,
+      // true = el proveedor se supo después de leer y se volvió a leer con sus reglas (17/11/2026)
+      releidaConReglas,
       notasManuscritas: datos.notasManuscritas ?? null,
       dudas: [
         ...(Array.isArray(datos.dudas) ? datos.dudas : []),
