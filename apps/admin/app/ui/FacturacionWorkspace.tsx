@@ -64,7 +64,7 @@ type Tablero = {
     cuentas: number;
     diasPromedio: number | null;
     tramos: { clave: string; etiqueta: string; total: number; cuentas: number }[];
-    deudores: { id: string; nombre: string; telefono: string | null; saldo: number; limite: number | null; dias: number | null }[];
+    deudores: { id: string; nombre: string; telefono: string | null; saldo: number; limite: number | null; dias: number | null; sucursal?: Sucursal }[];
   };
   arca: { pendientes: number; errores: number };
   comprobantes: Comp[];
@@ -86,7 +86,7 @@ const porcentaje = (parte: number, total: number) => (total > 0 ? Math.round((pa
 const TONO_CLASE: Record<Comp['clase'], TonoEtiqueta> = { factura: 'neutro', nc: 'error', nd: 'neutro', remito: 'neutro', recibo: 'ok', interno: 'neutro' };
 
 const VISTAS = ['resumen', 'comprobantes'] as const;
-type Vista = (typeof VISTAS)[number];
+export type Vista = (typeof VISTAS)[number];
 
 const CLASES_FILTRO = [
   { valor: 'todos', etiqueta: 'Todos' },
@@ -99,13 +99,20 @@ const CLASES_FILTRO = [
 export function FacturacionWorkspace({
   sucursales,
   ventaInicial,
+  mesInicial,
+  sucursalInicial,
+  vistaInicial,
 }: {
   sucursales: { id: string; nombre: string }[];
   ventaInicial?: { id: string; total: number } | null;
+  /** De la dirección (?mes=2026-10&sucursal=st&vista=comprobantes): el link se puede compartir. */
+  mesInicial?: string;
+  sucursalInicial?: Sucursal;
+  vistaInicial?: Vista;
 }) {
-  const [mes, setMes] = useState<string>(mesDeHoy);
-  const [sucursal, setSucursal] = useState<'todas' | Sucursal>('todas');
-  const [vista, setVista] = useState<Vista>('resumen');
+  const [mes, setMes] = useState<string>(() => (mesInicial && mesInicial <= mesDeHoy() ? mesInicial : mesDeHoy()));
+  const [sucursal, setSucursal] = useState<'todas' | Sucursal>(sucursalInicial ?? 'todas');
+  const [vista, setVista] = useState<Vista>(vistaInicial ?? 'resumen');
   const [datos, setDatos] = useState<Record<string, Tablero>>({});
   const [error, setError] = useState('');
   const [pedidoEmitir, setPedidoEmitir] = useState<{ tipo: string; n: number } | null>(null);
@@ -117,16 +124,6 @@ export function FacturacionWorkspace({
   const [buscar, setBuscar] = useState('');
   const [abierto, setAbierto] = useState<Comp | null>(null);
 
-  // ?mes=2026-10&sucursal=st&vista=comprobantes: se puede compartir el link
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const m = q.get('mes');
-    if (m && /^\d{4}-\d{2}$/.test(m)) setMes(m);
-    const s = q.get('sucursal');
-    if (s === 'st' || s === 'si') setSucursal(s);
-    const v = q.get('vista');
-    if (v === 'comprobantes') setVista(v);
-  }, []);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     q.delete('venta');
@@ -187,11 +184,11 @@ export function FacturacionWorkspace({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex items-center gap-1">
           <BotonFlecha direccion="atras" onClick={() => setMes((m) => moverMes(m, -1))} etiqueta={`Ir a ${mesLargo(moverMes(mes, -1))}`} />
-          <h2 className="min-w-[10.5rem] text-center text-lg font-bold tracking-tight text-tinta sm:min-w-[12rem] sm:text-xl">{conMayuscula(mesLargo(mes))}</h2>
+          <h2 className="min-w-[10rem] text-center text-lg font-bold tracking-tight text-tinta sm:min-w-[11rem] sm:text-xl">{conMayuscula(mesLargo(mes))}</h2>
           <BotonFlecha direccion="adelante" onClick={() => setMes((m) => moverMes(m, 1))} etiqueta={`Ir a ${mesLargo(moverMes(mes, 1))}`} disabled={!puedeAvanzar} />
           {!esMesActual && (
-            <button type="button" onClick={() => setMes(mesDeHoy())} className={unir('ml-1 rounded-full px-2.5 py-1 text-xs font-semibold text-marca-hondo hover:bg-marca-suave', FOCO)}>
-              Volver a este mes
+            <button type="button" onClick={() => setMes(mesDeHoy())} title="Volver al mes de hoy" className={unir('ml-1 rounded-full px-2.5 py-1 text-xs font-semibold text-marca-hondo hover:bg-marca-suave', FOCO)}>
+              Este mes
             </button>
           )}
         </div>
@@ -199,7 +196,7 @@ export function FacturacionWorkspace({
           valor={sucursal}
           onCambiar={(v) => setSucursal(v as 'todas' | Sucursal)}
           opciones={[
-            { valor: 'todas', etiqueta: 'Las dos sucursales' },
+            { valor: 'todas', etiqueta: 'Las dos', etiquetaLarga: 'Las dos sucursales' },
             { valor: 'st', etiqueta: 'Sant Thomas', punto: 'bg-dato-1' },
             { valor: 'si', etiqueta: 'Santa Inés', punto: 'bg-dato-2' },
           ]}
@@ -216,7 +213,7 @@ export function FacturacionWorkspace({
           />
           <BotonLink href="/libro-iva" variante="secundario" tamano="chico">Libro IVA</BotonLink>
           <BotonLink href="/arca" variante="secundario" tamano="chico">ARCA y contador</BotonLink>
-          <Boton tamano="chico" onClick={() => emitir('FB')}>+ Emitir factura</Boton>
+          <Boton tamano="chico" onClick={() => emitir('FB')} className="order-first lg:order-last">+ Emitir factura</Boton>
         </div>
       </div>
       <EmitirComprobante sucursales={sucursales} ventaInicial={ventaInicial ?? null} pedido={pedidoEmitir} sinBoton />
@@ -232,14 +229,14 @@ export function FacturacionWorkspace({
       <Cifras t={t} mes={mes} sucursal={sucursal} onCobrar={() => (window.location.href = '/cuentas-corrientes')} onComprobantes={(f) => verComprobantes(f)} />
 
       {t && (t.arca.pendientes > 0 || t.arca.errores > 0) && (
-        <Link href="/arca" className={unir('flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-marca/25 bg-white px-4 py-2.5 text-sm text-tinta transition-colors hover:bg-marca-suave/50', FOCO)}>
+        <Link href="/arca" className={unir('flex items-center gap-3 rounded-2xl border border-marca/25 bg-white px-4 py-2.5 text-sm text-tinta transition-colors hover:bg-marca-suave/50', FOCO)}>
           <span className="size-2 shrink-0 rounded-full bg-marca" aria-hidden="true" />
-          <span>
+          <span className="min-w-0 flex-1">
             <b className="font-semibold">ARCA:</b>{' '}
             {t.arca.errores > 0 && <>{t.arca.errores} {t.arca.errores === 1 ? 'factura rechazada' : 'facturas rechazadas'}{t.arca.pendientes > 0 ? ' y ' : ''}</>}
             {t.arca.pendientes > 0 && <>{t.arca.pendientes} {t.arca.pendientes === 1 ? 'venta de la caja espera' : 'ventas de la caja esperan'} su factura electrónica</>}
           </span>
-          <span className="ml-auto font-semibold text-marca-hondo">Ver en ARCA →</span>
+          <span className="shrink-0 font-semibold text-marca-hondo">Ver<span className="hidden sm:inline"> en ARCA</span> →</span>
         </Link>
       )}
 
@@ -289,9 +286,9 @@ function BotonFlecha({ direccion, onClick, etiqueta, disabled }: { direccion: 'a
   );
 }
 
-function Segmentado({ valor, onCambiar, opciones }: { valor: string; onCambiar: (v: string) => void; opciones: { valor: string; etiqueta: string; punto?: string }[] }) {
+function Segmentado({ valor, onCambiar, opciones }: { valor: string; onCambiar: (v: string) => void; opciones: { valor: string; etiqueta: string; etiquetaLarga?: string; punto?: string }[] }) {
   return (
-    <div role="radiogroup" aria-label="Sucursal" className="flex max-w-full overflow-x-auto rounded-full border border-black/10 bg-white p-0.5">
+    <div role="radiogroup" aria-label="Sucursal" className="flex max-w-full overflow-x-auto rounded-full border border-black/10 bg-white p-0.5 [scrollbar-width:none]">
       {opciones.map((o) => {
         const activo = o.valor === valor;
         return (
@@ -302,13 +299,13 @@ function Segmentado({ valor, onCambiar, opciones }: { valor: string; onCambiar: 
             aria-checked={activo}
             onClick={() => onCambiar(o.valor)}
             className={unir(
-              'flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-colors',
+              'flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-sm font-semibold transition-colors sm:px-3',
               activo ? 'bg-tinta text-white' : 'text-tinta/70 hover:text-tinta',
               FOCO_ADENTRO,
             )}
           >
             {o.punto && <span className={unir('size-2 rounded-full', o.punto)} aria-hidden="true" />}
-            {o.etiqueta}
+            {o.etiquetaLarga ? <><span className="sm:hidden">{o.etiqueta}</span><span className="hidden sm:inline">{o.etiquetaLarga}</span></> : o.etiqueta}
           </button>
         );
       })}
@@ -360,7 +357,7 @@ function Flecha({ sube }: { sube: boolean }) {
   );
 }
 
-const SUMANDO = <span className="text-tinta/40">Sumando…</span>;
+const SUMANDO = <span className="text-base font-semibold tracking-normal text-tinta/40">Sumando…</span>;
 
 // ─── las cifras de arriba ─────────────────────────────────────────────────
 
@@ -377,11 +374,14 @@ function Cifras({
   const ant = t ? nombreMes(t.anterior) : '';
   const hastaTexto = t && !mesCompleto && t.dibujarHasta > 0 ? `al ${t.dibujarHasta}/${Number(mes.slice(5, 7))}` : '';
   return (
-    <section aria-label="Las cifras del mes" className="grid grid-cols-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-tarjeta lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.3fr]">
+    <section aria-label="Las cifras del mes" className="grid grid-cols-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-tarjeta lg:grid-cols-[2.2fr_1fr_1fr_1fr_1.4fr]">
       {/* lo facturado: la cifra grande */}
       <div className="col-span-2 border-b border-black/[0.06] p-4 sm:p-5 lg:col-span-1 lg:border-r lg:border-b-0">
         <p className={ROTULO}>Facturado en {nombreMes(mes)}{hastaTexto && <span className="normal-case tracking-normal"> · {hastaTexto}</span>}</p>
-        <p className="importe mt-1.5 text-3xl font-bold leading-none tracking-tight text-tinta sm:text-4xl">{c ? pesos(c.neto) : SUMANDO}</p>
+        <div className="flex items-end justify-between gap-4">
+          <p className="importe mt-1.5 text-3xl font-bold leading-none tracking-tight text-tinta sm:text-4xl">{c ? pesos(c.neto) : SUMANDO}</p>
+          {t && t.porDia.length > 0 && <Carrera t={t} />}
+        </div>
         {comp && t!.hastaDia > 0 && (
           <div className="mt-2.5 space-y-1 text-sm">
             {delta != null ? (
@@ -431,6 +431,38 @@ function Cifras({
   );
 }
 
+// «Así viene el mes»: lo acumulado día a día contra el mes anterior. Sin
+// números adentro: la cifra y la comparación están al lado.
+function Carrera({ t }: { t: Tablero }) {
+  const acumular = (dias: { neto: number }[], hasta: number) => {
+    let s = 0;
+    return dias.slice(0, hasta).map((d) => (s += d.neto));
+  };
+  const actual = acumular(t.porDia, Math.min(t.dibujarHasta, t.porDia.length));
+  const anterior = acumular(t.porDiaAnterior, t.porDiaAnterior.length);
+  const n = Math.max(t.porDia.length, t.porDiaAnterior.length);
+  const max = Math.max(1, ...actual, ...anterior);
+  if (!actual.length) return null;
+  const W = 150;
+  const H = 52;
+  const pt = (v: number, i: number) => `${((i / Math.max(1, n - 1)) * (W - 6) + 3).toFixed(1)},${(H - 3 - (Math.max(0, v) / max) * (H - 6)).toFixed(1)}`;
+  const ult = actual.length - 1;
+  const [ux, uy] = pt(actual[ult], ult).split(',').map(Number);
+  return (
+    <figure className="hidden shrink-0 sm:block" aria-label={`Acumulado de ${nombreMes(t.mes)} contra ${nombreMes(t.anterior)}`}>
+      <svg width={W} height={H} className="block overflow-visible">
+        <polyline points={anterior.map(pt).join(' ')} fill="none" className="stroke-tinta/25" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={actual.map(pt).join(' ')} fill="none" className="stroke-tinta" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={ux} cy={uy} r={4} className="fill-tinta stroke-white" strokeWidth={2} />
+      </svg>
+      <figcaption className="mt-1 flex justify-end gap-3 text-xs text-tinta/60">
+        <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-tinta" />{nombreMes(t.mes)}</span>
+        <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-tinta/25" />{nombreMes(t.anterior)}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
 function CifraChica({ rotulo, valor, bajada, onClick, className, tono }: { rotulo: string; valor: string | null; bajada: React.ReactNode; onClick?: () => void; className?: string; tono?: string }) {
   const cuerpo = (
     <>
@@ -453,12 +485,12 @@ function CifraChica({ rotulo, valor, bajada, onClick, className, tono }: { rotul
 function Bloque({ titulo, bajada, accion, children, className }: { titulo: string; bajada?: React.ReactNode; accion?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <section className={unir('min-w-0 rounded-2xl border border-black/[0.06] bg-white p-4 shadow-tarjeta sm:p-5', className)}>
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-[min(100%,14rem)] flex-1">
           <h3 className="text-base font-semibold text-tinta">{titulo}</h3>
           {bajada && <p className="mt-0.5 text-xs text-tinta/60">{bajada}</p>}
         </div>
-        {accion}
+        {accion && <div className="max-w-full shrink-0">{accion}</div>}
       </div>
       {children}
     </section>
@@ -548,39 +580,47 @@ function Resumen({
       <Bloque
         className="lg:col-span-7"
         titulo="Los que más compraron"
-        bajada={`${t.clientes.length} de ${t.clientesTotal} clientes · lo que debe cada uno es el saldo de hoy`}
+        bajada={`${t.clientes.length} de los ${t.clientesTotal} clientes que compraron en ${nombreMes(mes)}`}
+        accion={<Boton tamano="chico" variante="secundario" onClick={() => onComprobantes({})}>Ver sus comprobantes</Boton>}
       >
         {t.clientes.length ? (
-          <ol className="divide-y divide-black/[0.06]">
-            {t.clientes.map((c, i) => {
-              const wa = linkWhatsapp(c.telefono);
-              return (
-                <li key={c.id} className="flex items-center gap-3 py-2">
-                  <span className="importe w-5 shrink-0 text-right text-xs text-tinta/60">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <Link href={`/facturacion/cuentas/${c.id}`} className={unir('min-w-0 truncate text-sm font-semibold text-tinta underline-offset-2 hover:underline', FOCO)}>{c.nombre}</Link>
-                      <span className="importe shrink-0 text-sm font-semibold text-tinta">{pesos(c.total)}</span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-3">
-                      <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-tinta/[0.06]">
-                        <span className="block h-full rounded-full bg-tinta/70" style={{ width: `${Math.max(2, (c.total / t.clientes[0].total) * 100)}%` }} />
+          <div>
+            {/* un renglón por cliente: puesto, nombre con su barra, comprobantes, lo comprado, lo que debe hoy, WhatsApp */}
+            <div className={unir(ROTULO, 'grid grid-cols-[1.25rem_minmax(0,1fr)_6.25rem_5.75rem] items-end gap-x-3 border-b border-black/[0.06] pb-1.5 sm:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6.5rem_8rem_1.75rem]')}>
+              <span />
+              <span>Cliente</span>
+              <span className="hidden text-right sm:block">Comp.</span>
+              <span className="text-right">Compró</span>
+              <span className="text-right">Debe hoy</span>
+              <span className="hidden sm:block" />
+            </div>
+            <ol className="divide-y divide-black/[0.06]">
+              {t.clientes.map((c, i) => {
+                const wa = linkWhatsapp(c.telefono);
+                return (
+                  <li key={c.id} className="grid grid-cols-[1.25rem_minmax(0,1fr)_6.25rem_5.75rem] items-center gap-x-3 py-1.5 sm:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6.5rem_8rem_1.75rem]">
+                    <span className="importe text-right text-xs text-tinta/60">{i + 1}</span>
+                    <div className="min-w-0">
+                      <Link href={`/facturacion/cuentas/${c.id}`} className={unir('block truncate text-sm font-medium text-tinta underline-offset-2 hover:underline', FOCO)}>{c.nombre}</Link>
+                      <span className="mt-1 block h-1 overflow-hidden rounded-full bg-tinta/[0.06]">
+                        <span className="block h-full rounded-full bg-tinta/60" style={{ width: `${Math.max(2, (c.total / t.clientes[0].total) * 100)}%` }} />
                       </span>
-                      <span className="shrink-0 text-xs text-tinta/60">{c.comprobantes} comp.</span>
-                      <span className={unir('importe w-32 shrink-0 text-right text-xs', c.saldo && c.saldo > 0 ? 'font-semibold text-marca-hondo' : 'text-tinta/60')}>
-                        {c.saldo && c.saldo > 0 ? `debe ${pesos(c.saldo)}` : c.saldo && c.saldo < 0 ? `a favor ${pesos(-c.saldo)}` : 'al día'}
-                      </span>
-                      {wa ? (
-                        <a href={wa} target="_blank" rel="noreferrer" title={`WhatsApp a ${telefonoLegible(c.telefono) ?? ''}`} aria-label={`WhatsApp a ${c.nombre}`} className={unir('flex size-7 shrink-0 items-center justify-center rounded-full text-ok hover:bg-ok-suave', FOCO)}>
-                          <IconoWhatsapp />
-                        </a>
-                      ) : <span className="size-7 shrink-0" />}
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+                    <span className="importe hidden text-right text-xs text-tinta/60 sm:block">{c.comprobantes}</span>
+                    <span className="importe text-right text-sm font-semibold text-tinta">{pesos(c.total)}</span>
+                    <span className={unir('importe text-right text-xs', c.saldo && c.saldo > 0 ? 'font-semibold text-marca-hondo' : 'text-tinta/60')}>
+                      {c.saldo && c.saldo > 0 ? pesos(c.saldo) : c.saldo && c.saldo < 0 ? `a favor ${pesos(-c.saldo)}` : 'al día'}
+                    </span>
+                    {wa ? (
+                      <a href={wa} target="_blank" rel="noreferrer" title={`WhatsApp a ${telefonoLegible(c.telefono) ?? ''}`} aria-label={`WhatsApp a ${c.nombre}`} className={unir('hidden size-7 items-center justify-center rounded-full text-ok hover:bg-ok-suave sm:flex', FOCO)}>
+                        <IconoWhatsapp />
+                      </a>
+                    ) : <span className="hidden size-7 sm:block" />}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
         ) : (
           <p className="py-6 text-center text-sm text-tinta/60">Nadie compró con ficha este mes.</p>
         )}
@@ -645,8 +685,8 @@ function PorCobrar({ t, className }: { t: Tablero; className?: string }) {
   return (
     <Bloque
       className={className}
-      titulo="Por cobrar"
-      bajada={<>Desde la factura impaga más vieja de cada cuenta{t.cobrar.diasPromedio != null && <> · <b className="font-semibold text-tinta">{t.cobrar.diasPromedio} días</b> de deuda promedio</>}</>}
+      titulo="Por cobrar hoy"
+      bajada={t.cobrar.diasPromedio != null ? `${t.cobrar.diasPromedio} días de deuda promedio, contando desde la factura impaga más vieja` : undefined}
       accion={<BotonLink href="/cuentas-corrientes" tamano="chico" variante="secundario">Las {t.cobrar.cuentas} cuentas</BotonLink>}
     >
       <p className="importe text-2xl font-bold tracking-tight text-marca-hondo">{pesos(t.cobrar.total)}</p>
@@ -672,6 +712,7 @@ function PorCobrar({ t, className }: { t: Tablero; className?: string }) {
           const usoLimite = d.limite && d.limite > 0 ? Math.round((d.saldo / d.limite) * 100) : null;
           return (
             <li key={d.id} className="flex items-center gap-2 py-1.5">
+              {d.sucursal && t.sucursal === 'todas' && <span className={unir('size-2 shrink-0 rounded-full', d.sucursal === 'si' ? 'bg-dato-2' : 'bg-dato-1')} title={NOMBRE_SUC[d.sucursal]} aria-label={NOMBRE_SUC[d.sucursal]} />}
               <Link href={`/facturacion/cuentas/${d.id}`} className={unir('min-w-0 flex-1 truncate text-sm text-tinta underline-offset-2 hover:underline', FOCO)}>{d.nombre}</Link>
               {d.dias != null && <span className={unir('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', d.dias > 60 ? 'bg-marca text-white' : d.dias > 30 ? 'bg-marca-suave text-marca-hondo' : 'bg-tinta/[0.06] text-tinta/70')}>{d.dias} días</span>}
               {usoLimite != null && usoLimite > 100 && <span className="shrink-0 text-xs font-semibold text-marca-hondo" title={`Límite ${pesos(d.limite)}`}>pasó el límite</span>}

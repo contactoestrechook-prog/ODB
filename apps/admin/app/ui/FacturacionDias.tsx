@@ -48,7 +48,6 @@ function topeLindo(max: number): { tope: number; paso: number } {
 
 const IZQ = 92; // lugar para «$ 2,5 millones»
 const ABAJO = 26;
-const ARRIBA = 10;
 
 export function FacturacionDias({
   dias,
@@ -81,8 +80,11 @@ export function FacturacionDias({
     return () => ro.disconnect();
   }, []);
 
-  const alto = ancho < 520 ? 200 : 248;
-  const izq = ancho < 520 ? 62 : IZQ;
+  const alto = ancho < 520 ? 210 : 300;
+  // en el celular los montos van adentro, arriba de cada raya: al costado no entran
+  const angosto = ancho < 520;
+  const izq = angosto ? 4 : IZQ;
+  const ARRIBA = angosto ? 20 : 10; // lugar para el monto de la raya de arriba
   const n = dias.length;
   const banda = (ancho - izq - 8) / n;
   const barra = Math.max(4, Math.min(22, banda * 0.66));
@@ -133,7 +135,7 @@ export function FacturacionDias({
         {marcas.map((v) => (
           <g key={v}>
             <line x1={izq} x2={ancho - 4} y1={y(v)} y2={y(v)} className="stroke-black/[0.07]" strokeWidth={1} />
-            <text x={izq - 8} y={y(v) + 4} textAnchor="end" className="fill-tinta/60 text-xs">{montoEje(v)}</text>
+            {!angosto && <text x={izq - 8} y={y(v) + 4} textAnchor="end" className="fill-tinta/60 text-xs">{montoEje(v)}</text>}
           </g>
         ))}
 
@@ -178,6 +180,11 @@ export function FacturacionDias({
 
         {/* el mes anterior: línea gris de 2 px */}
         {linea && <polyline points={linea} fill="none" className="stroke-tinta/35" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+
+        {/* celular: los montos arriba de las columnas, con un borde blanco para leerse */}
+        {angosto && marcas.filter((v) => v > 0).map((v) => (
+          <text key={`m${v}`} x={izq} y={y(v) - 5} textAnchor="start" className="fill-tinta/60 stroke-white text-xs" strokeWidth={3} paintOrder="stroke">{montoEje(v)}</text>
+        ))}
 
         {/* números de día */}
         {dias.map((dd, i) =>

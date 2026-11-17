@@ -511,6 +511,8 @@ export class FacturacionService {
           saldo: Math.round(Number(c.saldo_cta_cte)),
           limite: c.limite_credito != null ? Number(c.limite_credito) : null,
           dias: dias.get(c.id) ?? null,
+          // las fichas de Santa Inés llevan sucursal 'si'; las de Sant Thomas, 'st' o nada
+          sucursal: c.sucursal === 'si' ? 'si' : 'st',
         })),
       },
       arca: { pendientes: arcaPend.count ?? 0, errores: arcaErr.count ?? 0 },

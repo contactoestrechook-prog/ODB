@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export default async function Facturacion({
   searchParams,
 }: {
-  searchParams: Promise<{ venta?: string; total?: string }>;
+  searchParams: Promise<{ venta?: string; total?: string; mes?: string; sucursal?: string; vista?: string }>;
 }) {
   const params = await searchParams;
   const rs = await apiFetch('/sucursales').catch(() => null);
@@ -20,6 +20,9 @@ export default async function Facturacion({
       <FacturacionWorkspace
         sucursales={sucursales}
         ventaInicial={params.venta ? { id: params.venta, total: Number(params.total ?? 0) } : null}
+        mesInicial={/^\d{4}-\d{2}$/.test(params.mes ?? '') ? params.mes : undefined}
+        sucursalInicial={params.sucursal === 'st' || params.sucursal === 'si' ? params.sucursal : undefined}
+        vistaInicial={params.vista === 'comprobantes' ? 'comprobantes' : undefined}
       />
     </Pantalla>
   );
