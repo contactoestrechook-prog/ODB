@@ -274,12 +274,12 @@ function Cifra({ color, rotulo, valor, sufijo, linea, onClick }: {
     <button type="button" onClick={onClick}
       className={unir('relative min-w-0 bg-white px-4 pb-4 pt-5 text-left transition-colors hover:bg-crema-claro sm:px-5', FOCO_ADENTRO)}>
       <span aria-hidden="true" className={unir('absolute inset-x-0 top-0 h-1', COLOR[color].fondo, cero && 'opacity-30')} />
-      <span className={ROTULO}>{rotulo}</span>
+      <span className={unir(ROTULO, 'block min-h-8 lg:min-h-0')}>{rotulo}</span>
       <span className={unir('importe mt-1.5 flex items-baseline gap-1 text-3xl font-bold leading-none tracking-tight', cero ? 'text-tinta/40' : COLOR[color].texto)}>
         {valor === undefined ? '' : valor === null ? '—' : numero(valor)}
         {sufijo && valor != null && <span className="text-base font-semibold">{sufijo}</span>}
       </span>
-      <span className="mt-2 block truncate text-xs text-tinta/70">{linea || ' '}</span>
+      <span className="mt-2 line-clamp-2 block min-h-8 text-xs text-tinta/70 lg:line-clamp-1 lg:min-h-0">{linea || ' '}</span>
     </button>
   );
 }
@@ -310,7 +310,7 @@ function PedidoEnArmado({ p, ahora, onVer, onCambiar, propio = false }: { p: Ped
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="importe truncate text-sm font-semibold text-tinta">{p.codigo}</p>
-          <p className="truncate text-sm text-tinta/70">{p.cliente ?? 'Cliente sin nombre'}{p.canal === 'domicilio' ? ' · envío' : ' · retira'}{p.sucursal ? ` · ${sucursalCorta(p.sucursal)}` : ''}</p>
+          <p className="truncate text-sm text-tinta/70">{p.cliente ?? 'Cliente sin nombre'}{p.canal === 'domicilio' ? ' · envío' : ' · retira'}{!propio && p.sucursal ? ` · ${sucursalCorta(p.sucursal)}` : ''}</p>
           {!propio && p.asignadoNombre && (
             <p className="mt-1.5 flex items-center gap-2 text-sm text-tinta">
               <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-full bg-dato-3 text-xs font-semibold text-white">{iniciales(p.asignadoNombre)}</span>

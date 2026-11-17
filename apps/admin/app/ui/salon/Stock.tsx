@@ -94,7 +94,7 @@ export function Stock({ sucursalPropia }: { sucursalPropia: string | null }) {
 
       {/* buscar uno: para corregir o mirar cuánto hay en cada sucursal */}
       <form onSubmit={(e) => { e.preventDefault(); buscar(); }} className="flex gap-2">
-        <Entrada value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value) setBuscado(null); }} aria-label="Buscar un producto" placeholder="Buscar un producto: nombre, código o escaneá" className="flex-1" />
+        <Entrada value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value) setBuscado(null); }} aria-label="Buscar un producto" placeholder="Buscar un producto" className="flex-1" />
         <Boton type="submit" variante="secundario" cargando={buscando} disabled={q.trim().length < 2}>Buscar</Boton>
       </form>
 

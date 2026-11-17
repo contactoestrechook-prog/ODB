@@ -232,7 +232,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
                   <span className="min-w-0 flex-1">
                     <span className="block font-semibold leading-tight text-tinta">{i.nombre}</span>
                     <span className="mt-1 block text-xs text-tinta/60">
-                      {i.ubicacion ? <b className="font-semibold text-info">{i.ubicacion}</b> : 'Sin lugar cargado'}
+                      {i.ubicacion ? <b className="font-semibold text-dato-3">{i.ubicacion}</b> : 'Sin lugar cargado'}
                       {i.enCarro > 0 && ` · llevás ${numero(i.enCarro, 2)} de ${numero(i.cantidad, 2)}`}
                     </span>
                   </span>
