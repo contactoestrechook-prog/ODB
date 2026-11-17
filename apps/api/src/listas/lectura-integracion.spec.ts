@@ -79,4 +79,31 @@ describe('lectura inicial y reapertura', () => {
     expect(row.devueltoAMano).toBe(false);
     expect(row.recibidoAMano).toBeNull();
   });
+
+  // 17/11/2026, Leandro: «sí, ignorarlo siempre». Lo escrito, tachado o pintado a
+  // mano sobre el papel no cambia la carga, salvo que la persona lo pida.
+  it('lo agregado a mano no cambia la carga, aunque el lector lo marque', async () => {
+    const pintado = { items: [
+      { codigo: null, descripcion: 'Mortadela con pistacho', unidadesPorBulto: 0, cantidad: 1, precio: 100, importe: 100, devueltoAMano: true, recibidoAMano: 0, impuestoInternoUnitario: 0 },
+      { codigo: null, descripcion: 'Pronto Manzana x 8', unidadesPorBulto: 8, cantidad: 36, precio: 10, importe: 360, devueltoAMano: false, recibidoAMano: 28, impuestoInternoUnitario: 0 },
+    ] };
+    mockDatos = JSON.parse(JSON.stringify(pintado));
+    const s = new ListasService(baseSimulada() as any);
+    (s as any).sugerirMatchConIA = async () => new Map();
+    const archivo = { buffer: Buffer.from('mock'), mimetype: 'application/pdf', originalname: 'mock.pdf' } as any;
+    const primera = await s.analizarComprobanteFoto(archivo);
+    expect((primera.items as any[]).map((i) => [i.devueltoAMano, i.recibidoAMano])).toEqual([[false, null], [false, null]]);
+    // las instrucciones del lector lo dicen, y ya no mandan a marcar lo pintado como devolución
+    const instrucciones = String(mockRequest.system?.[0]?.text ?? '');
+    expect(instrucciones).toContain('LO AGREGADO A MANO NO CAMBIA LA CARGA');
+    expect(instrucciones).not.toContain('es una devolución → devueltoAMano = true, sin preguntar');
+    // una aclaración que no habla de eso no lo habilita
+    mockDatos = JSON.parse(JSON.stringify(pintado));
+    const otraCosa = await s.analizarComprobanteFoto(archivo, 'el precio es por bulto');
+    expect((otraCosa.items as any[]).map((i) => [i.devueltoAMano, i.recibidoAMano])).toEqual([[false, null], [false, null]]);
+    // la persona lo pide al volver a leer: ahí sí vale lo que marcó el lector
+    mockDatos = JSON.parse(JSON.stringify(pintado));
+    const pedido = await s.analizarComprobanteFoto(archivo, 'lo pintado se devolvió y del Pronto ingresaron 3 bultos');
+    expect((pedido.items as any[]).map((i) => [i.devueltoAMano, i.recibidoAMano])).toEqual([[true, null], [false, 28]]);
+  });
 });

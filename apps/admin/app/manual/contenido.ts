@@ -521,6 +521,7 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Una factura ya cargada no se edita de prepo: se pide el cambio con el motivo, y lo aprueba un dueño. Queda el antes y el después.',
           'Si un renglón no matchea con ningún producto, se puede dar de alta el producto ahí mismo. No lo dejes sin vincular: ese costo no llega al precio de venta.',
+          'Lo anotado a mano sobre la factura (tildes, rayas, tachaduras, fechas, firmas, renglones pintados con resaltador) no cambia la carga: todo entra según lo impreso y el sistema no pregunta por esas marcas. Las anotaciones se ven arriba de la factura, en "Anotado a mano en el papel". Si alguna hay que tomarla —algo que volvió, algo que llegó de menos— decíselo a la IA ("lo pintado se devolvió", "del renglón 3 llegaron 2 bultos") o tocá "Tomá lo que está anotado a mano en el papel". Un remito o una planilla que el proveedor completa a mano se lee normal: eso es el comprobante.',
           'La foto: sacala con la cámara desde el panel, o mandala por WhatsApp como DOCUMENTO. Una foto que pasó por WhatsApp como imagen llega chica (1.280 píxeles): a la lectura le cuesta el doble, tarda más y es donde se equivoca. El panel avisa cuando la foto es chica.',
         ],
       },

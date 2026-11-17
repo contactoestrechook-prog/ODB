@@ -1727,11 +1727,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     ...(noCierranTabla.length ? [`¿Por qué no cierra el renglón ${noCierranTabla[0].idx + 1}?`] : []),
     ...(itemsCalc.some((i: any) => !i._esDescuento && i.papel && entraDeRenglon(i, i.papel) === null) ? ['Los bultos de esta factura entran en unidades'] : []),
     ...(ivaFactura && ivaFactura.estado === 'no_cierra' ? ['El IVA no me da con el pie, revisalo'] : []),
+    // LO AGREGADO A MANO NO CAMBIA LA CARGA (17/11/2026, Leandro: «sí, ignorarlo
+    // siempre»). Cuando sí hay que tomarlo, es un toque: la IA lo aplica y dice qué tomó.
+    ...(String(foto?.notasManuscritas ?? '').trim() ? ['Tomá lo que está anotado a mano en el papel'] : []),
     'Revisá la factura entera contra el papel',
   ];
   const controlesParaIA = () => ({
     // lo escrito a mano sobre el papel (4/11/2026): el chat no lo veía y no
-    // entendía «ingresaron 3 bultos» ni las devoluciones anotadas
+    // entendía «ingresaron 3 bultos» ni las devoluciones anotadas. Desde el
+    // 17/11/2026 lo ve pero no lo aplica por su cuenta: solo si la persona lo pide.
     notasManuscritas: foto?.notasManuscritas ?? null,
     sumaRenglones: Math.round(sumaRenglones * 100) / 100,
     netoDelPie: netoDoc,
@@ -3816,7 +3820,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 <p className="text-xs text-tinta/60">No se pudo leer el QR de ARCA: el CUIT, el número y el total salen solo de la foto.</p>
               ) : null}
 
-              {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Nota manuscrita: {foto.notasManuscritas}</p>}
+              {/* 17/11/2026: lo agregado a mano se muestra pero no cambia la carga; se usa si la persona lo pide */}
+              {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Anotado a mano en el papel (no cambia la carga; si hay que tomarlo, decíselo a la IA): {foto.notasManuscritas}</p>}
 
               {/* ES LA FACTURA DE UN REMITO QUE YA ENTRÓ (10/11/2026): solo la factura, conciliada */}
               {remitoAplicado && (

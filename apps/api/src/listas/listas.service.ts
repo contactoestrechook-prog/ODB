@@ -8,6 +8,7 @@ import { SUPABASE } from '../supabase.provider';
 import { cuitValido, elegirProveedor } from '../compras/proveedor-match';
 import { proveedorPorArticulos, type ArticuloConocido } from '../compras/proveedor-por-articulos';
 import { claveArticulo } from '../compras/ficha-articulo';
+import { marcasAMano, pideLoManuscrito } from '../compras/manuscrito';
 import { traerTodo } from '../comun/lotes';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
@@ -138,12 +139,16 @@ const ESQUEMA_COMPROBANTE = {
             description: 'PESO del renglón cuando el producto se vende por kilo (fiambres, quesos en horma o fraccionados, carnicería, verdulería a granel). Copiá el valor de la columna KG / KILOS / PESO tal cual (el peso total del renglón, ej 5,44). En esas facturas la columna CANT suele decir 1 (una horma) pero el precio es POR KILO: acá va el peso. Si el renglón no se vende por peso o no hay columna de peso, poné null. NO lo inventes ni lo deduzcas del importe.',
           },
           // Lo devuelto en la entrega (4/11/2026, Las Dinas): el renglón está
-          // facturado, pero la pieza volvió con el repartidor y lo dice una
-          // anotación a mano. No es una devolución impresa: su plata vuelve con
-          // la nota de crédito; lo que importa es que NO entra al stock.
+          // facturado, pero la pieza volvió con el repartidor. No es una
+          // devolución impresa: su plata vuelve con la nota de crédito; lo que
+          // importa es que NO entra al stock.
+          // 17/11/2026: el lector ya NO lo marca por una anotación o por un
+          // renglón pintado (compras/manuscrito.ts); solo si la persona lo pide.
+          // El campo sigue en el esquema, obligatorio y con valor neutro: sacarlo
+          // cambia la gramática (ver OJO CON LAS OPCIONALES, más abajo).
           devueltoAMano: {
             type: 'boolean',
-            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así. Si la anotación dice CUÁNTO llegó (vino una parte), NO es true: va en recibidoAMano. Y si al lado del renglón pintado hay un NÚMERO escrito a mano («-1», «dev 2», «3 → -1»), ese número es lo que VOLVIÓ, no el renglón entero (9/11/2026, Ricardo Nini: Playadito 3 bultos × 5 pintada con «-1» = volvió UN paquete, entraron 14 de 15): NO es true, va en recibidoAMano.',
+            description: 'REGLA DE ODB (17/11/2026): false. Lo escrito, tachado o pintado a mano sobre el comprobante impreso NO cambia la carga, y un renglón sombreado o pintado no es una devolución. Única excepción: que el operador, en sus aclaraciones, diga con sus palabras que ESTE renglón volvió o no llegó («lo pintado se devolvió», «el salame no vino»); ahí true.',
           },
           // Cigarrillos (5/11/2026, Grupo Modo): el papel imprime por renglón Neto,
           // Iva, Imp Int Uni, Precio Unit y Total. Obligatoria con valor neutro
@@ -156,7 +161,7 @@ const ESQUEMA_COMPROBANTE = {
           // celda BULT. pintada y «ingresaron 3 bultos» a mano → entraron 28 de 36.
           recibidoAMano: {
             type: 'number',
-            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si el número escrito dice lo que VOLVIÓ («-1», «dev 1»), son UNIDADES: restalas de las unidades facturadas (3 bultos × 5 con «-1» → 15 − 1 = 14). Solo si dice «bulto», «caja» o «bto» es por bulto («-1 bulto» → 10). Si no hay una anotación así, poné 0. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
+            description: 'REGLA DE ODB (17/11/2026): 0. Lo anotado a mano sobre el comprobante impreso NO cambia la carga. Única excepción: que el operador, en sus aclaraciones, pida tomar lo anotado o diga cuánto llegó de ESTE renglón («ingresaron 3 bultos», «tomá lo anotado a mano»); ahí van las UNIDADES que entraron de verdad, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas; 4 bultos × 8 + 4 con «llegaron 3 bultos» → 28). La cantidad, el precio y el importe se copian del papel tal cual.',
           },
         },
         // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
@@ -221,7 +226,7 @@ const ESQUEMA_COMPROBANTE = {
       required: ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'],
       additionalProperties: false,
     },
-    notasManuscritas: { type: ['string', 'null'], description: 'Anotaciones a mano relevantes (ej desglose de sabores/cantidades)' },
+    notasManuscritas: { type: ['string', 'null'], description: 'Lo agregado a mano sobre el comprobante impreso, transcripto corto: qué dice y junto a qué renglón. No cambia la carga. null si no hay.' },
     dudas: {
       type: 'array',
       description:
@@ -847,7 +852,7 @@ export class ListasService {
           'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
           'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
-          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Pero si al lado del renglón pintado hay un número escrito («-1», «dev 2»), volvió SOLO esa cantidad: no es devueltoAMano; poné en recibidoAMano lo que quedó: las unidades facturadas menos ese número, que son UNIDADES salvo que diga «bulto» o «caja» (3 bultos × 5 con «-1» → 14). Si la nota dice que llegó una PARTE («ingresaron 3 bultos» cuando la factura dice 4), el renglón no es devueltoAMano: copiá cantidad, precio e importe del papel tal cual y poné en recibidoAMano las unidades que entraron. Es mejor preguntar que cargar un número equivocado.';
+          'PASO 6 — Dudas. Preguntá por cualquier número IMPRESO borroso, tapado o ambiguo. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. LO AGREGADO A MANO NO CAMBIA LA CARGA (regla del dueño de ODB, 17/11/2026). Sobre el comprobante impreso suele haber anotaciones internas del almacén o del repartidor: tildes, rayas, tachaduras, círculos, firmas, sellos, fechas de vencimiento, números sueltos al lado de un renglón, renglones pintados con resaltador o marcador. NADA de eso modifica lo que se carga: copiá la cantidad, el precio y el importe IMPRESOS de cada renglón, poné devueltoAMano = false y recibidoAMano = 0 en TODOS los renglones, y NO dejes dudas sobre esas anotaciones ni preguntes qué significan. Transcribilas cortas en notasManuscritas (qué dice y junto a qué renglón): la persona decide después si las usa. Lo que IMPRIME el proveedor tampoco es una marca: renglones con fondo de color, sombreados o en negrita, un punto o un logo junto a un producto (por ejemplo «sin TACC») son parte del diseño del comprobante y no significan faltante ni devolución. ESTO NO ES UNA ANOTACIÓN: cuando el comprobante mismo está completado a mano —un remito o una planilla de pedido donde el proveedor escribió con birome las cantidades, los precios o los totales en sus casilleros— eso ES el comprobante y se lee como cualquier otro; ahí sí preguntá por un número que no se entienda. ÚNICA EXCEPCIÓN: si más abajo el operador, en sus aclaraciones, pide expresamente tomar lo anotado a mano o dice qué renglón volvió o cuánto llegó, hacelo como él lo dice: devueltoAMano = true en el renglón que volvió entero, o recibidoAMano = las unidades que entraron si llegó una parte (lo facturado menos lo que faltó; un número suelto son UNIDADES salvo que diga «bulto» o «caja»). Es mejor preguntar por un número impreso dudoso que cargar uno equivocado.';
     // El QR de ARCA ANTES de leer (3/11/2026): da el CUIT exacto, y con el
     // CUIT, el proveedor y lo que administración dejó explicado sobre sus
     // facturas. Esas reglas antes llegaban solo al chat, después de leer: la
@@ -1055,6 +1060,7 @@ export class ListasService {
       });
       this.log.log(`cigarrillos: ${enNeto.filter(Boolean).length} renglones con neto e interno del papel · internos impresos ${enNeto.reduce((s, r) => s + (r?.internosDelPapel ?? 0), 0).toFixed(2)} · pie ${datos.impuestos?.impuestosInternos ?? '—'}`);
     }
+    const tomarLoManuscrito = pideLoManuscrito(aclaraciones);
     const items = (datos.items ?? []).map((i: any) => {
       // el bulto y DE DÓNDE salió: un 14 que puso solo el modelo no pesa lo
       // mismo que un "CAJA X 14" escrito en el papel (6/10/2026)
@@ -1095,10 +1101,12 @@ export class ListasService {
         codigo: i.codigo ?? null,
         ...lectura,
         esDevolucion,
-        // volvió en la entrega, anotado a mano: está facturado pero no entra al stock
-        devueltoAMano: !esDevolucion && i.devueltoAMano === true,
-        // llegó una parte: las unidades que entraron de verdad (las del papel se cobran igual)
-        recibidoAMano: !esDevolucion && Number(i.recibidoAMano) > 0 ? Number(i.recibidoAMano) : null,
+        // LO AGREGADO A MANO NO CAMBIA LA CARGA (17/11/2026, Leandro: «sí, ignorarlo
+        // siempre»). Volvió en la entrega o llegó una parte SOLO si la persona lo
+        // pidió en sus aclaraciones al volver a leer; en la primera lectura, nunca,
+        // diga lo que diga el lector (compras/manuscrito.ts). Después se marca desde
+        // el chat de la factura.
+        ...(esDevolucion ? { devueltoAMano: false, recibidoAMano: null } : marcasAMano(i, tomarLoManuscrito)),
         // cigarrillos: el precio y el importe son los del papel (con IVA e interno
         // adentro); aparte van el neto por unidad, qué parte del precio es neto y
         // el interno del renglón
