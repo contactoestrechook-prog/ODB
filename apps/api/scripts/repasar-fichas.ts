@@ -16,7 +16,8 @@ import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { claveArticulo, fichaTrasRegistro, presentacionDeRenglon, type Presentacion } from '../src/compras/ficha-articulo';
 import { cambiosDeFicha, type FichaArticulo } from '../../admin/app/lib/ficha-articulo';
-import { aplicarCambiosIA, papelDeLectura } from '../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, papelDeLectura } from '../../admin/app/lib/tabla-factura';
+import { fichaDeForma, firmaDe, formaDe, type Antecedente } from '../../admin/app/lib/forma-proveedor';
 import { esRenglonDescuento } from '../../admin/app/lib/descuentos-compras';
 
 const rutaEnv = process.argv[2] ?? '.env';
@@ -36,6 +37,7 @@ function filaDeLectura(i: any): Record<string, any> {
     descripcion: i.descripcion, cantidad, porPeso, kg: i.kg ?? null,
     precio: envase && Number(r.precioPropuesto) > 0 ? Number(r.precioPropuesto) : i.precio ?? '',
     envaseAplicado: envase, sku: i.match?.sku ?? '', sugerido: i.match?.sugerido === true,
+    costoCatalogo: i.match?.costoActual ?? null, razonBulto: r.razonBulto ?? null,
     unidadesPorBulto: r.unidadesPorBulto ?? null,
     bonificacionPct: r.bonificacionPct ?? i.bonificacionPct ?? null,
     importe: r.importeNeto ?? i.importe ?? null,
@@ -89,6 +91,17 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
   const prox = { corregidos: 0, resueltos: 0, sinFicha: 0, noAplica: 0, noCierra: 0, distinto: 0, bien: 0, bienRotos: 0 };
   const proxFaltan: string[] = [];
   const proxRotos: string[] = [];
+  // LA FORMA DEL PROVEEDOR (17/11/2026): los artículos que vienen por primera vez
+  // con «×N» sin decidir, contra lo que ese proveedor ya mostró en sus facturas
+  // anteriores. «mal» es lo único grave: la forma decidió y quedó distinto de lo
+  // que la persona registró.
+  const antecedentes = new Map<string, Antecedente[]>(); // proveedor → renglones ya registrados con su lectura
+  const fm = { sinDecidir: 0, bien: 0, mal: 0, noDecide: 0, noCierra: 0, frenadas: 0 };
+  const formaBien: string[] = [];
+  const formaMal: string[] = [];
+  const formaFalta: string[] = [];
+  // para «la próxima vez»: cada renglón sin decidir, contra TODO lo demás que ese proveedor ya tiene registrado
+  const sinDecidir: { proveedor: string; etiqueta: string; fila: Record<string, any>; registrado: number; descripcion: string }[] = [];
 
   for (const grupo of facturas.values()) {
     t.facturas++;
@@ -132,7 +145,26 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
             }
           }
         }
-        if (!f) { t.sinFicha++; if (!leidoBien) t.sinFichaMal++; continue; }
+        if (!f) {
+          t.sinFicha++;
+          if (!leidoBien) t.sinFichaMal++;
+          if (firmaDe(fila)) {
+            fm.sinDecidir++;
+            sinDecidir.push({ proveedor: g0.proveedor_id, etiqueta, fila, registrado, descripcion: String(h.descripcion ?? '') });
+            const previos = antecedentes.get(g0.proveedor_id) ?? [];
+            const deForma = fichaDeForma(fila, formaDe(previos), String(nombre.get(h.proveedor_id) ?? ''));
+            if (!deForma) { fm.noDecide++; formaFalta.push(`${etiqueta} · el proveedor todavía no mostró una sola manera (${previos.length} renglones anteriores)`); continue; }
+            const rf = cambiosDeFicha(fila, deForma, 1, esRenglonDescuento as any);
+            if (rf.estado !== 'aplicada') { fm.noCierra++; formaFalta.push(`${etiqueta} · la forma dice «${deForma.entraComo}» pero la cuenta no cierra`); continue; }
+            const r0 = aplicarCambiosIA([fila], rf.cambios, esRenglonDescuento as any);
+            const freno = frenarReglasAbsurdas([fila], r0.items, r0.registros);
+            if (freno.frenados.length) { fm.frenadas++; formaFalta.push(`${etiqueta} · la forma lo dejaba lejos del costo del catálogo: quedó sin decidir`); continue; }
+            const finalF = freno.items[0];
+            if (cerca(num(finalF.cantidad), registrado)) { fm.bien++; formaBien.push(`${etiqueta} · leído ${fila.cantidad} sin decidir → ${finalF.cantidad} (${deForma.veces} artículos antes igual)`); }
+            else { fm.mal++; formaMal.push(`${etiqueta} · la forma lo dejó en ${finalF.cantidad} y se registró ${registrado}`); }
+          }
+          continue;
+        }
         t.conFicha++;
         const ficha: FichaArticulo = { ...f };
         const r = cambiosDeFicha(fila, ficha, 1, esRenglonDescuento as any);
@@ -147,6 +179,16 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
       }
     }
     // después de mirarla, se aprende de ella (igual que al registrar)
+    if (items.length) {
+      const lista = antecedentes.get(g0.proveedor_id) ?? [];
+      antecedentes.set(g0.proveedor_id, lista);
+      for (const h of grupo) {
+        const i = items[Number(h.renglon) - 1];
+        if (!i || String(i.descripcion ?? '') !== String(h.descripcion ?? '')) continue;
+        // los más nuevos primero, como los devuelve la API
+        lista.unshift({ leido: i, registrado: { descripcion: h.descripcion, bultos: h.bultos, unidadesPorBulto: h.unidades_por_bulto, sueltas: h.sueltas, entraComo: h.entra_como, cantidadStock: h.cantidad_stock, incluido: h.incluido, esDescuento: h.es_descuento } });
+      }
+    }
     const vistas = new Set<string>();
     for (const h of grupo) {
       const clave = claveArticulo(h.descripcion);
@@ -178,5 +220,33 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
   if (proxFaltan.length) console.log(`\nNo los resuelve la ficha:\n${proxFaltan.map((x) => `  · ${x}`).join('\n')}`);
   if (proxRotos.length) console.log(`\nLA FICHA LOS DEJARÍA MAL:\n${proxRotos.map((x) => `  ! ${x}`).join('\n')}`);
   if (rotas.length) console.log(`\nROTAS:\n${rotas.map((x) => `  ! ${x}`).join('\n')}`);
-  process.exit(rotas.length || proxRotos.length ? 1 : 0);
+  console.log(`\nLA FORMA DEL PROVEEDOR (artículos que vienen por primera vez, con «×N» sin decidir): ${fm.sinDecidir}`);
+  console.log(`  la forma los dejó como se registraron: ${fm.bien}`);
+  console.log(`  LA FORMA LOS DEJÓ DISTINTO DE LO REGISTRADO: ${fm.mal}`);
+  console.log(`  no decide (proveedor nuevo o contestó de las dos maneras): ${fm.noDecide} · la cuenta no cierra: ${fm.noCierra} · frenadas por el costo: ${fm.frenadas}`);
+  if (formaBien.length) console.log(`\nResueltos por la forma:\n${formaBien.map((x) => `  + ${x}`).join('\n')}`);
+  if (formaMal.length) console.log(`\nLA FORMA LOS DEJÓ MAL:\n${formaMal.map((x) => `  ! ${x}`).join('\n')}`);
+  // LA PRÓXIMA VEZ: el mismo renglón, si viniera hoy como artículo nuevo, con lo
+  // que el proveedor ya tiene registrado en todos sus OTROS artículos.
+  const px = { bien: 0, mal: 0, noDecide: 0, noCierra: 0, frenadas: 0 };
+  const pxMal: string[] = [];
+  const pxNo = new Map<string, number>();
+  for (const r of sinDecidir) {
+    const otros = (antecedentes.get(r.proveedor) ?? []).filter((a) => String(a.registrado.descripcion ?? '') !== r.descripcion);
+    const deForma = fichaDeForma(r.fila, formaDe(otros), String(nombre.get(r.proveedor) ?? ''));
+    if (!deForma) { px.noDecide++; const n = String(nombre.get(r.proveedor) ?? ''); pxNo.set(n, (pxNo.get(n) ?? 0) + 1); continue; }
+    const rf = cambiosDeFicha(r.fila, deForma, 1, esRenglonDescuento as any);
+    if (rf.estado !== 'aplicada') { px.noCierra++; continue; }
+    const r0 = aplicarCambiosIA([r.fila], rf.cambios, esRenglonDescuento as any);
+    const freno = frenarReglasAbsurdas([r.fila], r0.items, r0.registros);
+    if (freno.frenados.length) { px.frenadas++; continue; }
+    if (cerca(num(freno.items[0].cantidad), r.registrado)) px.bien++;
+    else { px.mal++; pxMal.push(`${r.etiqueta} · quedaría en ${freno.items[0].cantidad} y se registró ${r.registrado}`); }
+  }
+  console.log(`\nLA PRÓXIMA VEZ que cada proveedor traiga un artículo nuevo con «×N» (los mismos ${sinDecidir.length} renglones, contra sus otros artículos):`);
+  console.log(`  entrarían solos y bien: ${px.bien} · QUEDARÍAN MAL: ${px.mal} · siguen sin decidir: ${px.noDecide + px.noCierra + px.frenadas} (no decide ${px.noDecide}, la cuenta no cierra ${px.noCierra}, frenadas por el costo ${px.frenadas})`);
+  if (pxNo.size) console.log(`  proveedores que todavía no deciden: ${[...pxNo.entries()].map(([k, v]) => `${k.slice(0, 22)} (${v})`).join(' · ')}`);
+  if (pxMal.length) console.log(`\nLA PRÓXIMA VEZ QUEDARÍAN MAL:\n${pxMal.map((x) => `  ! ${x}`).join('\n')}`);
+  if (process.argv.includes('--detalle') && formaFalta.length) console.log(`\nSiguen sin decidir:\n${formaFalta.map((x) => `  · ${x}`).join('\n')}`);
+  process.exit(rotas.length || proxRotos.length || formaMal.length || pxMal.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

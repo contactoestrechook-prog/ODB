@@ -545,6 +545,18 @@ export const SECCIONES: Seccion[] = [
           'En Administración › Mantenimiento se ve, semana por semana, cuántas facturas entraron sin que nadie las toque.',
         ],
       },
+      {
+        tipo: 'pasos',
+        titulo: 'También se acuerda de cómo factura cada proveedor',
+        pasos: [
+          'Un artículo que viene por primera vez no tiene memoria propia, pero el proveedor sí: si sus renglones que dicen "x 9", "X 24" o "CAJA X 12" entraron siempre igual (la cantidad ya son los paquetes, o son bultos que se abren), el artículo nuevo entra de la misma manera, sin preguntar.',
+          'En "Cambios" aparece a nombre de "Memoria" con el motivo "Como entran los artículos de ese proveedor que dicen «x N»" y cuántos artículos lo respaldan. Se deshace como cualquier otro cambio.',
+          'Hace falta que el proveedor lo haya mostrado en al menos dos artículos distintos y siempre igual. Si un proveedor trae de las dos maneras, o el costo del producto dice otra cosa, el renglón queda con la pregunta de siempre.',
+          'Si el comprobante no trae CUIT ni nombre (remitos de pan, huevos, hielo), el sistema reconoce al proveedor por sus artículos cuando ya vinieron antes. Lo avisa debajo del proveedor: si es otro, cambialo ahí.',
+          'Si no lo reconoce, se lo podés escribir a la IA: "el proveedor es Bimbo". Lo elige en el momento y corren solas su memoria y sus reglas, sin tocar lo que ya corregiste.',
+          'Lo que le expliques a la IA antes de elegir el proveedor no se pierde: queda anotado y se guarda para ese proveedor cuando lo elegís y registrás la factura.',
+        ],
+      },
     ],
   },
   {

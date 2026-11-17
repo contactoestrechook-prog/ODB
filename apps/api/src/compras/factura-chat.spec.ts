@@ -166,3 +166,34 @@ describe('reglaReemplaza', () => {
     expect(validarRespuestaChat({ ...base, reglaProveedor: 'Una regla.', reglaReemplaza: 0 }, 3).reglaReemplaza).toBeNull();
   });
 });
+
+
+// LO EXPLICADO ANTES DE ELEGIR EL PROVEEDOR (17/11/2026): 21 reglas perdidas en nueve días.
+describe('las reglas de una charla sin proveedor', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { reglasDeTurnos } = require('./factura-chat.service');
+  it('quedan en orden, sin repetir y sin los turnos que no explicaron nada', () => {
+    expect(reglasDeTurnos([
+      { regla_propuesta: null },
+      { regla_propuesta: 'En este proveedor de pan, lo anotado en la columna DEV. son cambios directos: no modifica el stock.' },
+      { regla_propuesta: 'En este proveedor de pan, lo anotado en la columna DEV. son cambios directos: no modifica el stock' },
+      { regla_propuesta: 'La marca de cada producto es el encabezado negro de su sección.' },
+      { regla_propuesta: '  ' },
+    ])).toEqual([
+      'En este proveedor de pan, lo anotado en la columna DEV. son cambios directos: no modifica el stock.',
+      'La marca de cada producto es el encabezado negro de su sección.',
+    ]);
+  });
+  it('la que la persona corrigió después no se guarda (los Jorgito del 9/11: «no, entran por paquete»)', () => {
+    const vieja = 'En los alfajores Jorgito el bulto trae 18 paquetes y entra como bulto cerrado.';
+    const nueva = 'En los alfajores Jorgito el bulto trae 18 paquetes y entran por paquete, no como bulto cerrado.';
+    expect(reglasDeTurnos([
+      { regla_propuesta: vieja, uso: { llamadas: [] } },
+      { regla_propuesta: nueva, uso: { llamadas: [], reemplaza: vieja } },
+    ])).toEqual([nueva]);
+  });
+  it('sin turnos no hay reglas', () => {
+    expect(reglasDeTurnos([])).toEqual([]);
+    expect(reglasDeTurnos(null as any)).toEqual([]);
+  });
+});

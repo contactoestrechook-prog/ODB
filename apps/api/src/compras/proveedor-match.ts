@@ -30,14 +30,45 @@ export function tokensDistintivos(nombre: string): string[] {
 
 export type ProveedorCandidato = { id: string; razon_social: string; cuit?: string | null };
 
+/**
+ * ¿El CUIT cumple su dígito verificador (módulo 11)? Un CUIT mal leído de una
+ * foto casi nunca lo cumple.
+ *
+ * 17/11/2026: Oxxon y Ricardo Nini estaban cargados DOS veces. El lector leyó un
+ * dígito mal (30714052081 por 30714052981; 30565747509 por 30565574759), el
+ * CUIT no estaba en la base, el candado 1 descartaba al proveedor de verdad
+ * «porque el CUIT no coincide», y administración terminaba dándolo de alta otra
+ * vez. Desde ahí, lo aprendido de ese proveedor quedaba partido en dos fichas.
+ */
+export function cuitValido(cuit: unknown): boolean {
+  const d = digitos(cuit);
+  if (d.length !== 11) return false;
+  const pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  const suma = pesos.reduce((t, peso, k) => t + peso * Number(d[k]), 0);
+  const resto = 11 - (suma % 11);
+  const verificador = resto === 11 ? 0 : resto === 10 ? 9 : resto;
+  return verificador === Number(d[10]);
+}
+
+/** ¿Los dos CUIT difieren en un solo dígito? */
+const aUnDigito = (a: string, b: string) => a.length === 11 && b.length === 11 && [...a].filter((c, k) => c !== b[k]).length === 1;
+
 export function elegirProveedor(
   detectado: { nombre?: string | null; cuit?: string | null },
   candidatos: ProveedorCandidato[],
 ): (ProveedorCandidato & { metodo: 'cuit' | 'nombre' }) | null {
-  const cuit = digitos(detectado.cuit);
-  if (cuit) {
-    const porCuit = candidatos.find((p) => digitos(p.cuit) === cuit);
+  const leido = digitos(detectado.cuit);
+  if (leido) {
+    const porCuit = candidatos.find((p) => digitos(p.cuit) === leido);
     if (porCuit) return { ...porCuit, metodo: 'cuit' };
+  }
+  // Un CUIT que no cumple su dígito verificador está mal leído (17/11/2026): si
+  // hay UN proveedor con un CUIT válido a un dígito de distancia, es ese. Y de
+  // ahí en más no cuenta como CUIT: no puede descartar a nadie por «no coincidir».
+  const cuit = cuitValido(leido) ? leido : '';
+  if (leido.length === 11 && !cuit) {
+    const cercanos = candidatos.filter((p) => cuitValido(p.cuit) && aUnDigito(digitos(p.cuit), leido));
+    if (cercanos.length === 1) return { ...cercanos[0], metodo: 'cuit' };
   }
   const leidos = tokensDistintivos(detectado.nombre ?? '');
   if (!leidos.length) return null;
@@ -51,7 +82,8 @@ export function elegirProveedor(
     if (cuit && digitos(p.cuit) && digitos(p.cuit) !== cuit) continue; // candado 1
     const cobertura = comunes.length / propios.length;
     if (cobertura < 0.5) continue; // candado 2
-    const puntaje = comunes.length + cobertura;
+    // entre dos fichas del mismo proveedor (una dada de alta con el CUIT mal leído), la del CUIT válido
+    const puntaje = comunes.length + cobertura + (cuitValido(p.cuit) ? 0.01 : 0);
     if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejor = p; }
   }
   return mejor ? { ...mejor, metodo: 'nombre' } : null;

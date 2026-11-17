@@ -29,11 +29,75 @@ export type FichaParaPantalla = Presentacion & { veces: number; ultimaFactura: s
 
 type RenglonAprendido = RenglonRegistrado & { codigoProveedor?: string | null; productoId?: string | null };
 
+/**
+ * Un renglón ya registrado de un proveedor, con lo que el lector había leído de
+ * él. Con esto la pantalla arma la FORMA DEL PROVEEDOR (17/11/2026,
+ * apps/admin/app/lib/forma-proveedor.ts): cómo entran sus artículos que dicen
+ * «×N», para decidir sola el artículo que viene por primera vez.
+ */
+export type AntecedenteForma = {
+  leido: Record<string, unknown>;
+  registrado: { descripcion: string | null; bultos: number | null; unidadesPorBulto: number | null; sueltas: number | null; entraComo: string | null; cantidadStock: number | null; incluido: boolean; esDescuento: boolean };
+};
+// del renglón leído, lo único que mira la forma (el vínculo con el catálogo no viaja)
+const CAMPOS_LEIDOS = ['descripcion', 'cantidad', 'precio', 'importe', 'alicuotaIva', 'unidadesPorBulto', 'bultos', 'unidadesSueltas', 'bonificacionPct', 'unidadesDelCatalogo', 'interpretado', 'esDescuento', 'esDevolucion', 'devueltoAMano'] as const;
+const CACHE_ANTECEDENTES_MS = 5 * 60_000;
+
 // La ficha del artículo del proveedor (11/11/2026): ver ficha-articulo.ts.
 @Injectable()
 export class FichaArticuloService {
   private readonly log = new Logger(FichaArticuloService.name);
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+
+  // los antecedentes de un proveedor cambian solo cuando se registra una factura suya
+  private readonly cacheAntecedentes = new Map<string, { en: number; lista: AntecedenteForma[] }>();
+
+  /**
+   * Los renglones con «×N» que el lector dejó sin decidir en las últimas
+   * facturas registradas de este proveedor, cada uno con cómo terminó entrando.
+   * Solo lee. Si algo falla devuelve una lista vacía: sin antecedentes la
+   * factura queda como se leyó, igual que antes.
+   */
+  async antecedentes(proveedorId: string): Promise<AntecedenteForma[]> {
+    const guardado = this.cacheAntecedentes.get(proveedorId);
+    if (guardado && Date.now() - guardado.en < CACHE_ANTECEDENTES_MS) return guardado.lista;
+    try {
+      const { data: hist, error } = await this.db.from('compras_historial')
+        .select('lectura_id, renglon, descripcion, bultos, unidades_por_bulto, sueltas, entra_como, cantidad_stock, incluido, es_descuento, creado_en')
+        .eq('proveedor_id', proveedorId).not('lectura_id', 'is', null).eq('es_descuento', false)
+        .order('creado_en', { ascending: false }).limit(800);
+      if (error) throw new Error(error.message);
+      const filas = (hist ?? []) as any[];
+      // las 40 facturas más nuevas: alcanza para ver cómo escribe el papel este proveedor
+      const ids = [...new Set(filas.map((h) => String(h.lectura_id)))].slice(0, 40);
+      const lecturas = ids.length
+        ? await enLotes<{ id: string; items: unknown }>(ids, (lote) => this.db.from('lecturas_comprobante').select('id, items:resultado->items').in('id', lote), 10)
+        : [];
+      const itemsDe = new Map(lecturas.map((l) => [l.id, Array.isArray(l.items) ? (l.items as any[]) : []]));
+      const lista: AntecedenteForma[] = [];
+      for (const h of filas) {
+        const i = itemsDe.get(String(h.lectura_id))?.[Number(h.renglon) - 1];
+        // el mismo renglón (por posición y descripción) y que el lector haya dejado sin decidir
+        if (!i || String(i.descripcion ?? '') !== String(h.descripcion ?? '')) continue;
+        if (!(Number(i?.interpretado?.unidadesPorBulto) > 1)) continue;
+        const leido: Record<string, unknown> = {};
+        for (const k of CAMPOS_LEIDOS) if (i[k] !== undefined) leido[k] = i[k];
+        lista.push({
+          leido,
+          registrado: {
+            descripcion: h.descripcion ?? null, bultos: num(h.bultos), unidadesPorBulto: num(h.unidades_por_bulto), sueltas: num(h.sueltas),
+            entraComo: h.entra_como ?? null, cantidadStock: num(h.cantidad_stock), incluido: !!h.incluido, esDescuento: !!h.es_descuento,
+          },
+        });
+        if (lista.length >= 200) break;
+      }
+      this.cacheAntecedentes.set(proveedorId, { en: Date.now(), lista });
+      return lista;
+    } catch (e) {
+      this.log.warn(`antecedentes de ${proveedorId}: ${e instanceof Error ? e.message : e}`);
+      return [];
+    }
+  }
 
   private async fichasDe(proveedorId: string): Promise<FilaFicha[]> {
     return traerTodo<FilaFicha>((d, h) => this.db.from('proveedor_articulos')
@@ -46,12 +110,12 @@ export class FichaArticuloService {
    * orden. Primero por la descripción del papel; si no, por el producto de la
    * casa, cuando ese proveedor tiene una sola ficha para ese producto.
    */
-  async buscar(proveedorId: string, renglones: { descripcion?: string | null; sku?: string | null }[]): Promise<{ fichas: (FichaParaPantalla | null)[] }> {
+  async buscar(proveedorId: string, renglones: { descripcion?: string | null; sku?: string | null }[]): Promise<{ fichas: (FichaParaPantalla | null)[]; antecedentes: AntecedenteForma[] }> {
     if (!UUID.test(String(proveedorId))) throw new BadRequestException('Proveedor inválido');
     const lista = (Array.isArray(renglones) ? renglones : []).slice(0, 400);
-    if (!lista.length) return { fichas: [] };
-    const filas = await this.fichasDe(proveedorId);
-    if (!filas.length) return { fichas: lista.map(() => null) };
+    if (!lista.length) return { fichas: [], antecedentes: [] };
+    const [filas, antecedentes] = await Promise.all([this.fichasDe(proveedorId), this.antecedentes(proveedorId)]);
+    if (!filas.length) return { fichas: lista.map(() => null), antecedentes };
     const porClave = new Map(filas.map((f) => [f.clave, f]));
     const porProducto = new Map<string, FilaFicha[]>();
     for (const f of filas) if (f.producto_id) porProducto.set(f.producto_id, [...(porProducto.get(f.producto_id) ?? []), f]);
@@ -62,6 +126,7 @@ export class FichaArticuloService {
       ...presentacionDeFila(f), ultimaFactura: f.ultima_factura, ultimaFecha: f.ultima_fecha, por,
     });
     return {
+      antecedentes,
       fichas: lista.map((r) => {
         const directa = porClave.get(claveArticulo(r?.descripcion));
         if (directa) return paraPantalla(directa, 'descripcion');
@@ -77,6 +142,8 @@ export class FichaArticuloService {
    * la factura ya quedó registrada y la ficha se aprende la próxima vez.
    */
   async aprender(proveedorId: string, renglones: RenglonAprendido[], de: { numero?: string | null; fecha?: string | null; lecturaId?: string | null; usuarioId?: string | null; origen?: string } = {}) {
+    // se acaba de registrar una factura de este proveedor: sus antecedentes cambiaron
+    this.cacheAntecedentes.delete(proveedorId);
     try {
       const previas = new Map((await this.fichasDe(proveedorId)).map((f) => [f.clave, f]));
       const nuevas = new Map<string, Record<string, unknown>>();

@@ -8,6 +8,8 @@ import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
 import { cambiosDeFichas } from '../lib/ficha-articulo';
+import { fichasConForma } from '../lib/forma-proveedor';
+import { proveedorPorNombre } from '../lib/proveedor-por-nombre';
 import { conversionSugerida } from '../lib/presentacion';
 import {
   alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades, precioYaEsDeLaUnidad,
@@ -523,6 +525,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // la factura editable (8/10/2026): cada cambio en la tabla, de la persona o
   // de la IA, con su hora; se puede deshacer y al registrar queda la constancia
   const [cambiosFactura, setCambiosFactura] = useState<CambioHecho[]>([]);
+  // los cambios de ahora, para lo que corre solo un rato después (la memoria, las reglas al abrir)
+  const cambiosVivos = useRef<CambioHecho[]>([]);
+  cambiosVivos.current = cambiosFactura;
+  // el proveedor con el que se abrió la factura en pantalla (el que reconoció el lector o el del borrador)
+  const proveedorAlCargar = useRef('');
   const [marcados, setMarcados] = useState<number[]>([]); // renglones que acaba de tocar la IA
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
@@ -771,6 +778,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       // la sucursal con la que arrancó la pantalla no cuenta como cambio de la persona
       fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: d.comprobante?.numero ?? '', sucursalId: f.sucursalId ?? '' } };
       const b = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
+      proveedorAlCargar.current = String((b?.form && typeof b.form === 'object' && 'proveedorId' in b.form ? b.form.proveedorId : d.proveedor?.match?.id) ?? '');
       if (b) {
         const r = aplicarBorrador(filas, pieLeido, b);
         setFotoItems(r.filas);
@@ -1517,9 +1525,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     setFotoItems((xs) => xs.filter((_, j) => j !== idx));
     setCambiosFactura((xs) => xs.map((y) => (y.campo === 'renglonNuevo' && y.antes === fila.agregado.id ? { ...y, deshecho: true } : y)));
   };
+  /** Los renglones (desde 1) que ya cambió una persona o el chat: lo automático no los toca. La memoria no cuenta. */
+  const renglonesTocados = () => new Set(
+    cambiosVivos.current.filter((c) => !c.deshecho && c.renglon != null && c.quien !== 'Memoria').map((c) => c.renglon as number),
+  );
   const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false, quien = 'IA', nuevos: any[] = []) => {
     const deProducto = (cambios ?? []).filter((c: any) => c?.campo === 'producto');
     cambios = (cambios ?? []).filter((c: any) => c?.campo !== 'producto');
+    // LO QUE CORRE SOLO NO PISA A NADIE (17/11/2026): la memoria y las reglas del
+    // proveedor ahora también corren cuando el proveedor se elige con la factura
+    // ya empezada. Un renglón que ya tocó una persona (o el chat a su pedido) queda
+    // como ella lo dejó.
+    if (automatico) {
+      const tocados = renglonesTocados();
+      cambios = cambios.filter((c: any) => !tocados.has(Math.round(Number(c?.renglon))));
+    }
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
@@ -1610,7 +1630,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // entra, los kilos por pieza). Lo decide la cuenta, no la IA: se aplica solo
   // si lo que entra es cantidad × el factor guardado y el renglón sigue dando el
   // importe impreso. Queda en «Cambios» a nombre de «Memoria» y se deshace igual.
-  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[] } | null> => {
+  //
+  // LA FORMA DEL PROVEEDOR (17/11/2026). Leandro: «no aprende: cuando vuelve a
+  // cargar otra del mismo proveedor se vuelve a confundir en lo mismo». De 555
+  // renglones registrados, 488 eran artículos que venían por primera vez: la
+  // ficha del artículo no los conoce. Lo que se repite es cómo escribe el papel
+  // ese proveedor. Para el artículo nuevo que dice «×N» y quedó sin decidir, se
+  // usa lo que pasó siempre con los demás artículos suyos (lib/forma-proveedor.ts),
+  // con los mismos candados: la cuenta del renglón tiene que cerrar y el costo no
+  // puede quedar lejos del catálogo.
+  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma: number[] } | null> => {
     const pid = f?.proveedorId;
     const pedidas = fotoItemsVivos.current;
     if (!pid || !pedidas.length) return null;
@@ -1625,10 +1654,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const filas = fotoItemsVivos.current;
       // si la tabla cambió mientras se pedían (otro proveedor, otra lectura), no se toca nada
       if (filas.length !== pedidas.length || filas.some((x: any, k: number) => x.descripcion !== pedidas[k].descripcion)) return null;
-      const { cambios, yaEstaban, noCierran } = cambiosDeFichas(filas, Array.isArray(d?.fichas) ? d.fichas : [], esRenglonDescuento);
-      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran };
+      const nombreProveedor = provList.find((p: any) => p.id === pid)?.razon_social ?? null;
+      const conForma = fichasConForma(filas, Array.isArray(d?.fichas) ? d.fichas : [], Array.isArray(d?.antecedentes) ? d.antecedentes : [], nombreProveedor);
+      // lo que ya tocó una persona (o el chat) no se vuelve a decidir
+      const tocados = renglonesTocados();
+      const libres = conForma.fichas.map((x, k) => (tocados.has(k + 1) ? null : x));
+      const { cambios, aplicadas, yaEstaban, noCierran } = cambiosDeFichas(filas, libres, esRenglonDescuento);
+      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran, porForma: [] };
+      // los que el freno del costo va a dejar como se leyeron no se cuentan como cargados
+      const prueba = aplicarCambiosIA(filas, cambios, esRenglonDescuento);
+      const frenados = new Set(frenarReglasAbsurdas(filas, prueba.items, prueba.registros).frenados);
       const res = await aplicarIA(cambios, [], true, 'Memoria');
-      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran };
+      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran, porForma: conForma.porForma.filter((n) => aplicadas.includes(n) && !frenados.has(n)) };
     } catch { return null; }
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
@@ -2227,6 +2264,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   const [creandoProv, setCreandoProv] = useState(false);
   const [provAviso, setProvAviso] = useState('');
   const provList = [...proveedores, ...extraProv];
+  // El proveedor se eligió (o se cambió) con la factura ya en pantalla. 17/11/2026:
+  // lo aprendido (memoria y reglas) corre también en ese momento. Los remitos
+  // llegan sin proveedor (22 de 36 facturas del 12 al 17/11) y hasta ese día ahí
+  // no corría nada: solo se aplicaba sobre una factura que nadie había tocado.
+  const proveedorElegidoAca = !!f?.proveedorId && f.proveedorId !== proveedorAlCargar.current;
+  // «el proveedor es Bimbo», escrito en el chat de la factura: lo elige la pantalla
+  const elegirProveedorDicho = (dicho: string): { elegido: string | null; opciones: string[] } => {
+    const r = proveedorPorNombre(dicho, provList.map((p: any) => ({ id: p.id, nombre: String(p.razon_social ?? ''), otro: p.nombre_fantasia ?? null })));
+    if (r.elegido) set('proveedorId', r.elegido.id);
+    return { elegido: r.elegido?.nombre ?? null, opciones: r.opciones.map((o) => o.nombre) };
+  };
   async function crearProveedorDetectado() {
     const det = foto?.proveedor?.detectado;
     if (!det?.nombre) return;
@@ -2792,9 +2840,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 sugerencias={sugerenciasChat}
                 onReleer={reLeerConAclaraciones}
                 releyendo={leyendoFoto}
-                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria') && !leyendoFoto && fotoItems.length > 0}
-                recienLeida={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
+                aplicarReglasSolo={!leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria')) || proveedorElegidoAca)}
+                recienLeida={!leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.length) || proveedorElegidoAca)}
                 onMemoria={aplicarFichas}
+                onProveedor={elegirProveedorDicho}
               />
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -2836,6 +2885,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 <Boton tamano="chico" variante="secundario" onClick={abrirAltaProveedor} className="self-start">+ Proveedor nuevo</Boton>
               )}
               {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
+              {/* el papel no dice de quién es y se reconoció por lo que trae (17/11/2026): que se vea, por si es otro */}
+              {foto.proveedor?.match?.metodo === 'articulos' && f.proveedorId === foto.proveedor.match.id && (
+                <p className="text-xs text-info">
+                  Este comprobante no dice de quién es: lo reconocí por sus artículos ({foto.proveedor.match.coinciden} de {foto.proveedor.match.de} ya vinieron de {foto.proveedor.match.razon_social}). Si es otro proveedor, cambialo arriba.
+                </p>
+              )}
 
               <CabeceraFactura items={itemsCalc} />
 

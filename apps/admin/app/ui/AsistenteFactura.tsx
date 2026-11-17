@@ -78,10 +78,19 @@ export type PropsAsistente = {
   /** recién leída y sin ningún cambio todavía, ni de la memoria */
   recienLeida?: boolean;
   /** la memoria del artículo: deja cada renglón como entró la última vez (11/11/2026) */
-  onMemoria?: () => Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[] } | null>;
+  /** `porForma`: los renglones de artículos nuevos que se decidieron por cómo factura el proveedor (17/11/2026) */
+  onMemoria?: () => Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma?: number[] } | null>;
+  /**
+   * «El proveedor es Bimbo» (17/11/2026): lo elige la pantalla, sin pasar por la IA.
+   * Devuelve el que quedó elegido, o los que pueden ser si hay más de uno.
+   */
+  onProveedor?: (nombre: string) => { elegido: string | null; opciones: string[] };
 };
 
-export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false, recienLeida = false, onMemoria }: PropsAsistente) {
+// «el proveedor es BIMBO», «proveedor: POPH», «EL PROVEEDOR ES EL ZAMORANO»
+const DICE_PROVEEDOR = /^\s*(?:el\s+)?proveedor(?:\s+e+s)?\s*:?\s+(.{2,60}?)\s*\.?\s*$/i;
+
+export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false, recienLeida = false, onMemoria, onProveedor }: PropsAsistente) {
   const [vista, setVista] = useState<'chat' | 'cambios' | 'reglas'>('chat');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -95,6 +104,8 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   const [guardandoRegla, setGuardandoRegla] = useState(false);
   // la regla que se acaba de aprender sola, para avisar y dejar deshacerla
   const [aprendida, setAprendida] = useState<{ id: string; regla: string } | null>(null);
+  // lo explicado cuando la factura todavía no tiene proveedor: queda anotado y se guarda al elegirlo (17/11/2026)
+  const [pendiente, setPendiente] = useState<string | null>(null);
   const [aplicandoReglas, setAplicandoReglas] = useState(false);
   const yaPasadas = useRef<Set<string>>(new Set());
   // la memoria del artículo corre antes que las reglas: una promesa por factura y proveedor
@@ -123,8 +134,10 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
         try {
           const r = await onMemoria();
           if (r && (r.aplicados.length || r.noCierran.length)) {
+            const nuevos = r.porForma?.length ?? 0;
             const partes = [
-              r.aplicados.length ? `Cargué de memoria lo que ya vino de ${proveedorNombre ?? 'este proveedor'}: bultos, unidades y cómo entran, igual que la última vez.` : '',
+              r.aplicados.length && !nuevos ? `Cargué de memoria lo que ya vino de ${proveedorNombre ?? 'este proveedor'}: bultos, unidades y cómo entran, igual que la última vez.` : '',
+              r.aplicados.length && nuevos ? `Cargué de memoria cómo entra lo de ${proveedorNombre ?? 'este proveedor'}. ${nuevos === 1 ? `El renglón ${r.porForma![0]} es un artículo nuevo` : `Los renglones ${r.porForma!.join(', ')} son artículos nuevos`}: ${nuevos === 1 ? 'lo cargué' : 'los cargué'} como entran siempre los suyos que dicen «x N». Si alguno va distinto, decímelo o deshacelo en «Cambios».` : '',
               r.noCierran.length ? `${r.noCierran.length === 1 ? `El renglón ${r.noCierran[0]} no lo toqué` : `Los renglones ${r.noCierran.join(', ')} no los toqué`}: con lo de la última vez la cuenta no da el importe impreso. Miralo${r.noCierran.length === 1 ? '' : 's'}.` : '',
             ].filter(Boolean).join(' ');
             setMensajes((xs) => [...xs, { rol: 'ia', texto: partes, cambios: r.aplicados, noAplicados: [] }]);
@@ -184,6 +197,23 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
     setError(null);
     setPropuesta(null);
     setAprendida(null);
+    setPendiente(null);
+    // «EL PROVEEDOR ES BIMBO» (17/11/2026: Ana se lo escribió siete veces en una
+    // semana a la IA, que no puede elegirlo). Lo elige la pantalla en el momento;
+    // con el proveedor puesto corren solas su memoria y sus reglas.
+    const dicho = onProveedor ? t.match(DICE_PROVEEDOR)?.[1] : null;
+    if (dicho && onProveedor) {
+      const r = onProveedor(dicho);
+      if (r.elegido) {
+        setMensajes((xs) => [...xs, { rol: 'ia', texto: `Listo, puse a ${r.elegido} como proveedor de esta factura.` }]);
+        return;
+      }
+      if (r.opciones.length > 1) {
+        setMensajes((xs) => [...xs, { rol: 'ia', texto: `Hay ${r.opciones.length} proveedores que pueden ser «${dicho}»: ${r.opciones.slice(0, 6).join(' · ')}. Decime cuál con el nombre completo, o elegilo en la lista de abajo.` }]);
+        return;
+      }
+      // no está en la lista: sigue a la IA, que contesta como siempre
+    }
     setSegundos(0);
     setPensando(true);
     try {
@@ -206,6 +236,8 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
       if (d.reglaGuardada?.id) { setAprendida({ id: String(d.reglaGuardada.id), regla: String(d.reglaGuardada.regla ?? '') }); cargarReglas(); }
       // si no se pudo guardar sola, queda la propuesta con su botón
       else if (d.reglaProveedor && proveedorId && !reglas.some((x) => x.regla === d.reglaProveedor)) setPropuesta(String(d.reglaProveedor));
+      // sin proveedor elegido: queda anotado en el servidor y se guarda con el proveedor
+      else if (d.reglaPendiente && !proveedorId) setPendiente(String(d.reglaPendiente));
     } catch (e: any) {
       setError(e?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
       // el mensaje vuelve a la caja para no tener que escribirlo de nuevo
@@ -287,6 +319,13 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
               <div className="mt-2">
                 <Boton tamano="chico" variante="secundario" onClick={async () => { const id = aprendida.id; setAprendida(null); await quitarRegla(id); }}>No, no la guardes</Boton>
               </div>
+            </div>
+          )}
+          {pendiente && !proveedorId && (
+            <div className="rounded-xl bg-info-suave p-3 text-sm text-tinta">
+              <p className="font-semibold text-info">Anotado para las próximas facturas de este proveedor</p>
+              <p className="mt-1">{pendiente}</p>
+              <p className="mt-1 text-xs text-tinta/70">Queda guardado apenas elijas el proveedor y registres la factura.</p>
             </div>
           )}
           {propuesta && (

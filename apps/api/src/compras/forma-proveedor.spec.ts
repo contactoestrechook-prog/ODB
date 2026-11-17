@@ -1,0 +1,132 @@
+// LA FORMA DEL PROVEEDOR (17/11/2026). Los renglones son reales: La Farina
+// (remitos 0001-00000109 y 0001-00000116) y Tronador (Franui, 10/11).
+import { decidir, fichaDeForma, fichasConForma, firmaDe, formaDe, salidaDe, filaLeida, type Antecedente } from '../../../admin/app/lib/forma-proveedor';
+import { cambiosDeFicha, cambiosDeFichas } from '../../../admin/app/lib/ficha-articulo';
+import { aplicarCambiosIA, papelDeLectura } from '../../../admin/app/lib/tabla-factura';
+import { esRenglonDescuento } from '../../../admin/app/lib/descuentos-compras';
+
+const sinDecidir = (descripcion: string, cantidad: number, precio: number, uxb: number, sugerencia: string | null = null) => ({
+  bultos: null, precio, importe: cantidad * precio, cantidad, alicuotaIva: null, descripcion, esDescuento: false,
+  interpretado: { porPeso: false, cantidad, decision: 'bulto_pendiente', razonBulto: sugerencia ? { sugerencia, evidencia: 'costo', motivo: '' } : null, unidadesPorBulto: uxb },
+  bonificacionPct: null, unidadesSueltas: null, unidadesPorBulto: uxb,
+});
+const decidido = (descripcion: string, cantidad: number, precio: number) => ({
+  bultos: null, precio, importe: cantidad * precio, cantidad, alicuotaIva: null, descripcion, esDescuento: false,
+  interpretado: { porPeso: false, cantidad, decision: 'cierra', razonBulto: null, unidadesPorBulto: null },
+  bonificacionPct: null, unidadesSueltas: null, unidadesPorBulto: null,
+});
+/** el renglón como lo arma la pantalla al cargar la lectura */
+const enPantalla = (i: any) => ({
+  descripcion: i.descripcion, cantidad: i.interpretado.cantidad, porPeso: false, precio: i.precio, importe: i.importe,
+  unidadesPorBulto: i.interpretado.unidadesPorBulto ?? null, razonBulto: i.interpretado.razonBulto ?? null,
+  esDescuento: false, esDevolucion: false, devueltoAMano: false, papel: papelDeLectura(i),
+});
+const talCual = (i: any): Antecedente => ({ leido: i, registrado: { descripcion: i.descripcion, bultos: 0, unidadesPorBulto: i.unidadesPorBulto, sueltas: i.cantidad, entraComo: 'unidades', cantidadStock: i.cantidad, incluido: true, esDescuento: false } });
+const abierto = (i: any): Antecedente => ({ leido: i, registrado: { descripcion: i.descripcion, bultos: 0, unidadesPorBulto: i.unidadesPorBulto, sueltas: i.cantidad, entraComo: 'abiertas', cantidadStock: i.cantidad * i.unidadesPorBulto, incluido: true, esDescuento: false } });
+
+// La Farina, remito 109 (12/11): la persona dejó los tres «x N» tal cual
+const panArabe = sinDecidir('Pan árabe clasico x 4 unidades', 24, 2154, 4);
+const figacitasQueso = sinDecidir('Figacitas de manteca con queso x 9 unidades', 15, 3770, 9);
+// La Farina, remito 116 (16/11): artículos que venían por primera vez
+const figacita = sinDecidir('Figacita de manteca x 9 unidades', 24, 3490, 9, 'unidades');
+const figaza = sinDecidir('Figaza de manteca x 6 unidades', 17, 3140, 6);
+// Tronador (10/11): «FRANUI … CAJA X 24», la cantidad son cajas
+const franuiAmargo = sinDecidir('FRANUI AMARGO CAJA X 24', 2, 115024, 24, 'convertir');
+const franuiFree = sinDecidir('FRANUI FREE CAJA x24', 1, 115024, 24, 'convertir');
+const franuiLeche = sinDecidir('FRANUI LECHE CAJA X 24', 2, 115024, 24, 'convertir');
+
+describe('la forma del proveedor', () => {
+  it('la firma: solo los renglones con «×N» que quedaron sin decidir', () => {
+    expect(firmaDe(enPantalla(figacita))).toBe('sueltas');
+    expect(firmaDe(enPantalla(decidido('Alfajorcitos de maicena', 16, 3450)))).toBeNull();
+    expect(firmaDe({ ...enPantalla(figacita), porPeso: true })).toBeNull();
+    expect(firmaDe({ ...enPantalla(figacita), devueltoAMano: true })).toBeNull();
+  });
+
+  it('qué pasó con un renglón al registrarlo', () => {
+    expect(salidaDe(filaLeida(panArabe), talCual(panArabe).registrado)).toBe('tal_cual');
+    expect(salidaDe(filaLeida(franuiAmargo), abierto(franuiAmargo).registrado)).toBe('abre');
+    // llegó una parte (9 facturadas, entraron 8): la presentación es la misma
+    const pepas = sinDecidir('Pepas x 6', 9, 3300, 6);
+    expect(salidaDe(filaLeida(pepas), { ...talCual(pepas).registrado, cantidadStock: 8 })).toBe('tal_cual');
+    // se registró como bultos × N (Logística Esteban Echeverría: 15 × 6 = 90)
+    const ipa = sinDecidir('PATAGONIA IPA OW X6 730', 15, 9000, 6);
+    expect(salidaDe(filaLeida(ipa), { descripcion: ipa.descripcion, bultos: 15, unidadesPorBulto: 6, sueltas: 0, entraComo: 'unidades', cantidadStock: 90, incluido: true, esDescuento: false })).toBe('abre');
+    // no entró al stock: no se aprende nada
+    expect(salidaDe(filaLeida(panArabe), { ...talCual(panArabe).registrado, incluido: false })).toBeNull();
+    // por peso o con otra cantidad: no es ninguna de las dos
+    expect(salidaDe(filaLeida(panArabe), { ...talCual(panArabe).registrado, entraComo: 'peso' })).toBe('otra');
+  });
+
+  it('La Farina: el artículo nuevo «x 9» entra tal cual, como los otros «x N» suyos', () => {
+    const antes = [talCual(panArabe), talCual(figacitasQueso)];
+    const forma = formaDe(antes);
+    expect(forma.sueltas).toEqual({ talCual: 2, abre: 0, otra: 0 });
+    expect(decidir(forma, 'sueltas')).toEqual({ salida: 'tal_cual', casos: 2, total: 2 });
+    const fila = enPantalla(figacita);
+    const ficha = fichaDeForma(fila, forma, 'La Farina');
+    expect(ficha?.entraComo).toBe('unidades');
+    expect(ficha?.porque).toContain('La Farina');
+    const r = cambiosDeFicha(fila, ficha, 1, esRenglonDescuento as any);
+    expect(r.estado).toBe('aplicada');
+    const final = aplicarCambiosIA([fila], r.cambios, esRenglonDescuento as any).items[0];
+    expect(final.cantidad).toBe(24); // 24 paquetes, no 216 figacitas
+    expect(final.unidadesPorBulto ?? null).toBeNull(); // quedó decidido
+    expect(r.cambios[0].motivo).toContain('tal cual');
+  });
+
+  it('Tronador: la caja nueva «X 24» se abre, como las otras', () => {
+    const forma = formaDe([abierto(franuiAmargo), abierto(franuiFree)]);
+    const fila = enPantalla(franuiLeche);
+    const r = cambiosDeFicha(fila, fichaDeForma(fila, forma, 'TRONADOR'), 1, esRenglonDescuento as any);
+    expect(r.estado).toBe('aplicada');
+    const final = aplicarCambiosIA([fila], r.cambios, esRenglonDescuento as any).items[0];
+    expect(final.cantidad).toBe(48); // 2 cajas de 24
+    expect(Math.round(Number(final.precio) * 100) / 100).toBeCloseTo(115024 / 24, 1); // a precio de unidad
+  });
+
+  it('con un solo caso, o si el proveedor contestó de las dos maneras, no decide', () => {
+    expect(decidir(formaDe([talCual(panArabe)]), 'sueltas')).toBeNull();
+    // Distribuidora City: Gillette Venus X8 se abre y Mach 3 X2 entra tal cual
+    const venus = sinDecidir('GILLETTE VENUS SIMPLY X8', 2, 20000, 8);
+    const mach = sinDecidir('GILLETTE MACH 3 X2 SENSITIVE', 12, 5000, 2);
+    const forma = formaDe([abierto(venus), talCual(mach)]);
+    expect(decidir(forma, 'sueltas')).toBeNull();
+    expect(fichaDeForma(enPantalla(figacita), forma, 'City')).toBeNull();
+  });
+
+  it('con seis o más artículos tolera uno distinto cada diez, no más', () => {
+    const muchos = Array.from({ length: 10 }, (_, k) => talCual(sinDecidir(`Tapa x ${k + 2} unidades`, 10, 1000, k + 2)));
+    expect(decidir(formaDe([...muchos, abierto(franuiAmargo)]), 'sueltas')?.salida).toBe('tal_cual'); // 10 de 11
+    expect(decidir(formaDe([...muchos.slice(0, 6), abierto(franuiAmargo)]), 'sueltas')).toBeNull(); // 6 de 7
+  });
+
+  it('el mismo artículo vota una sola vez', () => {
+    const forma = formaDe([talCual(panArabe), talCual(panArabe), talCual(panArabe)]);
+    expect(forma.sueltas.talCual).toBe(1);
+    expect(decidir(forma, 'sueltas')).toBeNull();
+  });
+
+  it('si el propio renglón muestra lo contrario (el costo del catálogo), no decide', () => {
+    const forma = formaDe([talCual(panArabe), talCual(figacitasQueso)]);
+    // el lector sugiere «convertir» porque el precio ÷ N cuadra con el costo: lo mira una persona
+    const raro = enPantalla(sinDecidir('Budín x 12 unidades', 2, 60000, 12, 'convertir'));
+    expect(fichaDeForma(raro, forma, 'La Farina')).toBeNull();
+    const formaAbre = formaDe([abierto(franuiAmargo), abierto(franuiFree)]);
+    expect(fichaDeForma(enPantalla(sinDecidir('Barra x 6', 12, 900, 6, 'unidades')), formaAbre, 'TRONADOR')).toBeNull();
+  });
+
+  it('en la factura: la ficha del artículo manda, y la forma completa lo que no tiene ficha', () => {
+    const filas = [enPantalla(figacita), enPantalla(figaza), enPantalla(decidido('Alfajorcitos de maicena', 16, 3450))];
+    const fichaPropia = { cuentaEn: 'sueltas' as const, unidadesPorBulto: 9, entraComo: 'unidades' as const, entraDe: null, factor: 1, porUnidad: 1, costoNeto: 3490, veces: 1, ultimaFactura: '0001-00000116', ultimaFecha: '2026-11-12' };
+    const r = fichasConForma(filas, [fichaPropia, null, null], [talCual(panArabe), talCual(figacitasQueso)], 'La Farina');
+    expect(r.fichas[0]).toBe(fichaPropia);
+    expect(r.fichas[1]?.por).toBe('forma');
+    expect(r.fichas[2]).toBeNull(); // ya venía decidido: no es pregunta de la forma
+    expect(r.porForma).toEqual([2]);
+    const c = cambiosDeFichas(filas, r.fichas, esRenglonDescuento as any);
+    expect(c.aplicadas).toEqual([1, 2]);
+    // sin antecedentes queda todo como antes
+    expect(fichasConForma(filas, [null, null, null], [], 'La Farina').porForma).toEqual([]);
+  });
+});

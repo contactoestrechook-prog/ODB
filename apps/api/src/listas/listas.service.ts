@@ -5,7 +5,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
-import { elegirProveedor } from '../compras/proveedor-match';
+import { cuitValido, elegirProveedor } from '../compras/proveedor-match';
+import { proveedorPorArticulos, type ArticuloConocido } from '../compras/proveedor-por-articulos';
+import { claveArticulo } from '../compras/ficha-articulo';
+import { traerTodo } from '../comun/lotes';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
 import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
@@ -763,6 +766,19 @@ export class ListasService {
     return ((data ?? []) as any[]).map((r) => String(r.regla ?? '').trim()).filter(Boolean);
   }
 
+  // El proveedor de un comprobante que no dice de quién es, por los artículos
+  // que trae (17/11/2026). Solo lee las fichas ya aprendidas.
+  private async proveedorPorSusArticulos(items: any[], candidatos: { id: string; razon_social: string; cuit?: string | null }[]) {
+    const claves = (items ?? []).filter((i) => !i?.esDescuento).map((i) => claveArticulo(i?.descripcion)).filter(Boolean);
+    if (claves.length < 2) return null;
+    const conocidos = await traerTodo<ArticuloConocido>((d, h) => this.db.from('proveedor_articulos').select('proveedor_id, clave').order('id').range(d, h));
+    const r = proveedorPorArticulos(claves, conocidos);
+    const p = r ? candidatos.find((c) => c.id === r.proveedorId) : null;
+    if (!r || !p) return null;
+    this.log.log(`proveedor por sus artículos: ${p.razon_social} · ${r.coinciden} de ${r.de} renglones`);
+    return { ...p, metodo: 'articulos' as const, coinciden: r.coinciden, de: r.de };
+  }
+
   // Los CUIT de ODB (uno por razón social que factura): ARCA_CUIT, ARCA_CUIT_SANTA_INES…
   private cuitsPropios(): string[] {
     return Object.entries(process.env)
@@ -1001,6 +1017,17 @@ export class ListasService {
       { nombre: datos.proveedor?.nombre ?? null, cuit: datos.proveedor?.cuit ?? null },
       (candidatosProv ?? []) as any[],
     );
+    // SIN CUIT NI RAZÓN SOCIAL (17/11/2026): los remitos de pan, huevos o hielo
+    // no dicen de quién son, y sin proveedor no corre nada de lo aprendido
+    // (22 de 36 facturas del 12 al 17/11). Si los renglones son los artículos
+    // que ya se le registraron a UN proveedor, es ese (compras/proveedor-por-articulos.ts).
+    // Con un CUIT bien leído que no está en la base no se adivina: es un proveedor a dar de alta.
+    if (!proveedor && !cuitValido(datos.proveedor?.cuit)) {
+      proveedor = await this.proveedorPorSusArticulos(datos.items ?? [], (candidatosProv ?? []) as any[]).catch((e) => {
+        this.log.warn(`proveedor por sus artículos: ${e?.message ?? e}`);
+        return null;
+      });
+    }
 
     // productos: mismo matching que listas/pedidos (código prov → EAN → similitud)
     // El bulto y el descuento se resuelven en CÓDIGO, sobre la descripción, no

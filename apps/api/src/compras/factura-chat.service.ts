@@ -124,6 +124,27 @@ export function reglaRepetida(nueva: string, guardadas: string[]): boolean {
 }
 
 /**
+ * LO EXPLICADO ANTES DE ELEGIR EL PROVEEDOR (17/11/2026). Las reglas que salieron
+ * de la charla de una factura que todavía no tenía proveedor (remitos sin CUIT:
+ * 22 de 36 facturas del 12 al 17/11), en orden, sin repetir y sin las que la
+ * persona corrigió después («uso.reemplaza» guarda el texto de la que se apaga).
+ * Hasta ese día se perdían en silencio: 21 reglas en nueve días.
+ */
+export function reglasDeTurnos(turnos: { regla_propuesta?: string | null; uso?: any }[]): string[] {
+  const lista: string[] = [];
+  for (const t of turnos ?? []) {
+    const reemplaza = paraComparar(String(t?.uso?.reemplaza ?? ''));
+    if (reemplaza) {
+      const k = lista.findIndex((x) => paraComparar(x) === reemplaza);
+      if (k >= 0) lista.splice(k, 1);
+    }
+    const regla = String(t?.regla_propuesta ?? '').trim().slice(0, 300);
+    if (regla.length >= 3 && !reglaRepetida(regla, lista)) lista.push(regla);
+  }
+  return lista;
+}
+
+/**
  * ¿Hace falta volver a pasar las reglas por esta factura? No, si ya se miró
  * después de la última regla guardada y no hubo nada que cambiar.
  */
@@ -298,6 +319,53 @@ export class FacturaChatService {
     return { ok: true };
   }
 
+  // ---- lo explicado antes de elegir el proveedor (17/11/2026) ----
+
+  private async turnosSinProveedor(lecturaId: string) {
+    const { data, error } = await this.db
+      .from('compras_chat_turnos')
+      .select('id, regla_propuesta, uso')
+      .eq('lectura_id', lecturaId)
+      .is('proveedor_id', null)
+      .not('mensaje', 'like', `${MARCA_AUTOMATICO}%`)
+      .order('creado_en', { ascending: true })
+      .limit(80);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { id: string; regla_propuesta: string | null; uso: any }[];
+  }
+
+  /**
+   * Las reglas que se explicaron en la charla de una factura cuando todavía no
+   * tenía proveedor pasan a ser del proveedor con el que se registra (o con el
+   * que la persona sigue la charla). Se puede llamar las veces que haga falta:
+   * los turnos quedan a nombre del proveedor y no se adoptan dos veces.
+   */
+  async adoptarReglasDeLectura(lecturaId: string, proveedorId: string, usuarioId?: string): Promise<{ adoptadas: number }> {
+    if (!/^[0-9a-f-]{36}$/i.test(String(lecturaId)) || !/^[0-9a-f-]{36}$/i.test(String(proveedorId))) return { adoptadas: 0 };
+    const turnos = await this.turnosSinProveedor(lecturaId);
+    if (!turnos.length) return { adoptadas: 0 };
+    const pendientes = reglasDeTurnos(turnos);
+    let adoptadas = 0;
+    if (pendientes.length) {
+      const guardadas = (await this.reglas(proveedorId)).map((r) => r.regla);
+      for (const regla of pendientes) {
+        if (guardadas.length >= 30) break;
+        if (reglaRepetida(regla, guardadas)) continue;
+        try {
+          await this.guardarRegla(proveedorId, regla, usuarioId);
+          guardadas.push(regla);
+          adoptadas++;
+        } catch (e: any) {
+          this.log.warn(`no se adoptó una regla de la factura ${lecturaId} para ${proveedorId}: ${e?.message ?? e}`);
+        }
+      }
+    }
+    const { error } = await this.db.from('compras_chat_turnos').update({ proveedor_id: proveedorId }).eq('lectura_id', lecturaId).is('proveedor_id', null);
+    if (error) this.log.warn(`no se pasaron al proveedor los turnos de la factura ${lecturaId}: ${error.message}`);
+    if (adoptadas) this.log.log(`factura ${lecturaId}: ${adoptadas} regla(s) explicadas antes de elegir el proveedor quedaron guardadas para ${proveedorId}`);
+    return { adoptadas };
+  }
+
   // ---- quién cambió qué antes de registrar ----
 
   async guardarRevision(lecturaId: string, b: { proveedorId?: string; numero?: string; cambios?: unknown[] }, usuarioId?: string) {
@@ -347,12 +415,26 @@ export class FacturaChatService {
     if (!tabla.length) throw new BadRequestException('Falta la tabla de la factura');
     if (!mensajes.length || mensajes[mensajes.length - 1].rol !== 'usuario') throw new BadRequestException('Falta tu mensaje');
 
-    const reglas = b?.proveedorId ? await this.reglas(b.proveedorId).catch(() => []) : [];
     const lecturaValida = /^[0-9a-f-]{36}$/i.test(String(lecturaId));
+    // LO EXPLICADO ANTES DE ELEGIR EL PROVEEDOR (17/11/2026): si la persona ya
+    // eligió el proveedor y sigue la charla, lo que había explicado antes pasa a
+    // ser de ese proveedor. Un turno automático no adopta nada: se dispara apenas
+    // cambia el proveedor en la pantalla, y puede ser uno elegido por error.
+    if (b?.proveedorId && lecturaValida && !automatico) {
+      await this.adoptarReglasDeLectura(lecturaId, b.proveedorId, usuarioId).catch((e) => this.log.warn(`reglas pendientes de ${lecturaId}: ${e?.message ?? e}`));
+    }
+    const sinProveedor = !b?.proveedorId;
+    const reglas = b?.proveedorId
+      ? await this.reglas(b.proveedorId).catch(() => [])
+      // sin proveedor todavía: lo ya explicado en esta charla hace de reglas guardadas
+      // (así no se repite y la persona lo puede corregir)
+      : lecturaValida
+        ? reglasDeTurnos(await this.turnosSinProveedor(lecturaId).catch(() => [])).map((regla) => ({ id: '', regla, creadaEn: '', autor: null as string | null }))
+        : [];
     if (automatico) {
       const nada = { respuesta: '', cambios: [], cambiosPie: [], renglonesNuevos: [], reglaProveedor: null, descartados: [], segundos: 0, reglaGuardada: null };
       // sin reglas no hay nada que aplicar, y no se gasta una consulta a la IA
-      if (!reglas.length) return { ...nada, omitido: 'sin-reglas' };
+      if (!reglas.length || sinProveedor) return { ...nada, omitido: 'sin-reglas' };
       // si ya se miró esta factura y las reglas no pedían ningún cambio, no se
       // vuelve a preguntar cada vez que alguien la abre
       if (lecturaValida) {
@@ -369,7 +451,9 @@ export class FacturaChatService {
     const original = await this.original(lecturaId).catch(() => null);
     const datos = [
       `Proveedor: ${b?.proveedor ?? 'sin identificar'}. Comprobante: ${JSON.stringify(b?.comprobante ?? null)}.`,
-      reglas.length ? `Reglas guardadas de este proveedor:\n${reglas.map((r, k) => `${k + 1}. ${r.regla}`).join('\n')}` : 'Este proveedor todavía no tiene reglas guardadas.',
+      sinProveedor
+        ? `Todavía no se eligió el proveedor de esta factura. Si la persona explica algo que vale para las próximas facturas de quien la emite, escribilo igual en «reglaProveedor»: queda anotado y se guarda con el proveedor cuando lo elija.${reglas.length ? ` Lo que ya explicó en esta charla (hace de reglas guardadas):\n${reglas.map((r, k) => `${k + 1}. ${r.regla}`).join('\n')}` : ''}`
+        : reglas.length ? `Reglas guardadas de este proveedor:\n${reglas.map((r, k) => `${k + 1}. ${r.regla}`).join('\n')}` : 'Este proveedor todavía no tiene reglas guardadas.',
       `Tabla (JSON): ${JSON.stringify(tabla).slice(0, 60_000)}`,
       `Pie (JSON): ${JSON.stringify(b?.pie ?? null)}`,
       `Controles (JSON): ${JSON.stringify(b?.controles ?? null)}`,
@@ -526,10 +610,16 @@ export class FacturaChatService {
       regla_propuesta: salida.reglaProveedor,
       vueltas,
       segundos: Math.round((Date.now() - t0) / 100) / 10,
-      uso: { llamadas },
+      // sin proveedor: la regla pendiente que esta corrige (ver reglasDeTurnos)
+      uso: { llamadas, ...(sinProveedor && vieja && salida.reglaProveedor ? { reemplaza: vieja.regla } : {}) },
     });
     if (errorTurno) this.log.warn(`no se guardó la charla de la factura ${lecturaId}: ${errorTurno.message}`);
+    // sin proveedor la regla no se pudo guardar: queda anotada en el turno (regla_propuesta)
+    // y se guarda sola cuando la factura tenga proveedor; la pantalla lo avisa
+    const reglaPendiente = sinProveedor && lecturaValida && !errorTurno && salida.reglaProveedor && !reglaRepetida(salida.reglaProveedor, reglas.filter((r) => r !== vieja).map((r) => r.regla))
+      ? salida.reglaProveedor
+      : null;
     this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.renglonesNuevos.length} renglones nuevos · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
-    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada };
+    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada, reglaPendiente };
   }
 }

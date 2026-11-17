@@ -41,7 +41,10 @@ export type FichaArticulo = {
   veces: number;
   ultimaFactura: string | null;
   ultimaFecha: string | null;
-  por?: 'descripcion' | 'producto';
+  /** de dónde salió: la ficha del artículo (por su descripción o su producto) o la forma del proveedor */
+  por?: 'descripcion' | 'producto' | 'forma';
+  /** el motivo que queda en «Cambios» cuando la ficha sale de la forma del proveedor (lib/forma-proveedor.ts) */
+  porque?: string;
 };
 
 export type EstadoFicha =
@@ -76,6 +79,7 @@ function laDescripcionTrae(descripcion: unknown, valor: number): boolean {
 }
 
 function motivoDe(ficha: FichaArticulo): string {
+  if (ficha.porque) return ficha.porque.slice(0, 300);
   const f = ficha.ultimaFecha && /^\d{4}-\d{2}-\d{2}/.test(ficha.ultimaFecha) ? ` del ${ficha.ultimaFecha.slice(8, 10)}/${ficha.ultimaFecha.slice(5, 7)}` : '';
   const de = ficha.ultimaFactura ? ` (factura ${ficha.ultimaFactura}${f})` : f ? ` (${f.trim()})` : '';
   return `Como la última vez${de}${ficha.veces > 1 ? ` · ${ficha.veces} veces igual` : ''}`;

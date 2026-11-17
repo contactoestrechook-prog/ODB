@@ -21,7 +21,9 @@ describe('elegirProveedor — el caso Diamandes/Vistalba (2026-09-08)', () => {
     expect(elegirProveedor({ nombre: 'Baires Distribuciones Sur S.A.', cuit: null }, base)?.id).toBe('baires');
   });
   it('mismo nombre pero CUIT distinto: no es el mismo (candado 1)', () => {
-    expect(elegirProveedor({ nombre: 'Distribuidora Galletitas del Sur', cuit: '30555555555' }, base)).toBeNull();
+    // 17/11/2026: el candado vale con un CUIT bien leído (que cumple su dígito verificador);
+    // uno mal leído ya no descarta al proveedor (ver proveedor-por-articulos.spec.ts)
+    expect(elegirProveedor({ nombre: 'Distribuidora Galletitas del Sur', cuit: '30565574759' }, base)).toBeNull();
   });
   it('compartir solo palabras genéricas no vincula', () => {
     expect(elegirProveedor({ nombre: 'Distribuidora del Sur Alimentos SA', cuit: null }, base)).toBeNull();
