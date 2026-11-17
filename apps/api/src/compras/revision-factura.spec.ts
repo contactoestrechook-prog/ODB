@@ -10,6 +10,21 @@ describe('antes de registrar', () => {
     expect(a.map((x) => x.tipo)).toEqual(['marca']);
     expect(a[0].texto).toContain('«jorgito»');
   });
+  // 17/11/2026: en dos facturas de La Serenísima Ana contestó «está bien» 16 veces
+  // por artículos que ya había registrado igual hasta cinco veces.
+  it('la marca no se vuelve a preguntar por lo que ya se registró igual dos veces', () => {
+    const leche = { ...base, renglon: 3, descripcion: 'LECHE LS ULTRA ENTERA 3% FORT SACHET 1L', producto: 'Leche La Serenisima 3% clasica  sachet  x 1l' };
+    expect(revisarAntesDeRegistrar([leche]).map((x) => x.tipo)).toEqual(['marca']);
+    expect(revisarAntesDeRegistrar([{ ...leche, vecesRegistradoAsi: 1 }]).map((x) => x.tipo)).toEqual(['marca']);
+    expect(revisarAntesDeRegistrar([{ ...leche, vecesRegistradoAsi: 2 }])).toEqual([]);
+    expect(revisarAntesDeRegistrar([{ ...leche, vecesRegistradoAsi: 5 }])).toEqual([]);
+    // un vínculo que nunca se registró así se sigue preguntando (la leche en sachet vinculada a una en polvo)
+    const mal = { ...base, renglon: 1, descripcion: 'LECHE LS ULTRA DESC PROTEIN S1L', producto: 'Leche En Polvo Protein LS x 400g', vecesRegistradoAsi: 0 };
+    expect(revisarAntesDeRegistrar([mal]).map((x) => x.tipo)).toEqual(['marca']);
+    // y lo demás se controla igual aunque ya se haya registrado así: el costo y el precio
+    const caro = { ...leche, vecesRegistradoAsi: 5, costoNuevo: 5000, costoCatalogo: 1500 };
+    expect(revisarAntesDeRegistrar([caro]).map((x) => x.tipo)).toEqual(['costo']);
+  });
   it('Terrabusi: el precio de venta bajaba de $10.800 a $4.500', () => {
     const a = revisarAntesDeRegistrar([{ ...base, renglon: 5, descripcion: 'Alfajor Terrabusi Blanco glaseado', producto: 'Alfajor Terrabusi Blanco glaseado x 6', precioNuevo: 4500, precioActual: 10800 }]);
     expect(a.map((x) => x.tipo)).toEqual(['precio']);

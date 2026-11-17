@@ -9,7 +9,7 @@ import { cuitValido, elegirProveedor } from '../compras/proveedor-match';
 import { proveedorPorArticulos, type ArticuloConocido } from '../compras/proveedor-por-articulos';
 import { claveArticulo } from '../compras/ficha-articulo';
 import { marcasAMano, pideLoManuscrito } from '../compras/manuscrito';
-import { traerTodo } from '../comun/lotes';
+import { enLotes, traerTodo } from '../comun/lotes';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
 import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
@@ -755,6 +755,8 @@ export class ListasService {
       const porSku = new Map(((alics ?? []) as any[]).map((r) => [r.sku, r.alicuota_iva != null ? Number(r.alicuota_iva) : null]));
       for (const i of items) if (i?.match?.sku) i.match.alicuotaCatalogo = porSku.get(i.match.sku) ?? null;
     }
+    // se rehace al abrir: lo que se registró después de leer también cuenta
+    await this.marcarVinculosRegistrados(items, resultado?.proveedor?.match?.id);
     return resultado;
   }
 
@@ -769,6 +771,45 @@ export class ListasService {
       .order('creada_en', { ascending: true })
       .limit(30);
     return ((data ?? []) as any[]).map((r) => String(r.regla ?? '').trim()).filter(Boolean);
+  }
+
+  /**
+   * YA SE REGISTRÓ ASÍ (17/11/2026). El control de marca de «antes de registrar»
+   * (10/11: 18 Jorgito entraron como Cachafaz) pregunta «el papel dice «ultra» y
+   * el producto vinculado es «Leche La Serenísima…». ¿Es el mismo producto?» en
+   * cada renglón donde la primera palabra del papel no es la marca del producto.
+   * En La Serenísima eso es casi toda la factura («LECHE LS ULTRA…», «QUESO LS
+   * FINL…»): el 17/11 Ana contestó «está bien» 16 veces en dos facturas, por
+   * artículos que ya había registrado igual hasta cinco veces.
+   *
+   * Cada renglón vinculado queda con «registradoAsi»: en cuántos comprobantes
+   * de ESTE proveedor ya se registró ESTE texto del papel con ESTE producto. La
+   * pantalla deja de preguntar por la marca cuando son dos o más. Solo lee; si
+   * falla, todo queda en 0 y se pregunta como siempre.
+   */
+  private async marcarVinculosRegistrados(items: any[], proveedorId?: string | null) {
+    const vinculados = (items ?? []).filter((i) => i?.match?.sku);
+    for (const i of vinculados) i.match.registradoAsi = 0;
+    if (!proveedorId || !vinculados.length) return;
+    try {
+      const skus = [...new Set(vinculados.map((i) => String(i.match.sku)))];
+      const prods = await enLotes<{ id: string; sku: string }>(skus, (lote) => this.db.from('productos').select('id, sku').in('sku', lote));
+      const idDe = new Map(prods.map((p) => [p.sku, p.id]));
+      const ids = [...new Set(prods.map((p) => p.id))];
+      if (!ids.length) return;
+      const historial = await enLotes<{ descripcion: string | null; producto_id: string; numero: string | null; fecha: string | null }>(ids, (lote) =>
+        this.db.from('compras_historial').select('descripcion, producto_id, numero, fecha').eq('proveedor_id', proveedorId).eq('es_descuento', false).in('producto_id', lote));
+      const comprobantes = new Map<string, Set<string>>();
+      for (const h of historial) {
+        const k = `${claveArticulo(h.descripcion)}|${h.producto_id}`;
+        comprobantes.set(k, (comprobantes.get(k) ?? new Set<string>()).add(String(h.numero ?? h.fecha ?? '')));
+      }
+      for (const i of vinculados) {
+        i.match.registradoAsi = comprobantes.get(`${claveArticulo(i.descripcion)}|${idDe.get(String(i.match.sku))}`)?.size ?? 0;
+      }
+    } catch (e: any) {
+      this.log.warn(`vínculos ya registrados de ${proveedorId}: ${e?.message ?? e}`);
+    }
   }
 
   // El proveedor de un comprobante que no dice de quién es, por los artículos
@@ -1246,6 +1287,7 @@ export class ListasService {
       const porSku = new Map(((alics ?? []) as any[]).map((r) => [r.sku, r.alicuota_iva != null ? Number(r.alicuota_iva) : null]));
       for (const i of propuesta as any[]) if (i.match?.sku) i.match.alicuotaCatalogo = porSku.get(i.match.sku) ?? null;
     }
+    await this.marcarVinculosRegistrados(propuesta as any[], proveedor?.id);
 
     const msMatch = Date.now() - tMatch;
     const msTotal = Date.now() - t0;

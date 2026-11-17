@@ -556,6 +556,7 @@ export const SECCIONES: Seccion[] = [
           'Si el comprobante no trae CUIT ni nombre (remitos de pan, huevos, hielo), el sistema reconoce al proveedor por sus artículos cuando ya vinieron antes. Lo avisa debajo del proveedor: si es otro, cambialo ahí.',
           'Si no lo reconoce, se lo podés escribir a la IA: "el proveedor es Bimbo". Lo elige en el momento y corren solas su memoria y sus reglas, sin tocar lo que ya corregiste.',
           'Lo que le expliques a la IA antes de elegir el proveedor no se pierde: queda anotado y se guarda para ese proveedor cuando lo elegís y registrás la factura.',
+          'Antes de registrar, el sistema pregunta "¿es el mismo producto?" cuando lo que dice el papel no nombra la marca del producto vinculado. Deja de preguntarlo por un artículo cuando ya lo registraste igual, con ese proveedor y ese producto, en dos facturas. Si cambiás el producto vinculado, vuelve a preguntar. El costo y el precio de venta muy lejos de los de hoy se siguen avisando siempre.',
         ],
       },
     ],

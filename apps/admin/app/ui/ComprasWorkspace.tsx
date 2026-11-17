@@ -705,6 +705,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
           nombre: i.match?.nombre ?? null,
           variacionPct: i.match?.variacionPct ?? null,
           sugerido, // la IA lo propuso: hay que confirmar antes de incluir
+          // en cuántos comprobantes de este proveedor ya se registró este texto con este producto (17/11/2026)
+          vinculoRegistrado: Number(i.match?.registradoAsi) > 0 && i.match?.sku ? { sku: String(i.match.sku), veces: Number(i.match.registradoAsi) } : null,
           motivoIa: i.match?.motivo ?? null,
           // por qué NO se vinculó: medida distinta a la del producto parecido
           avisoMedida: i.avisoMedida ?? null,
@@ -2027,6 +2029,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     costoCatalogo: numImp(i.costoCatalogo) || null,
     precioNuevo: i._esDescuento || i._esDevolucion || i.margenPct === '' || i.margenPct == null ? null : redondearPrecio(costoFinal(i, idx) * (1 + Number(i.margenPct) / 100)),
     precioActual: numImp(i.precioActual) || null,
+    // vale solo mientras el renglón siga vinculado al mismo producto con el que se registró antes
+    vecesRegistradoAsi: i.vinculoRegistrado && i.vinculoRegistrado.sku === i.sku ? i.vinculoRegistrado.veces : 0,
   })));
   const revisionPendiente = revision.filter((a) => !revisionOk.includes(a.texto));
   const revisionBloquea = revisionPendiente.length > 0;

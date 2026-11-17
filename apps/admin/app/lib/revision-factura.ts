@@ -27,6 +27,8 @@ export type RenglonARevisar = {
   /** precio de venta que va a quedar, y el de hoy */
   precioNuevo?: number | null;
   precioActual?: number | null;
+  /** en cuántos comprobantes de este proveedor ya se registró este texto del papel con este mismo producto */
+  vecesRegistradoAsi?: number | null;
 };
 
 export type Alerta = { clave: string; renglon: number; tipo: 'cantidad' | 'marca' | 'costo' | 'precio'; texto: string };
@@ -34,6 +36,16 @@ export type Alerta = { clave: string; renglon: number; tipo: 'cantidad' | 'marca
 const pesos = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
 const pct = (a: number, b: number) => { const v = Math.round((a / b - 1) * 100); return `${v > 0 ? '+' : ''}${v} %`; };
 const cant = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+
+/**
+ * YA SE REGISTRÓ ASÍ (17/11/2026). La pregunta de la marca no se repite cuando
+ * este proveedor ya registró este mismo texto del papel con este mismo producto
+ * en dos comprobantes o más: una persona ya lo miró dos veces. En La Serenísima
+ * («LECHE LS ULTRA…» vinculada a «Leche La Serenísima…») eran 16 «está bien»
+ * en dos facturas. El vínculo nuevo, o el que se cambió recién, se sigue
+ * preguntando; el costo, el precio y la cantidad partida, siempre.
+ */
+export const YA_REGISTRADO_ASI = 2;
 
 /** Costo: más del doble o menos de la mitad del que tenía. Precio de venta: más de 50 % arriba o un tercio abajo. */
 export const LIMITES = { costoArriba: 2, costoAbajo: 0.5, precioArriba: 1.5, precioAbajo: 0.67 };
@@ -49,7 +61,7 @@ export function revisarAntesDeRegistrar(renglones: RenglonARevisar[]): Alerta[] 
     }
     // otra marca
     const marca = marcaDelRenglon(r.descripcion);
-    if (marca && !mismaMarca(r.descripcion, r.producto)) {
+    if (marca && !mismaMarca(r.descripcion, r.producto) && (Number(r.vecesRegistradoAsi) || 0) < YA_REGISTRADO_ASI) {
       a('marca', `Renglón ${r.renglon}: el papel dice «${marca}» y el producto vinculado es «${r.producto}». ¿Es el mismo producto?`);
     }
     // el costo, muy lejos del que tenía
