@@ -2181,14 +2181,17 @@ export class BotService {
       model: MODELO_BOT,
       max_tokens: MAX_TOKENS_BOT,
       thinking: RAZONAMIENTO,
-      // low (18/11/2026, Leandro: «baja el razonamiento del bot», por el gasto de
-      // Anthropic). Antes medium, y antes de eso xhigh. El razonamiento sigue
-      // ENCENDIDO (adaptive; en Opus 5.5 no se puede apagar): low piensa menos y
-      // hace menos vueltas, no contesta «sin cabeza». Probado con el banco contra
-      // medium antes de publicar. Se sube con ODB_BOT_ESFUERZO sin tocar código.
-      // La lectura del comprobante de pago (pago-confirma.ts) NO baja: es plata y
-      // queda en medium.
-      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO', 'low') },
+      // medium, el valor de Opus 5.5 (antes xhigh): según la guía de Anthropic,
+      // 5.5 en medium rinde igual o más que Opus 5 en high, y a igual nivel piensa
+      // más que 5. Se sube con ODB_BOT_ESFUERZO sin tocar código.
+      // NO BAJARLO A LOW POR PLATA (medido el 18/11/2026, Leandro: «baja el
+      // razonamiento del bot»): en las respuestas reales el razonamiento y la
+      // salida son ~11 % del costo; el 86 % es volver a escribir la caché (prompt
+      // fijo + charla, ~18.000 tokens) porque los mensajes llegan con más de 5
+      // minutos entre sí. En el banco (12 casos, clave de desarrollo) low costó lo
+      // mismo que medium (USD 0,75 contra 0,74), bajó el puntaje de 4,5 a 4,1 y en
+      // pedido-02 no creó el pedido confirmado.
+      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO') },
       system,
       ...(tools.length ? { tools, ...(o.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}) } : {}),
       messages: this.conCache(messages),

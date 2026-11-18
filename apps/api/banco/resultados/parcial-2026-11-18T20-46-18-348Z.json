@@ -1,0 +1,673 @@
+{
+ "fecha": "2026-11-18T20:46:18.348Z",
+ "pasan": 6,
+ "total": 12,
+ "promedio": 4.083333333333333,
+ "costoBot": 0.7470000000000002,
+ "costoJuez": 0.08048,
+ "costoTotal": 0.8274800000000002,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "envio-01",
+   "categoria": "envío",
+   "titulo": "Pregunta directa por el costo del envío",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, cuánto me sale el envío a Canning?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes. El envío es sin cargo en pedidos desde $70.000.",
+     "herramientas": [],
+     "imagen": null,
+     "segundos": 7.9,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "cant-01",
+   "categoria": "cantidades",
+   "titulo": "4 Marlboro gold de entrada",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [],
+   "problemas": [
+    "Pregunta cómo paga sin haber confirmado si el pedido está completo, salteando el paso pedido",
+    "Pregunta forma de pago cuando cigarrillos no llevan descuento, lo cual es confuso e innecesario en este punto",
+    "No preguntó si quiere sumar algo más de forma aislada, sino que mezcló con el pago prematuramente",
+    "Falta cerrar el ciclo: debería solo confirmar la cantidad anotada y preguntar si el pedido está completo, sin mencionar pago todavía"
+   ],
+   "charla": [
+    {
+     "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes.\n\n• 4 × Marlboro Gold Box x20\n\n¿Querés sumar algo y cómo lo pagás: efectivo, transferencia o tarjeta?",
+     "herramientas": [
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 11.6,
+     "catalogo": [
+      {
+       "sku": "L5242",
+       "nombre": "Marlboro Gold Box x20un",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12099",
+       "nombre": "Marlboro Gold Titanium 100 BOX x20",
+       "precio": 9200,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "puntual-01",
+   "categoria": "producto puntual",
+   "titulo": "Fernet puntual",
+   "ok": false,
+   "puntaje": 5,
+   "fallas": [
+    "turno 1: falta: /20\\.500/"
+   ],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "tenés fernet branca de 750?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes. Sí, tengo:\n• Fernet Branca 750 cc — $21.900, o $19.710 en efectivo o transferencia",
+     "herramientas": [
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 11,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      }
+     ],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "pedido-01",
+   "categoria": "pedido",
+   "titulo": "Pedido completo para retirar",
+   "ok": false,
+   "puntaje": 4,
+   "fallas": [
+    "turno 2: falta: /55\\.100/"
+   ],
+   "problemas": [
+    "El saludo inicial no incluye la frase completa de bienvenida ('te damos la bienvenida a O.D.B.'), solo dice 'Buenas tardes'",
+    "En el turno 1 el bot pregunta el método de pago junto con la confirmación de pedido, cuando debería solo anotar el pedido sin precios y preguntar si está completo"
+   ],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes.\n\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Querés sumar algo y cómo lo pagás: efectivo, transferencia o tarjeta?",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 12.7,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": []
+    },
+    {
+     "cliente": "sí, eso es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Fernet Branca x750cc — 2 × $21.900 c/u = $43.800\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $57.900\nPagando en efectivo o transferencia: $53.520 (10% off en vinos, espumantes, destilados, licores, aperitivos, sidras y estuchería (todas las bebidas con alcohol menos la cerveza)).\nRetiro en la sucursal Saint Thomas. Retira Juan Perez.\n¿Lo confirmo?",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ],
+     "imagen": "resumen",
+     "segundos": 11.6,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "pedido-02",
+   "categoria": "pedido",
+   "titulo": "El sí confirma y crea el pedido",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [
+    "turno 3: falta: /PICKUP-|c[oó]digo|confirmad/",
+    "turno 3: no usó crear_pedido"
+   ],
+   "problemas": [
+    "No preguntó si el pedido estaba completo tras el primer mensaje (quedó en silencio)",
+    "Con 'es todo' no pidió confirmación ('¿Lo confirmo?') sino que pasó directo a preguntar forma de pago, saltándose el paso de confirmación",
+    "Al responder 'sí' el cliente confirmaba, pero el bot no creó el pedido ni dio código/total, sino que repitió la pregunta de pago",
+    "Repitió el mensaje de forma de pago casi textual, violando la regla de no repetir mensajes",
+    "El saludo de bienvenida apareció recién en el segundo mensaje del bot, no en el primero"
+   ],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 5.2,
+     "catalogo": [],
+     "sinStock": []
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $21.900 c/u = $43.800 ($39.420 en efectivo o transferencia)\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\n\nTotal: $57.900, o $53.520 en efectivo o transferencia\n\nBuenas tardes.\nLo retirás vos en la sucursal Saint Thomas. ¿Cómo lo pagás: efectivo, transferencia o tarjeta?",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ],
+     "imagen": "resumen",
+     "segundos": 8.9,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": []
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "¿Lo pagás en efectivo, por transferencia o con tarjeta?",
+     "herramientas": [],
+     "imagen": null,
+     "segundos": 2.8,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "cierre-01",
+   "categoria": "cierres",
+   "titulo": "Gracias no se contesta",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Graciasss",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "",
+     "herramientas": [],
+     "imagen": null,
+     "segundos": 0.7,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "casa-01",
+   "categoria": "la casa",
+   "titulo": "Horario",
+   "ok": false,
+   "puntaje": 5,
+   "fallas": [
+    "turno 1: más de 3 líneas"
+   ],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "hasta que hora estan abiertos hoy?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes.\nHoy están abiertos los dos locales:\n• Sucursal Saint Thomas (Castex 3601): hasta las 21:00\n• Santa Inés (Juana de Arco 7300): hasta las 20:30",
+     "herramientas": [
+      "estado_local"
+     ],
+     "imagen": null,
+     "segundos": 3.7,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "pago-01",
+   "categoria": "pagos",
+   "titulo": "Pide el alias",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "pasame el alias así te transfiero",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Alias: outlet.de.bebidas · CBU: 0720738120000000655518 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.",
+     "herramientas": [
+      "derivar_pago"
+     ],
+     "imagen": null,
+     "segundos": 4.9,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "persona-01",
+   "categoria": "persona",
+   "titulo": "Pide hablar con alguien",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "quiero hablar con una persona por favor",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes. Te paso con una persona de la casa.",
+     "herramientas": [
+      "derivar_a_humano"
+     ],
+     "imagen": null,
+     "segundos": 3.4,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "tono-01",
+   "categoria": "tono",
+   "titulo": "Consulta simple, respuesta corta",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Incluye saludo 'Buenas tardes' que ocupa una línea extra, aunque correcto si es primer mensaje",
+    "Lista dos opciones en vez de una respuesta más concisa de una línea"
+   ],
+   "charla": [
+    {
+     "cliente": "tienen hielo?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes. Sí, tenemos:\n• Hielo Bolsa 5 kg — $8.600\n• Hielo Bolsa 15 kg — $13.800",
+     "herramientas": [
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 6.1,
+     "catalogo": [
+      {
+       "sku": "L1062",
+       "nombre": "Hielo Bolsa 5KG",
+       "precio": 8600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1063",
+       "nombre": "Hielo Bolsa 15KG",
+       "precio": 13800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10352",
+       "nombre": "Las Perdices Ice Wine",
+       "precio": 29500,
+       "precioEfectivo": 26550
+      }
+     ],
+     "sinStock": [
+      "Combo Hielera + Moldes Para Hielo Chivas Regal | Hielo Bolsa 10KG | Hielo Bolsa 2KG | Frapera Veuve Clicquot + 2 copas | Set Cubitos Acero Inoxidable x4 [SIN STOCK — no ofrecer]"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stock-01",
+   "categoria": "stock",
+   "titulo": "Tamaño sin stock",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "tenes coca cola de 1.5?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes. De 1,5 L no tengo stock ahora. Tengo de 1,75 L:\n• Coca Cola 1,75 L — $4.700\n• Coca Cola Zero 1,75 L — $4.700\n• Coca Cola Light 1,75 L — $4.700",
+     "herramientas": [
+      "buscar_productos"
+     ],
+     "imagen": "precios",
+     "segundos": 5.2,
+     "catalogo": [
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L341",
+       "nombre": "Coca Cola lata 354cc",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 1900,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Coca Cola 1.5L | Coca cola Light 1.5L | Coca Cola Zero 1.5L | Coca Cola Lima | Coca Cola Starwars 354ml | Coca Cola Vainilla x354cc | +1 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (SIN stock) · 354 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  },
+  {
+   "id": "desc-01",
+   "categoria": "descuento efectivo",
+   "titulo": "Precio de whisky con el 10% en efectivo (Pablito, 30/9)",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [],
+   "problemas": [
+    "El sistema mostró Suntory Whisky Toki x1Lt como disponible (no figura en la lista de sin stock), pero el bot no lo mencionó ni dio su precio, mostrando solo el Hibiki",
+    "Al omitir el Toki, el bot dio una respuesta incompleta del catálogo real de whiskies japoneses disponibles, contradiciendo la instrucción de mostrar cada precio de lista y con descuento para los japoneses que haya"
+   ],
+   "charla": [
+    {
+     "cliente": "Me pasas precio del Jony walker balck",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes.\n• Johnnie Walker Black Label 1 L — $59.400, o $53.460 en efectivo o transferencia",
+     "herramientas": [
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 5.1,
+     "catalogo": [
+      {
+       "sku": "L152",
+       "nombre": "Johnnie Walker Black Label x 1000cc",
+       "precio": 59400,
+       "precioEfectivo": 53460
+      },
+      {
+       "sku": "L808",
+       "nombre": "Johnnie Walker Double Black",
+       "precio": 88000,
+       "precioEfectivo": 79200
+      }
+     ],
+     "sinStock": [
+      "Johnnie Walker Black 750 Lata | Johnnie Walker Black Label Icon Edition | Johnnie Walker Black Label SHERRY Finish x 1000cc | Johnnie Walker Black Label x 500cc | Johnnie Walker Black Label x750cc | Johnnie Walker Double Black x1Lt | +1 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (hay) · 750 cc (SIN stock) · 500 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "Y tenés alguno japonés ?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Sí, japonés tengo este:\n• Hibiki Master's Select 700 cc — $290.000, o $261.000 en efectivo o transferencia",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 10.4,
+     "catalogo": [
+      {
+       "sku": "L5199",
+       "nombre": "Fireball whisky con Canela 750cc",
+       "precio": 33500,
+       "precioEfectivo": 30150
+      },
+      {
+       "sku": "L152",
+       "nombre": "Johnnie Walker Black Label x 1000cc",
+       "precio": 59400,
+       "precioEfectivo": 53460
+      },
+      {
+       "sku": "L154",
+       "nombre": "Johnnie Walker Red Label x 1000 cc",
+       "precio": 46900,
+       "precioEfectivo": 42210
+      },
+      {
+       "sku": "L907",
+       "nombre": "Jack Daniels 750cc",
+       "precio": 60600,
+       "precioEfectivo": 54540
+      },
+      {
+       "sku": "L8038",
+       "nombre": "Jack Daniels Apple x700",
+       "precio": 61000,
+       "precioEfectivo": 54900
+      },
+      {
+       "sku": "L808",
+       "nombre": "Johnnie Walker Double Black",
+       "precio": 88000,
+       "precioEfectivo": 79200
+      },
+      {
+       "sku": "L505",
+       "nombre": "Jack Daniels Honey 750cc",
+       "precio": 53900,
+       "precioEfectivo": 48510
+      },
+      {
+       "sku": "L8656",
+       "nombre": "Jameson x 1Lt",
+       "precio": 49900,
+       "precioEfectivo": 44910
+      },
+      {
+       "sku": "L457",
+       "nombre": "Johnnie Walker Blue Label Tiffany",
+       "precio": 495000,
+       "precioEfectivo": 445500
+      },
+      {
+       "sku": "L123",
+       "nombre": "Chivas Regal 750cc",
+       "precio": 59900,
+       "precioEfectivo": 53910
+      },
+      {
+       "sku": "L8747",
+       "nombre": "Jack Daniels Single Barrel x700cc",
+       "precio": 128000,
+       "precioEfectivo": 115200
+      },
+      {
+       "sku": "L10197",
+       "nombre": "Johnnie Walker Island Green x1Lt",
+       "precio": 220000,
+       "precioEfectivo": 198000
+      },
+      {
+       "sku": "L491",
+       "nombre": "J&B 750cc",
+       "precio": 36500,
+       "precioEfectivo": 32850
+      },
+      {
+       "sku": "L2108",
+       "nombre": "Ballantines 750cc",
+       "precio": 35800,
+       "precioEfectivo": 32220
+      },
+      {
+       "sku": "L2171",
+       "nombre": "The Glenlivet 12 años",
+       "precio": 88000,
+       "precioEfectivo": 79200
+      },
+      {
+       "sku": "L3928",
+       "nombre": "White Horse 750 cc",
+       "precio": 25200,
+       "precioEfectivo": 22680
+      },
+      {
+       "sku": "L4067",
+       "nombre": "Cognac Hennessy V.S.O.P.",
+       "precio": 116000,
+       "precioEfectivo": 104400
+      },
+      {
+       "sku": "L7430",
+       "nombre": "Old Smuggler PETACA x200cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L1334",
+       "nombre": "Chivas XV 750",
+       "precio": 99000,
+       "precioEfectivo": 89100
+      },
+      {
+       "sku": "L1957",
+       "nombre": "The Singleton 12 años",
+       "precio": 103000,
+       "precioEfectivo": 92700
+      },
+      {
+       "sku": "L7434",
+       "nombre": "Old Smuggler x750cc",
+       "precio": 11500,
+       "precioEfectivo": 10350
+      },
+      {
+       "sku": "L6186",
+       "nombre": "Hibiki Master`s Select 700cc",
+       "precio": 290000,
+       "precioEfectivo": 261000
+      }
+     ],
+     "sinStock": [
+      "Suntory Whisky Toki x1Lt | The Shinobu Misunara wood x700cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 4,5 L (hay) · 3 L (hay) · 1 L (hay) · 750 cc (hay) · 700 cc (hay) · 375 cc (hay) · 200 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  }
+ ]
+}

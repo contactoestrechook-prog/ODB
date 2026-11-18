@@ -102,8 +102,7 @@ function revisarTurno(llamadas: any[]) {
   for (const p of opus) {
     expect(p.model).toBe('claude-opus-5-5');
     expect(p.thinking).toEqual({ type: 'adaptive' });
-    // low desde el 18/11/2026 (pedido de Leandro por el gasto); el razonamiento sigue adaptive
-    expect(p.output_config).toEqual({ effort: 'low' });
+    expect(p.output_config).toEqual({ effort: 'medium' });
     expect(p.max_tokens).toBeGreaterThanOrEqual(16000);
     // nada de tool_choice forzado: en 5.5 any/tool son un 400
     expect(p.tool_choice === undefined || p.tool_choice?.type === 'none').toBe(true);
