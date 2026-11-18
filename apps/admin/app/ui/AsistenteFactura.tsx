@@ -66,6 +66,12 @@ export type PropsAsistente = {
   comprobante: unknown;
   /** la tabla como la lee la IA (lib/tabla-factura → tablaParaIA) */
   tabla: () => unknown[];
+  /**
+   * Las filas de la pantalla tal como están (18/11/2026): el servidor prueba con
+   * ellas los cambios del chat, con la misma cuenta que la pantalla, ANTES de
+   * contestar. Así el chat ve qué entró y qué no, y no dice «listo» a ciegas.
+   */
+  filas?: () => unknown[];
   pie: unknown;
   controles: unknown;
   /** aplica lo que devolvió la IA; devuelve cuántos cambios aplicó y su descripción */
@@ -94,7 +100,7 @@ export type PropsAsistente = {
 // «el proveedor es BIMBO», «proveedor: POPH», «EL PROVEEDOR ES EL ZAMORANO»
 const DICE_PROVEEDOR = /^\s*(?:el\s+)?proveedor(?:\s+e+s)?\s*:?\s+(.{2,60}?)\s*\.?\s*$/i;
 
-export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false, recienLeida = false, onMemoria, onProveedor }: PropsAsistente) {
+export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, filas, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false, recienLeida = false, onMemoria, onProveedor }: PropsAsistente) {
   const [vista, setVista] = useState<'chat' | 'cambios' | 'reglas'>('chat');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -168,8 +174,8 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
     const t = setTimeout(async () => {
       // primero la memoria del artículo: las reglas ven la tabla ya acomodada
       await (memoria.current.get(clave) ?? Promise.resolve());
-      const filas = tabla();
-      if (!vigente || !filas.length) return;
+      const filasTabla = tabla();
+      if (!vigente || !filasTabla.length) return;
       setAplicandoReglas(true);
       setSegundos(0);
       setPensando(true);
@@ -177,7 +183,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
         const r = await fetch('/api/entrada-foto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accion: 'chat', automatico: true, id: lecturaId, proveedorId, proveedor: proveedorNombre, comprobante, tabla: filas, pie, controles, mensajes: [] }),
+          body: JSON.stringify({ accion: 'chat', automatico: true, id: lecturaId, proveedorId, proveedor: proveedorNombre, comprobante, tabla: filasTabla, filas: filas?.(), pie, controles, mensajes: [] }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || d?.omitido || !vigente) return;
@@ -233,7 +239,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accion: 'chat', id: lecturaId ?? 'sin-lectura', proveedorId, proveedor: proveedorNombre, comprobante,
-          tabla: tabla(), pie, controles,
+          tabla: tabla(), filas: filas?.(), pie, controles,
           mensajes: nuevos.map((m) => ({ rol: m.rol, texto: m.texto })),
         }),
       });
@@ -261,7 +267,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               accion: 'chat', id: lecturaId ?? 'sin-lectura', proveedorId, proveedor: proveedorNombre, comprobante: vivo.current.comprobante,
-              tabla: tabla(), pie: vivo.current.pie, controles: vivo.current.controles,
+              tabla: tabla(), filas: filas?.(), pie: vivo.current.pie, controles: vivo.current.controles,
               mensajes: [...nuevos.map((m) => ({ rol: m.rol, texto: m.texto })), { rol: 'ia', texto: respuesta }],
               noAplicados: rechazados,
             }),

@@ -2878,6 +2878,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   if (!it || it._esDescuento || !it.sku) return null;
                   return { costoFinalConIva: costoFinal(it, k), comoSeCalcula: desgloseCosto(it, k) };
                 })}
+                // las filas como están, con lo que la cuenta de descuentos de la pantalla ya sabe de cada una:
+                // el servidor prueba con ellas los cambios del chat antes de contestar (18/11/2026)
+                filas={() => {
+                  const conDescuentoEncima = new Set([...destinoDeDescuento.values()].map((d: any) => d.renglon));
+                  return fotoItemsVivos.current.map((x: any, k: number) => ({ ...x, _esDescuento: esRenglonDescuento(x), _conDescuentoEncima: conDescuentoEncima.has(k) }));
+                }}
                 pie={fotoImp}
                 controles={controlesParaIA()}
                 onAplicar={(cambios, pie, automatico, nuevos) => aplicarIA(cambios, pie, automatico, 'IA', nuevos)}

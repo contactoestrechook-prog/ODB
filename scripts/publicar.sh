@@ -59,6 +59,12 @@ if echo "$CAMBIADOS" | grep -qE '^apps/admin/app/(ui/.*\.tsx|.*/page\.tsx)$' \
   echo "AVISO MANUAL: cambiaron pantallas del panel y no el manual (apps/admin/app/manual/contenido.ts)."
   echo "  Si cambió cómo se usa algo, sumalo al manual en el próximo commit."
 fi
+# UNA SOLA CUENTA DE LA FACTURA (18/11/2026): la pantalla y el chat usan la misma
+# (apps/admin/app/lib/tabla-factura.ts y su copia en la API). Si no son iguales,
+# el chat probaría los cambios con una cuenta y la pantalla los aplicaría con otra.
+if ! sh scripts/copiar-cuenta-factura.sh --comprobar; then
+  echo "CANDADO: no se publica con las dos cuentas distintas."; exit 1
+fi
 # EL REPASO DE FACTURAS (11/11/2026): si cambió la carga de facturas, antes de
 # publicar se vuelven a pasar las facturas ya registradas por este código
 # (apps/api/scripts/repasar-fichas.ts: solo lee, sin IA, unos segundos). Frena

@@ -5,6 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { conRelevo, relevoMs } from '../comun/relevo-ia';
 import { ListasService } from '../listas/listas.service';
+import { fraseRotos, fraseSinAplicar, observacionDeLaPrueba, probarCambios, tablaDespues, type Rechazo } from './probar-cambios';
 
 // ============================================================
 // EL CHAT DE LA FACTURA (8/10/2026). Pedido de Leandro: «las dudas que tenga
@@ -430,12 +431,15 @@ export class FacturaChatService {
 
   async chat(
     lecturaId: string,
-    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[]; automatico?: boolean; noAplicados?: unknown[] },
+    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[]; automatico?: boolean; noAplicados?: unknown[]; filas?: unknown[] },
     usuarioId?: string,
   ) {
     if (!process.env.ANTHROPIC_API_KEY) throw new BadRequestException('Falta la clave de la IA');
     const automatico = b?.automatico === true;
     const tabla = Array.isArray(b?.tabla) ? b.tabla : [];
+    // las filas de la pantalla, para probar los cambios con su misma cuenta antes de contestar
+    // (compras/probar-cambios.ts). Una pantalla vieja no las manda: ahí sigue como antes.
+    const filas = Array.isArray(b?.filas) && b.filas.length === tabla.length ? (b.filas as any[]) : null;
     // lo que la pantalla rechazó del mensaje anterior de la IA (ver pedidoDeCorreccion)
     const rechazados = automatico ? [] : (Array.isArray(b?.noAplicados) ? b.noAplicados : []).map((x) => String(x ?? '').trim().slice(0, 300)).filter(Boolean).slice(0, 40);
     const correccion = rechazados.length > 0;
@@ -590,6 +594,7 @@ export class FacturaChatService {
     }
     let salida = validarRespuestaChat(primera.crudo, tabla.length);
     let vueltas = 1;
+    let ultimoTexto = primera.texto;
     // «Resuelve bien en la conversación pero no después en el cambio» (Leandro,
     // 22/10/2026): si la IA dice que cambió algo y eso no viaja como un cambio
     // aplicable, se lo marca y se le pide una vez más, antes de contestarle a la
@@ -601,7 +606,58 @@ export class FacturaChatService {
         { role: 'assistant', content: primera.texto },
         { role: 'user', content: `${falla} Devolvé de nuevo la respuesta completa con TODOS los cambios que nombrás en «cambios», «cambiosPie» o «renglonesNuevos», usando solo estos campos de renglón: ${CAMPOS_RENGLON.join(', ')}; y del pie: ${CAMPOS_PIE.join(', ')}. Los renglones que faltan o que salen de partir otro van en «renglonesNuevos». Si algo no se puede expresar con esos campos, sacá de la respuesta que lo cambiaste y decí que todavía no se puede desde el chat.` },
       ]).catch(() => null);
-      if (segunda?.crudo) { salida = validarRespuestaChat(segunda.crudo, tabla.length); vueltas = 2; }
+      if (segunda?.crudo) { salida = validarRespuestaChat(segunda.crudo, tabla.length); vueltas = 2; ultimoTexto = segunda.texto; }
+    }
+    // EL CHAT VE LO QUE HACE (18/11/2026, Leandro: «siempre encontrás la falla pero
+    // nunca encontrás el problema de raíz»). Antes de contestar, los cambios se
+    // prueban acá sobre las filas de la pantalla, con su misma cuenta. Si algo no
+    // entra, o deja renglones sin cerrar que antes cerraban, el chat lo ve con el
+    // motivo y la tabla como quedó, y corrige o contesta la verdad: hasta dos
+    // vueltas más. A la pantalla viajan solo los cambios que ya se probó que
+    // entran, y lo que no se pudo queda dicho por el servidor, no por la IA.
+    let prueba: { rechazados: Rechazo[]; rotos: number[]; vueltasDePrueba: number } | null = null;
+    if (filas) {
+      try {
+        let trabajo = filas;
+        const firmes: any[] = [];
+        const charla: Anthropic.MessageParam[] = [...turnos, { role: 'assistant', content: ultimoTexto }];
+        let acumulado = salida;
+        let rotos: number[] = [];
+        for (let intento = 0; ; intento++) {
+          const p = probarCambios(trabajo, salida.cambios as any[]);
+          trabajo = p.filas;
+          firmes.push(...p.aceptados);
+          rotos = [...new Set([...rotos, ...p.rotos])].filter((n) => !!trabajo[n - 1]);
+          const observacion = observacionDeLaPrueba(p, tablaDespues(trabajo, tabla));
+          if (!observacion) { prueba = { rechazados: [], rotos: [], vueltasDePrueba: intento }; break; }
+          const otra = intento < 2 ? await pedir([...charla, { role: 'user', content: observacion }]).catch(() => null) : null;
+          if (!otra?.crudo) {
+            // no hay más vueltas (o la IA no contestó): lo que no quedó lo dice el servidor
+            prueba = { rechazados: p.rechazados, rotos: p.rotos, vueltasDePrueba: intento };
+            acumulado = { ...acumulado, respuesta: p.rechazados.length ? `${fraseSinAplicar(firmes.length)}${fraseRotos(p.rotos)}` : `${acumulado.respuesta}${fraseRotos(p.rotos)}` };
+            break;
+          }
+          charla.push({ role: 'user', content: observacion }, { role: 'assistant', content: otra.texto });
+          vueltas++;
+          const nueva = validarRespuestaChat(otra.crudo, tabla.length);
+          // la respuesta es la última; lo demás que ya había mandado (pie, renglones nuevos, regla) sigue valiendo
+          acumulado = {
+            ...nueva,
+            cambiosPie: [...acumulado.cambiosPie, ...nueva.cambiosPie].slice(0, 10),
+            renglonesNuevos: [...acumulado.renglonesNuevos, ...nueva.renglonesNuevos].slice(0, 12),
+            reglaProveedor: acumulado.reglaProveedor,
+            reglaReemplaza: acumulado.reglaReemplaza,
+            leerOtrosComprobantes: acumulado.leerOtrosComprobantes || nueva.leerOtrosComprobantes,
+            descartados: [...acumulado.descartados.filter((d) => d.campo !== 'cambios'), ...nueva.descartados],
+          };
+          salida = nueva;
+        }
+        salida = { ...acumulado, cambios: firmes, descartados: [...acumulado.descartados, ...(prueba?.rechazados ?? [])] };
+      } catch (e: any) {
+        // la prueba es un control de más: si falla, sale lo que contestó la IA y aplica la pantalla, como antes
+        this.log.warn(`no se pudieron probar los cambios del chat de ${lecturaId}: ${e?.message ?? e}`);
+        prueba = null;
+      }
     }
     const u = primera.usage;
     // un turno automático (las reglas al abrir) no agrega renglones: eso lo pide una persona
@@ -651,7 +707,15 @@ export class FacturaChatService {
       vueltas,
       segundos: Math.round((Date.now() - t0) / 100) / 10,
       // sin proveedor: la regla pendiente que esta corrige (ver reglasDeTurnos)
-      uso: { llamadas, ...(sinProveedor && vieja && salida.reglaProveedor ? { reemplaza: vieja.regla } : {}) },
+      // «prueba»: qué encontró el servidor al probar los cambios; «entrada»: la factura como
+      // estaba cuando llegó el mensaje. Con eso cada charla real es un caso del examen
+      // (apps/api/scripts/examen-chat.ts): se puede volver a pasar por una versión nueva.
+      uso: {
+        llamadas,
+        ...(sinProveedor && vieja && salida.reglaProveedor ? { reemplaza: vieja.regla } : {}),
+        ...(prueba ? { prueba } : {}),
+        ...(filas ? { entrada: { filas, tabla, pie: b?.pie ?? null, controles: b?.controles ?? null, mensajes, proveedor: b?.proveedor ?? null, comprobante: b?.comprobante ?? null } } : {}),
+      },
     });
     if (errorTurno) this.log.warn(`no se guardó la charla de la factura ${lecturaId}: ${errorTurno.message}`);
     // sin proveedor la regla no se pudo guardar: queda anotada en el turno (regla_propuesta)
@@ -660,6 +724,6 @@ export class FacturaChatService {
       ? salida.reglaProveedor
       : null;
     this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.renglonesNuevos.length} renglones nuevos · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
-    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada, reglaPendiente };
+    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada, reglaPendiente, probado: !!prueba };
   }
 }

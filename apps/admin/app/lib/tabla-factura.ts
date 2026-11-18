@@ -16,6 +16,17 @@
 //
 // Funciones puras, sin React. Las prueban los tests de la API
 // (apps/api/src/compras/tabla-factura.spec.ts).
+//
+// UNA SOLA CUENTA, EN LA PANTALLA Y EN EL SERVIDOR (18/11/2026, Leandro:
+// «siempre encontrás la falla pero nunca encontrás el problema de raíz»). El
+// chat decidía en el servidor y la pantalla aplicaba después con esta cuenta,
+// que el servidor no tenía: el chat contestaba sin saber qué había pasado con
+// lo que mandaba. Este archivo viaja COPIADO a la API
+// (apps/api/src/compras/panel/tabla-factura.ts, con scripts/copiar-cuenta-factura.sh)
+// para que el chat pruebe cada cambio con la misma cuenta antes de contestar.
+// Por eso NO puede importar nada: ni React ni otros archivos del panel. Después
+// de tocarlo, corré ese script; un test y el candado de publicar frenan si las
+// dos copias no son iguales.
 // ============================================================
 
 export type Papel = {
@@ -368,6 +379,8 @@ function noSeJunta(fila: any, esDescuento: (f: any) => boolean): string | null {
   if (fila.devueltoAMano || (num(fila.recibidoAMano) ?? 0) > 0) return 'tiene marcado que no llegó entero';
   if (!((num(fila.cantidad) ?? 0) > 0)) return 'no tiene unidades';
   if (!(importeDe(fila) > 0)) return 'no tiene importe';
+  // lo marca la pantalla al mandar las filas al chat: un descuento de otro renglón cae sobre este
+  if (fila._conDescuentoEncima) return 'tiene un descuento aplicado en otro renglón de la factura';
   return null;
 }
 
@@ -407,12 +420,13 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
   items: T[],
   cambios: CambioIA[],
   esDescuento: (fila: T) => boolean,
-): { items: T[]; registros: Registro[]; descartados: CambioIA[] } {
+): { items: T[]; registros: Registro[]; descartados: CambioIA[]; aceptados: CambioIA[] } {
   const nuevos = items.slice();
   const registros: Registro[] = [];
   const descartados: CambioIA[] = [];
+  const rechazo = new Set<CambioIA>();
   // lo que no se aplica vuelve con el porqué: la pantalla se lo dice a la persona y al chat
-  const descartar = (c: CambioIA, porque: string) => { descartados.push({ ...c, porque }); };
+  const descartar = (c: CambioIA, porque: string) => { descartados.push({ ...c, porque }); rechazo.add(c); };
   for (const c of cambios ?? []) {
     const k = Math.round(Number(c?.renglon)) - 1;
     const fila = nuevos[k];
@@ -645,7 +659,8 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     papel[campo] = valor;
     nuevos[k] = aplicarPapel(fila, papel, entra);
   }
-  return { items: nuevos, registros, descartados };
+  // «aceptados»: los cambios tal como vinieron, sin los que se descartaron (el chat los vuelve a mandar a la pantalla)
+  return { items: nuevos, registros, descartados, aceptados: (cambios ?? []).filter((c) => !rechazo.has(c)) };
 }
 
 /** La tabla como la lee la IA: cada renglón con lo del papel, su cuenta y lo que entra al stock. */

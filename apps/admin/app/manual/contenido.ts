@@ -567,7 +567,8 @@ export const SECCIONES: Seccion[] = [
           'La factura queda como el papel y se registra entera. Al stock entra solo lo que llegó, el renglón muestra "entran 3,475 de 4,52 kg · faltan 1,045 · espera nota de crédito", y el pago queda frenado hasta que cargues la nota de crédito del proveedor.',
           'Si el proveedor factura un renglón por aroma, sabor o color y en el sistema es un solo producto, pedile a la IA que los junte: "los Saphirus en un solo renglón por tipo". El renglón que queda suma las unidades y el importe de los demás, y los otros dejan de verse. La plata de la factura no cambia.',
           'El renglón que junta a otros lo dice ("junta 15 renglones del papel") y tiene el botón "Separar". También podés pedírselo a la IA ("no agrupes nada") o deshacerlo en "Cambios".',
-          'Si la IA te contesta que algo no se pudo aplicar, es que la pantalla lo rechazó: te dice qué y por qué, y no lo da por hecho. La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
+          'Antes de contestarte, la IA prueba el cambio en la factura. Si la pantalla no lo puede tomar, o deja algún renglón trabando el registro, lo ve, prueba de otra forma y recién ahí te contesta. Si no hay forma, te dice qué no se pudo y por qué: no da por hecho lo que no quedó.',
+          'La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
         ],
       },
       {
