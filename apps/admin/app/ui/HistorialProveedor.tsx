@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Aviso, BotonLink, CLASES_ENTRADA, Cargando, Chips, Etiqueta, Kpi, TablaResponsiva, Tarjeta, Vacio, unir, type ColumnaTabla } from './kit';
 import { fecha, numero, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
+import { CambiarProveedor } from './CambiarProveedor';
 
 // ============================================================
 // LO QUE NOS VENDE CADA PROVEEDOR (8/10/2026). Leandro: «cada vez que una
@@ -43,13 +44,16 @@ function Variacion({ p }: { p: Producto }) {
   );
 }
 
-const COLUMNAS: ColumnaTabla<Producto>[] = [
+// el proveedor de la lista va en la columna del producto: si ese producto ya se le compra a
+// otro, lo dice en ámbar, y se cambia en dos toques (18/11/2026)
+const columnasDe = (proveedorId: string): ColumnaTabla<Producto>[] => [
   {
     clave: 'producto', titulo: 'Producto', principal: true, ancho: 'min-w-64',
     celda: (p) => (
       <div className="min-w-0">
         <p className="break-words font-medium text-tinta">{nombreConCodigo(p)}</p>
         {p.codigoProveedor && <p className="text-xs text-tinta/60">Código del proveedor: {p.codigoProveedor}</p>}
+        <CambiarProveedor producto={{ sku: p.sku, nombre: p.nombre }} esperado={proveedorId} pantalla="mesa-compras" onCambio={() => { /* el renglón dice a quién pasó */ }} />
       </div>
     ),
   },
@@ -182,7 +186,7 @@ export function HistorialProveedor() {
           ) : (
             <TablaResponsiva
               etiqueta={`Lo que nos vende ${datos.proveedor.nombre}`}
-              columnas={COLUMNAS}
+              columnas={columnasDe(datos.proveedor.id)}
               filas={filas}
               claveFila="sku"
               vacio={<Vacio titulo={busca ? 'Nada con esa búsqueda' : 'Todavía no hay facturas suyas leídas'} texto={busca ? 'Probá con otra palabra o con el código.' : 'Se va llenando solo con cada factura que se registra por foto.'} />}

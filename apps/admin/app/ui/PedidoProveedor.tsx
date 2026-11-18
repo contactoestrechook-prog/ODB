@@ -6,6 +6,7 @@ import { fecha, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 import { ParecidosProducto } from './ParecidosProducto';
 import { NotaSinProveedor } from './NotaSinProveedor';
+import { CambiarProveedor } from './CambiarProveedor';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
 //
@@ -560,6 +561,18 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                     {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo'}
                     {` · ${it.sku}`}{it.codigoProveedor ? ` · cód. ${it.codigoProveedor}` : ''}
                   </p>
+                  {/* de quién es este producto hoy, y pasarlo a otro en dos toques (18/11/2026):
+                      si ya se le compra a otro proveedor, lo dice en ámbar */}
+                  {proveedor && (
+                    <CambiarProveedor
+                      producto={{ sku: it.sku, nombre: it.nombre }}
+                      actual={{ id: proveedor.id, razonSocial: proveedor.razon_social }}
+                      esperado={proveedor.id}
+                      pantalla="pedido"
+                      className="mt-0.5"
+                      onCambio={() => { /* el renglón queda y dice a quién pasó */ }}
+                    />
+                  )}
                   {/* de dónde sale el sugerido: la cuenta, en palabras, plegada (4/11/2026) */}
                   {it.explicacion && (
                     <button type="button" onClick={() => setExplicado(explicado === it.sku ? null : it.sku)} aria-expanded={explicado === it.sku}

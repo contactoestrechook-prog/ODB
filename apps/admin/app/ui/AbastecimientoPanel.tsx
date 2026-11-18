@@ -124,6 +124,20 @@ export function AbastecimientoPanel({ esDueno = false }: { esDueno?: boolean }) 
       .catch((e) => { if (vigente) setErrorNotas(e instanceof Error ? e.message : 'No pude armar lo sugerido'); });
     return () => { vigente = false; };
   }, [sucursal, recargar]);
+  // A un producto se le cambió el proveedor desde una nota (18/11/2026): se vuelven a
+  // pedir las notas SIN borrar las que están en pantalla (lo tildado no se pierde) y
+  // el producto aparece en la nota del proveedor nuevo.
+  const sucursalVigente = useRef(sucursal);
+  useEffect(() => { sucursalVigente.current = sucursal; }, [sucursal]);
+  const refrescarNotas = useCallback(() => {
+    const suc = sucursal;
+    fetch(`/api/abastecimiento?que=propuestas&sucursal=${encodeURIComponent(suc)}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && sucursalVigente.current === suc) setNotas({ propuestas: j.propuestas ?? [], sinProveedor: j.sinProveedor ?? 0 });
+      })
+      .catch(() => { /* quedan las notas que había */ });
+  }, [sucursal]);
   // al mandar un mensaje se baja hasta el final; no al abrir la pestaña
   useEffect(() => { if (mensajes.length) finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [mensajes, pensando]);
 
@@ -387,7 +401,7 @@ export function AbastecimientoPanel({ esDueno = false }: { esDueno?: boolean }) 
           />
         )}
         {notasVisibles.map((p) => (
-          <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} />
+          <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} onProveedorCambiado={refrescarNotas} />
         ))}
         {!buscando && notasFiltradas.length > PROVEEDORES_VISIBLES && !verTodas && (
           <Boton variante="secundario" anchoCompleto onClick={() => setVerTodas(true)}>

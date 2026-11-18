@@ -3,6 +3,7 @@ import { Aviso, BotonLink, Etiqueta, Kpi, Monto, TablaResponsiva, Tarjeta, Tarje
 import { SubirFoto } from '../../ui/SubirFoto';
 import { apiFetch } from '../../../lib/api';
 import { EditarProducto } from '../../ui/EditarProducto';
+import { CambiarProveedor } from '../../ui/CambiarProveedor';
 import { BotonVolver } from '../../ui/BotonVolver';
 import { fecha, pesos } from '../../lib/formato';
 
@@ -148,7 +149,11 @@ export default async function FichaProducto({
         </Tarjeta>
 
         <Tarjeta relleno={false}>
-          <TarjetaCabecera titulo="Proveedores" />
+          {/* el proveedor de hoy (el que usan Qué comprar y los pedidos) y el cambio en dos toques (18/11/2026) */}
+          <TarjetaCabecera
+            titulo="Proveedores"
+            sub={<CambiarProveedor producto={{ id: p.id, sku: p.sku, nombre: String(p.nombre ?? sku) }} pantalla="ficha-producto" tamano="normal" />}
+          />
           <TablaResponsiva
             sinMarco
             etiqueta="Proveedores"

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Boton, Etiqueta, FOCO, FOCO_ADENTRO, PlacaRoja, unir, type RenglonPlaca, type TonoEtiqueta } from './kit';
 import { pesos } from '../lib/formato';
+import { CambiarProveedor } from './CambiarProveedor';
 
 // La propuesta de compra de un proveedor, dibujada como la nota de pedido que
 // después le llega. Cada renglón se tilda; la cantidad se corrige ahí mismo;
@@ -149,14 +150,29 @@ export function NotaDePedido({
   yaPedidos,
   onArmada,
   onCambio,
+  onProveedorCambiado,
 }: {
   propuesta: Propuesta;
   // productos que otra nota ya pidió en esta pantalla ("sucursalId:sku"): salen de esta
   yaPedidos?: Set<string>;
   onArmada?: (orden: Armada & { proveedor: string; sucursal: string; sucursalId: string }) => void;
   onCambio?: (estado: EstadoNota) => void;
+  // a un producto de esta nota se le cambió el proveedor (18/11/2026): la pantalla vuelve a pedir las notas
+  onProveedorCambiado?: () => void;
 }) {
   const [items, setItems] = useState<RenglonPropuesta[]>(propuesta.items);
+  // CAMBIAR EL PROVEEDOR DESDE LA NOTA (18/11/2026). El producto sale de esta nota
+  // y, cuando la pantalla vuelve a pedir las notas, entra en la del proveedor
+  // nuevo. Lo tildado y las cantidades de cada nota no se pierden: a una nota
+  // que ya está abierta solo se le suman los productos que no tenía.
+  const salieron = useRef(new Set<string>());
+  useEffect(() => {
+    setItems((xs) => {
+      const tiene = new Set(xs.map((x) => x.sku));
+      const nuevos = propuesta.items.filter((n) => !tiene.has(n.sku) && !salieron.current.has(n.sku));
+      return nuevos.length ? [...xs, ...nuevos] : xs;
+    });
+  }, [propuesta.items]);
   const [verTodos, setVerTodos] = useState(false);
   const [armando, setArmando] = useState(false);
   const [error, setError] = useState('');
@@ -219,6 +235,7 @@ export function NotaDePedido({
       onArmada?.({ ...armada, proveedor: propuesta.proveedor, sucursal: propuesta.sucursal, sucursalId: propuesta.sucursalId });
       // lo pedido sale de la nota; lo que quedó sin tildar sigue para otra vez
       const pedidos = new Set(tildados.map((i) => i.sku));
+      pedidos.forEach((sku) => salieron.current.add(sku)); // ya pedido: no vuelve a entrar si se recargan las notas
       setItems((xs) => xs.filter((x) => !pedidos.has(x.sku)).map((x) => ({ ...x, tildado: false })));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo armar el pedido');
@@ -255,6 +272,20 @@ export function NotaDePedido({
             {it.enCamino > 0 && <span className="tabular-nums">{dec(it.enCamino)} en camino</span>}
           </span>
           {it.motivo && <span className="mt-0.5 block text-xs italic">{it.motivo}</span>}
+          {/* el proveedor de este producto, y pasarlo a otro en dos toques */}
+          <CambiarProveedor
+            producto={{ id: it.productoId, sku: it.sku, nombre: it.nombre }}
+            actual={{ id: propuesta.proveedorId, razonSocial: propuesta.proveedor }}
+            esperado={propuesta.proveedorId}
+            pantalla="que-comprar"
+            className="mt-0.5"
+            onCambio={(c) => {
+              if (c.ahora.id === propuesta.proveedorId) return;
+              salieron.current.add(it.sku);
+              setItems((xs) => xs.filter((x) => x.sku !== it.sku));
+              onProveedorCambiado?.();
+            }}
+          />
           {/* qué queda de lo mismo en el local, y lo que le sobra al otro */}
           {it.necesidad && <span className="mt-1 block text-xs leading-snug text-tinta/80">{it.necesidad.explicacion}</span>}
           {it.necesidad?.traspaso && (

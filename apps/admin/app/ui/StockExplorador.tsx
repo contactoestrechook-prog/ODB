@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { CambiarProveedor } from './CambiarProveedor';
 import {
   Boton,
   Chip,
@@ -102,6 +103,8 @@ export function StockExplorador({ sucursales }: { sucursales: { id: string; nomb
     router.replace(qs ? `${ruta}?${qs}` : ruta, { scroll: false });
   }
 
+  // después de cambiarle el proveedor a un producto, la lista (y el filtro por proveedor) se vuelve a leer
+  const [recarga, setRecarga] = useState(0);
   useEffect(() => {
     let vigente = true;
     fetch(`/api/stock?recurso=explorar${consulta ? `&${consulta}` : ''}`)
@@ -109,7 +112,7 @@ export function StockExplorador({ sucursales }: { sucursales: { id: string; nomb
       .then((d: Respuesta) => { if (vigente) { setDatos(d); setRespondio(consulta); setFalloEn(null); } })
       .catch(() => { if (vigente) setFalloEn(consulta); });
     return () => { vigente = false; };
-  }, [consulta]);
+  }, [consulta, recarga]);
 
   // el buscador espera a que se deje de escribir
   const ultimoQ = useRef(params.get('q') ?? '');
@@ -193,6 +196,11 @@ export function StockExplorador({ sucursales }: { sucursales: { id: string; nomb
           </p>
         </div>
       ),
+    },
+    {
+      // el proveedor de hoy y el cambio en dos toques (18/11/2026)
+      clave: 'proveedor', titulo: 'Proveedor', ancho: 'min-w-40',
+      celda: (f) => <CambiarProveedor producto={{ sku: f.sku, nombre: f.nombre }} pantalla="stock" onCambio={() => setRecarga((n) => n + 1)} />,
     },
     {
       clave: 'estado', titulo: titulo('estado', 'Estado'),
@@ -345,6 +353,7 @@ export function StockExplorador({ sucursales }: { sucursales: { id: string; nomb
                   <div className="min-w-0">
                     <p className="break-words font-medium text-tinta">{f.nombre}</p>
                     <p className="break-words text-xs text-tinta/60">{[f.sku, f.rubro, f.marca].filter(Boolean).join(' · ')}</p>
+                    <CambiarProveedor producto={{ sku: f.sku, nombre: f.nombre }} pantalla="stock" onCambio={() => setRecarga((n) => n + 1)} className="mt-0.5" />
                   </div>
                   <Etiqueta tono={ESTADO[f.estado]?.tono ?? 'neutro'} className="shrink-0">{ESTADO[f.estado]?.etiqueta ?? f.estado}</Etiqueta>
                 </div>
