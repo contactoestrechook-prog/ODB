@@ -578,6 +578,16 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Descuentos y bonificaciones de la factura',
+        pasos: [
+          'Un renglón de descuento ("Desc. 15%", "Bonif.", "15% DTO SWIFT") no es mercadería: baja el costo del producto que nombra, del de arriba si es un regalo, o de su grupo. Lo dice en el sello: "aplicada", "repartida en N" o "sin destino".',
+          '"Sin destino" quiere decir que no se sabe a qué producto corresponde: mientras tanto baja el costo de todos los renglones, en proporción.',
+          'Si el descuento no tiene que bajar ningún costo (queda a favor de la casa), tocá "No aplicar — dejar a precio de lista". Los productos entran con su costo de lista y la cuenta de la factura resta la bonificación una sola vez: cierra con el total del papel sin aceptar ninguna diferencia. También se lo podés pedir a la IA ("las bonificaciones no van a ningún producto"). Se vuelve atrás con "Aplicar de nuevo".',
+          'Los renglones del papel con cantidad 0 y sin importe (el "Promocion 0145993" que Nini imprime debajo de cada oferta) no se cargan: no entregan ni cobran nada. Un cartel celeste dice cuáles quedaron afuera.',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'Compra eventual: comprar una vez, sin cambiar costo ni precio',
         pasos: [
           'Cuando es la primera factura de un proveedor, debajo de "Pagada (contado)" aparece el recuadro "Compra eventual".',

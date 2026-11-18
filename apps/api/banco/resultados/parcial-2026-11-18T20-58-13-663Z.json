@@ -1,0 +1,285 @@
+{
+ "fecha": "2026-11-18T20:58:13.663Z",
+ "pasan": 0,
+ "total": 1,
+ "promedio": 4,
+ "costoBot": 0.193,
+ "costoJuez": 0.011884,
+ "costoTotal": 0.204884,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "alcohol-01",
+   "categoria": "alcohol",
+   "titulo": "Suma con precio y no da la entrega por elegida",
+   "ok": false,
+   "puntaje": 4,
+   "fallas": [
+    "turno 2: falta: /complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)/"
+   ],
+   "problemas": [
+    "En el primer turno pregunta la forma de pago antes de confirmar que el pedido está completo, cuando el guion pide solo anotar sin precios y preguntar si quiere sumar algo más"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buenas tardes.\n\n• 2 × Fernet Branca 750 cc\n\n¿Querés sumar algo y cómo lo pagás: efectivo, transferencia o tarjeta?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 9.1,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      }
+     ],
+     "sinStock": []
+    },
+    {
+     "cliente": "y sumale 1 smirnoff",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Sumo 1 Smirnoff.\n\n• 2 × Fernet Branca 750 cc\n• 1 × Smirnoff Ice Red Berries 473 cc (es el más vendido; si querés el vodka Smirnoff 700 cc, te lo cambio)",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 8.4,
+     "catalogo": [
+      {
+       "sku": "L5832",
+       "nombre": "Vodka Smirnoff Ice Red Berries 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L102",
+       "nombre": "Smirnoff 700cc",
+       "precio": 12800,
+       "precioEfectivo": 11520
+      },
+      {
+       "sku": "L1328",
+       "nombre": "Smirnoff Citric",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L677",
+       "nombre": "Smirnoff Green Apple",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L8088",
+       "nombre": "Smirnoff Ice Green Apple 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L711",
+       "nombre": "Smirnoff Rasberry",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L1016",
+       "nombre": "Smirnoff Sandia",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L7087",
+       "nombre": "Smirnoff Tropical Fruits x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L5639",
+       "nombre": "Vodka Smirnoff Citric Tangerina & Lemon Grass x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L4290",
+       "nombre": "Vodka Smirnoff Ice ORIGINAL 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L5797",
+       "nombre": "Vodka Smirnoff Ruby Orange & Lime x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L11274",
+       "nombre": "Vodka Smirnoff Tamarindo Spicy x700ml",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      }
+     ],
+     "sinStock": [
+      "Smirnoff Citrus | Vodka Smirnoff Bitter Naranja y Lima 473 cc | Vodka Smirnoff Bitter Pomelo y Lima 473 cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 700 cc (hay) · 473 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "listo, eso es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $21.900 c/u = $43.800 ($39.420 en efectivo o transferencia)\n• Vodka Smirnoff Ice Red Berries 473 cc — 1 × $3.900 c/u = $3.900 ($3.510 en efectivo o transferencia)\n\nTotal: $47.700, o $42.930 en efectivo o transferencia\n\n¿Lo retirás en la sucursal Saint Thomas o te lo enviamos? Decime también a nombre de quién va.",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ],
+     "imagen": "resumen",
+     "segundos": 11.2,
+     "catalogo": [
+      {
+       "sku": "L5832",
+       "nombre": "Vodka Smirnoff Ice Red Berries 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L102",
+       "nombre": "Smirnoff 700cc",
+       "precio": 12800,
+       "precioEfectivo": 11520
+      },
+      {
+       "sku": "L1328",
+       "nombre": "Smirnoff Citric",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L677",
+       "nombre": "Smirnoff Green Apple",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L8088",
+       "nombre": "Smirnoff Ice Green Apple 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L711",
+       "nombre": "Smirnoff Rasberry",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L1016",
+       "nombre": "Smirnoff Sandia",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L7087",
+       "nombre": "Smirnoff Tropical Fruits x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L5639",
+       "nombre": "Vodka Smirnoff Citric Tangerina & Lemon Grass x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L4290",
+       "nombre": "Vodka Smirnoff Ice ORIGINAL 473 cc",
+       "precio": 3900,
+       "precioEfectivo": 3510
+      },
+      {
+       "sku": "L5797",
+       "nombre": "Vodka Smirnoff Ruby Orange & Lime x700cc",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L11274",
+       "nombre": "Vodka Smirnoff Tamarindo Spicy x700ml",
+       "precio": 13800,
+       "precioEfectivo": 12420
+      },
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 21900,
+       "precioEfectivo": 19710
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 14800,
+       "precioEfectivo": 13320
+      },
+      {
+       "sku": "L9161",
+       "nombre": "Fernet Branca BALANCIN X3Lts",
+       "precio": 285000,
+       "precioEfectivo": 256500
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L9162",
+       "nombre": "Fernet Branca X3Lts",
+       "precio": 305000,
+       "precioEfectivo": 274500
+      },
+      {
+       "sku": "L1141",
+       "nombre": "Branca Menta",
+       "precio": 20900,
+       "precioEfectivo": 18810
+      }
+     ],
+     "sinStock": [
+      "Smirnoff Citrus | Vodka Smirnoff Bitter Naranja y Lima 473 cc | Vodka Smirnoff Bitter Pomelo y Lima 473 cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 700 cc (hay) · 473 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca x 1000cc | VASO BRANCA [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (hay) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  }
+ ]
+}
