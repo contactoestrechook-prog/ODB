@@ -30,7 +30,7 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon } from '../lib/tabla-factura';
 import { AgregarRenglon } from './AgregarRenglon';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -1477,6 +1477,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     anotar('Vos', [{ renglon: idx + 1, campo: 'noAplicar', antes: !valor, despues: valor }]);
   };
   const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
+  // cómo se le nombra a la persona cada dato que el chat quiso cambiar y no se pudo
+  const NOMBRE_DATO: Record<string, string> = { recibidas: 'lo que entró', juntarEn: 'juntar', kilos: 'kilos', ingresa: 'ingresa al stock', entraComo: 'cómo entra', unidadesPorBulto: 'unidades por bulto', descuentoPct: '% de descuento', alicuotaIva: 'IVA', unidadesPorVenta: 'unidades por paquete', costoFinal: 'costo por unidad', esDevolucion: 'devolución', unidadesDevueltas: 'unidades devueltas', impuestoInternoUnitario: 'impuesto interno por unidad', llevaInternos: 'impuestos internos', ajustarImporte: 'importe', noAplicar: 'descuento sin aplicar' };
   // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
   // seguir editando mientras la IA pensaba)
   // EL CHAT CAMBIA EL PRODUCTO (10/11/2026): «el 4 es Jorgito tubo chocolate».
@@ -1527,6 +1529,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     setFotoItems((xs) => xs.filter((_, j) => j !== idx));
     setCambiosFactura((xs) => xs.map((y) => (y.campo === 'renglonNuevo' && y.antes === fila.agregado.id ? { ...y, deshecho: true } : y)));
   };
+  // separar a mano lo que se juntó en un renglón: cada uno vuelve como estaba
+  const separarJuntados = (idx: number) => {
+    const fila = fotoItemsVivos.current[idx];
+    const juntados: number[] = Array.isArray(fila?.junta) ? fila.junta.map((x: any) => Number(x.renglon)) : [];
+    if (!juntados.length) return;
+    setFotoItems((xs) => juntados.reduce((ys, n) => separarRenglon(ys, n - 1), xs));
+    setCambiosFactura((xs) => xs.map((y) => (y.campo === 'juntarEn' && !y.deshecho && y.despues === idx + 1 && juntados.includes(y.renglon as number) ? { ...y, deshecho: true } : y)));
+  };
   /** Los renglones (desde 1) que ya cambió una persona o el chat: lo automático no los toca. La memoria no cuenta. */
   const renglonesTocados = () => new Set(
     cambiosVivos.current.filter((c) => !c.deshecho && c.renglon != null && c.quien !== 'Memoria').map((c) => c.renglon as number),
@@ -1542,7 +1552,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const tocados = renglonesTocados();
       cambios = cambios.filter((c: any) => !tocados.has(Math.round(Number(c?.renglon))));
     }
+    // un renglón que tiene un descuento aplicado no se junta en otro: el descuento quedaría sobre nada
+    const conDescuentoEncima = new Set([...destinoDeDescuento.values()].map((d: any) => d.renglon));
+    const sinJuntar = cambios.filter((c: any) => c?.campo === 'juntarEn' && c.valor != null && c.valor !== '' && conDescuentoEncima.has(Math.round(Number(c.renglon)) - 1));
+    cambios = cambios.filter((c: any) => !sinJuntar.includes(c));
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
+    r0.descartados.push(...sinJuntar.map((c: any) => ({ ...c, porque: 'tiene un descuento aplicado en otro renglón de la factura' })));
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
     const r = { ...r0, items: freno.items, registros: freno.registros };
@@ -1583,10 +1598,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const fila = fotoItemsVivos.current[Math.round(Number(c?.renglon)) - 1];
       const porque = !fila ? 'ese renglón no existe'
         : esRenglonDescuento(fila) ? 'en un renglón de descuento solo se puede elegir si se aplica o no'
+        : c.porque ? String(c.porque)
         : c.campo === 'ingresa' ? 'el renglón no tiene producto del catálogo elegido'
         : c.campo === 'entraComo' ? 'el renglón no tiene unidades por bulto'
         : 'el valor no es válido para ese dato';
-      return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
+      return `Renglón ${c?.renglon ?? '?'} · ${NOMBRE_DATO[String(c?.campo)] ?? c?.campo ?? ''}: ${porque}`;
     });
     for (const n of freno.frenados) noAplicados.push(`Renglón ${n}: la regla lo dejaba a un costo muy lejos del que tiene el producto en el catálogo, así que quedó como se leyó`);
     const aplicados = [...todos, ...(agregados?.registros ?? [])].map((c) => describirCambio(c));
@@ -1679,6 +1695,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       return;
     }
     if (c.campo === 'revisado') setRevisionOk((xs) => xs.filter((t) => t !== c.motivo));
+    // juntado en otro renglón (18/11/2026): vuelve a ser un renglón aparte, o vuelve a juntarse
+    if (c.campo === 'juntarEn' && c.renglon != null) {
+      const k = c.renglon - 1;
+      setFotoItems((xs) => (c.despues != null
+        ? separarRenglon(xs, k)
+        : aplicarCambiosIA(xs, [{ renglon: c.renglon as number, campo: 'juntarEn', valor: c.antes }], esRenglonDescuento).items));
+      setCambiosFactura((xs) => xs.map((y) => (y.id === c.id ? { ...y, deshecho: true } : y)));
+      return;
+    }
     if (c.renglon == null && c.campo === 'aceptarDiferencia') {
       setDiferenciaAceptada(c.antes == null ? null : { monto: Number(c.antes), motivo: 'vuelta atrás' });
     } else if (c.renglon == null && c.campo === 'percepcionesAlCosto') {
@@ -1724,7 +1749,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   };
   const noCierranTabla = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
-    .filter(({ i }) => !i._esDescuento && !i.porPeso && i.papel && !cuentaDelPapel(i.papel).cierra);
+    .filter(({ i }) => !i._esDescuento && !i.porPeso && !i.juntadoEn && i.papel && !cuentaDelPapel(i.papel).cierra);
   const sugerenciasChat = [
     ...(noCierranTabla.length ? [`¿Por qué no cierra el renglón ${noCierranTabla[0].idx + 1}?`] : []),
     ...(itemsCalc.some((i: any) => !i._esDescuento && i.papel && entraDeRenglon(i, i.papel) === null) ? ['Los bultos de esta factura entran en unidades'] : []),
@@ -1773,7 +1798,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       bonificacionPct: p?.desc ?? (i.bonificacionPct != null ? numImp(i.bonificacionPct) : null),
       alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
-      entraComo: i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
+      entraComo: i.juntadoEn ? `junto en el ${i.juntadoEn}` : i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
       cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : cantidadQueEntra(i) || null,
       // lo facturado en unidades de stock, sin restar lo que faltó: de acá aprende la ficha del artículo (11/11/2026)
       cantidadEntera: i._esDevolucion || i._esDescuento || soloPrecioDe(i) ? null : numImp(i.cantidad) || null,
@@ -1830,24 +1855,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // Pronto Manzana y la nota a mano dice «ingresaron 3 bultos» → entran 28. El
   // papel, el importe y el costo por unidad no cambian (la factura se paga
   // entera cuando llegue la nota de crédito por las 8 que faltaron).
-  const unidadesFacturadas = (i: any) => (i.papel ? cuentaDelPapel(i.papel).unidades : numImp(i.cantidad));
-  const faltanDe = (i: any) => {
-    const r = numImp(i.recibidoAMano);
-    const u = unidadesFacturadas(i);
-    return r > 0 && u > 0 && r < u ? Math.round((u - r) * 1000) / 1000 : 0;
-  };
-  const cantidadQueEntra = (i: any) => {
-    const u = unidadesFacturadas(i);
-    const f = faltanDe(i);
-    return f > 0 ? Math.round(numImp(i.cantidad) * ((u - f) / u) * 1000) / 1000 : numImp(i.cantidad);
-  };
+  // POR PESO SE CUENTA EN KILOS (18/11/2026, Conallison: «entraron 3,475 kg» de 4,52
+  // de rack). Lo facturado, lo que faltó y lo que entra salen de una sola cuenta
+  // (lib/tabla-factura): antes un renglón pasado a peso se medía contra las piezas
+  // del papel y la pantalla rechazaba los kilos.
+  const unidadesFacturadas = facturadoDe;
+  const faltanDe = faltanteDe;
+  const enKilos = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
   const devueltosAMano = [
     ...fotoItems.filter((i: any) => i.devueltoAMano && !i.incluir)
       .map((i: any) => ({ descripcion: String(i.descripcion ?? ''), importe: i.importe != null && i.importe !== '' ? Math.abs(numImp(i.importe)) : null })),
     // lo que faltó también se cobra hasta la nota de crédito
     ...fotoItems.filter((i: any) => i.incluir && faltanDe(i) > 0)
       .map((i: any) => ({
-        descripcion: `${String(i.descripcion ?? '')}: faltaron ${faltanDe(i)} de ${unidadesFacturadas(i)}`,
+        descripcion: `${String(i.descripcion ?? '')}: faltaron ${enKilos(faltanDe(i))} de ${enKilos(unidadesFacturadas(i))}${i.porPeso ? ' kg' : ''}`,
         importe: Math.abs(numImp(i.importe)) > 0 ? Math.round((Math.abs(numImp(i.importe)) * faltanDe(i) / unidadesFacturadas(i)) * 100) / 100 : null,
       })),
   ];
@@ -2946,7 +2967,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
               </div>
               </div>
-              {itemsCalc.map((i: any, idx: number) => (
+              {itemsCalc.map((i: any, idx: number) => i.juntadoEn ? null : (
                 <div key={idx} id={`renglon-${idx}`} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
                   {escaneados.includes(idx) && <p className="mb-1 text-xs font-semibold text-ok">Escaneado: el código de barras confirma el producto</p>}
                   {i._esDevolucion ? (
@@ -3052,7 +3073,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                         {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
                         {i.devueltoAMano && <Sello tono="ojo">devuelto (anotado a mano) · no entra al stock</Sello>}
-                        {faltanDe(i) > 0 && <Sello tono="ojo">llegaron {unidadesFacturadas(i) - faltanDe(i)} de {unidadesFacturadas(i)} · faltan {faltanDe(i)} · espera nota de crédito</Sello>}
+                        {faltanDe(i) > 0 && <Sello tono="ojo">{i.porPeso ? 'entran' : 'llegaron'} {enKilos(unidadesFacturadas(i) - faltanDe(i))} de {enKilos(unidadesFacturadas(i))}{i.porPeso ? ' kg' : ''} · faltan {enKilos(faltanDe(i))} · espera nota de crédito</Sello>}
+                        {Array.isArray(i.junta) && i.junta.length > 0 && (
+                          <>
+                            <Sello tono="info">junta {i.junta.length + 1} renglones del papel: {[idx + 1, ...i.junta.map((x: any) => x.renglon)].join(', ')}</Sello>
+                            <button type="button" onClick={() => separarJuntados(idx)} className={CHIP_ACCION} aria-label={`Separar los renglones juntados en el ${idx + 1}`}>Separar</button>
+                          </>
+                        )}
                         {numImp(i.cantidadCorregida) > 0 && <Sello tono="ok">cant. corregida</Sello>}
                         {correccionRenglon(i)?.seguro === false && <Sello tono="ojo">revisar lectura</Sello>}
                         {(medidaVariable(i) || i.porPeso) && <Sello tono="info">por peso</Sello>}

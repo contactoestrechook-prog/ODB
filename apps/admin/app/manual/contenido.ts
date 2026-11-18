@@ -559,6 +559,17 @@ export const SECCIONES: Seccion[] = [
           'Antes de registrar, el sistema pregunta "¿es el mismo producto?" cuando lo que dice el papel no nombra la marca del producto vinculado. Deja de preguntarlo por un artículo cuando ya lo registraste igual, con ese proveedor y ese producto, en dos facturas. Si cambiás el producto vinculado, vuelve a preguntar. El costo y el precio de venta muy lejos de los de hoy se siguen avisando siempre.',
         ],
       },
+      {
+        tipo: 'pasos',
+        titulo: 'Llegó menos, vino en mal estado o hay muchos renglones del mismo producto',
+        pasos: [
+          'Si de un renglón entró una parte, decíselo a la IA como te salga: "del rack entraron 3,475 kg", "vinieron 28", "faltaron 8". En lo que va por peso se cuenta en kilos; en lo demás, en unidades.',
+          'La factura queda como el papel y se registra entera. Al stock entra solo lo que llegó, el renglón muestra "entran 3,475 de 4,52 kg · faltan 1,045 · espera nota de crédito", y el pago queda frenado hasta que cargues la nota de crédito del proveedor.',
+          'Si el proveedor factura un renglón por aroma, sabor o color y en el sistema es un solo producto, pedile a la IA que los junte: "los Saphirus en un solo renglón por tipo". El renglón que queda suma las unidades y el importe de los demás, y los otros dejan de verse. La plata de la factura no cambia.',
+          'El renglón que junta a otros lo dice ("junta 15 renglones del papel") y tiene el botón "Separar". También podés pedírselo a la IA ("no agrupes nada") o deshacerlo en "Cambios".',
+          'Si la IA te contesta que algo no se pudo aplicar, es que la pantalla lo rechazó: te dice qué y por qué, y no lo da por hecho. La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
+        ],
+      },
     ],
   },
   {

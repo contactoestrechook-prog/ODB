@@ -75,7 +75,8 @@ const NUMEROS = '@min-[40rem]:grid-cols-[minmax(0,3fr)_minmax(0,2.6fr)_minmax(0,
 const A2 = 'col-span-2 @min-[40rem]:col-span-1';
 const A3 = 'col-span-3 @min-[40rem]:col-span-1';
 
-const deMercaderia = (items: any[]) => items.filter((i) => !i._esDescuento && !i.porPeso && i.papel);
+// un renglón juntado en otro (18/11/2026) ya no cuenta: ni cierra ni deja de cerrar
+const deMercaderia = (items: any[]) => items.filter((i) => !i._esDescuento && !i.porPeso && !i.juntadoEn && i.papel);
 
 /** El encabezado de la lista: qué es cada número y cuántos renglones no cierran o falta decidir. */
 export function CabeceraFactura({ items }: { items: any[] }) {

@@ -306,8 +306,97 @@ export function marcarComoDevolucion<T extends Record<string, any>>(fila: T, si:
   };
 }
 
-export type CambioIA = { renglon: number; campo: string; valor: unknown; motivo?: string };
+/** `porque`: por qué no se pudo aplicar, en palabras (lo pone aplicarCambiosIA al descartarlo). */
+export type CambioIA = { renglon: number; campo: string; valor: unknown; motivo?: string; porque?: string };
 export type Registro = { renglon: number; campo: string; antes: unknown; despues: unknown; motivo: string };
+
+// ---- llegó una parte (4/11/2026) ----
+
+/**
+ * LO FACTURADO DE UN RENGLÓN, contado como entra al stock: los KILOS si va por
+ * peso, las unidades del papel si no.
+ *
+ * 18/11/2026, Conallison: la carne se pasó a kilos por el chat (4,52 kg de rack)
+ * y Ana dijo «entraron 3,475 kg». Se comparaba contra las unidades del papel
+ * (1 pieza): 3,475 > 1 → «el valor no es válido para ese dato», tres veces, con
+ * el chat contestando «ahora sí». La factura quedó sin cargar. Un renglón por
+ * peso se mide en kilos en TODOS lados: acá, en lo que entra y en lo que falta.
+ */
+export function facturadoDe(fila: any): number {
+  if (fila?.porPeso) return num(fila.cantidad) ?? 0;
+  return fila?.papel ? cuentaDelPapel(fila.papel).unidades : num(fila?.cantidad) ?? 0;
+}
+
+/** Lo que faltó en la entrega (0 si llegó todo): lo facturado menos lo que entró. */
+export function faltanteDe(fila: any): number {
+  const r = num(fila?.recibidoAMano) ?? 0;
+  const u = facturadoDe(fila);
+  return r > 0 && u > 0 && r < u ? redondear(u - r, 3) : 0;
+}
+
+/** Lo que entra al stock: lo que llegó, en la unidad del stock. */
+export function cantidadQueEntra(fila: any): number {
+  const cant = num(fila?.cantidad) ?? 0;
+  const u = facturadoDe(fila);
+  const f = faltanteDe(fila);
+  return f > 0 ? redondear(cant * ((u - f) / u), 3) : cant;
+}
+
+// ---- juntar renglones (18/11/2026) ----
+// Distribuidora City factura los Saphirus un renglón por aroma (46 de 54) y ODB
+// los tiene como tres productos: Textil, Difusor y Aerosol. Ana lo pidió el
+// 10/11 («LO QUE QUIERO ES QUE SEA UN SOLO RENGLÓN») y otra vez el 18/11. No
+// había cómo: el chat dejaba los demás renglones en cero, quedaban marcados «no
+// cierra», el registro se trababa y hubo que volver todo atrás (20 minutos, 6
+// mensajes). Ahora un renglón se junta con otro de verdad: el destino suma sus
+// unidades y su importe (la plata de la factura no cambia) y el que se juntó
+// deja de contar y de verse. Todo se puede separar.
+
+const CAMPOS_DE_JUNTAR = ['papel', 'cantidad', 'precio', 'importe', 'bonificacionPct', 'alicuotaIva', 'unidadesPorBulto', 'bultoAplicado', 'bultoDescartado', 'bultoDescartadoComo', 'precioAntesDelBulto', 'cantidadCorregida', 'envaseAplicado', 'incluir'] as const;
+const fotoDe = (fila: Record<string, any>) => Object.fromEntries(CAMPOS_DE_JUNTAR.map((c) => [c, fila[c] ?? null]));
+const importeDe = (fila: Record<string, any>) => Math.abs(num(fila?.papel?.importe) ?? num(fila?.importe) ?? 0);
+
+/** Por qué un renglón no se puede juntar con otro; null si se puede. */
+function noSeJunta(fila: any, esDescuento: (f: any) => boolean): string | null {
+  if (!fila) return 'ese renglón no existe';
+  if (esDescuento(fila)) return 'es un renglón de descuento';
+  if (fila.esDevolucion) return 'es una devolución';
+  if (fila.juntadoEn) return `ya está junto con el renglón ${fila.juntadoEn}`;
+  if (fila.porPeso) return 'va por peso';
+  if (Number(fila.fraccionNeta) > 0) return 'trae el impuesto interno por unidad';
+  if ((num(fila.unidadesPorBulto) ?? 0) > 1) return 'todavía no se decidió cómo entra su bulto';
+  if (fila.devueltoAMano || (num(fila.recibidoAMano) ?? 0) > 0) return 'tiene marcado que no llegó entero';
+  if (!((num(fila.cantidad) ?? 0) > 0)) return 'no tiene unidades';
+  if (!(importeDe(fila) > 0)) return 'no tiene importe';
+  return null;
+}
+
+/** El destino como estaba antes de juntar nada, más lo que se le juntó. */
+function conLoJuntado<T extends Record<string, any>>(base: T, junta: { renglon: number; unidades: number; importe: number }[]): T {
+  if (!junta.length) return { ...base, junta: null, antesDeJuntar: null };
+  const unidades = redondear((num(base.cantidad) ?? 0) + junta.reduce((s, x) => s + x.unidades, 0), 3);
+  const importe = redondear(importeDe(base) + junta.reduce((s, x) => s + x.importe, 0));
+  // el precio es el promedio de lo juntado; si con dos decimales la cuenta no da el importe, con cuatro
+  let precio = redondear(importe / unidades);
+  if (Math.abs(precio * unidades - importe) > tolerancia(importe)) precio = redondear(importe / unidades, 4);
+  const papel: Papel = { bultos: 0, uxb: null, sueltas: unidades, precio, desc: null, iva: (base.papel ?? papelDeLectura(base)).iva, importe };
+  return { ...aplicarPapel(base, papel, { como: 'unidades' }), junta, antesDeJuntar: fotoDe(base) };
+}
+
+/** Un renglón juntado vuelve a ser un renglón aparte, como estaba; el destino lo descuenta. */
+export function separarRenglon<T extends Record<string, any>>(items: T[], k: number): T[] {
+  const fila = items[k];
+  if (!fila?.juntadoEn) return items;
+  const nuevos = items.slice();
+  const d = Math.round(Number(fila.juntadoEn)) - 1;
+  nuevos[k] = { ...fila, ...(fila.antesDeJuntar ?? {}), juntadoEn: null, antesDeJuntar: null };
+  const destino = nuevos[d];
+  if (destino && Array.isArray(destino.junta)) {
+    const base = { ...destino, ...(destino.antesDeJuntar ?? {}) };
+    nuevos[d] = conLoJuntado(base, destino.junta.filter((x: any) => x.renglon !== k + 1));
+  }
+  return nuevos;
+}
 
 /**
  * Aplica los cambios que propuso la IA sobre los renglones. `renglon` empieza
@@ -322,11 +411,48 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
   const nuevos = items.slice();
   const registros: Registro[] = [];
   const descartados: CambioIA[] = [];
+  // lo que no se aplica vuelve con el porqué: la pantalla se lo dice a la persona y al chat
+  const descartar = (c: CambioIA, porque: string) => { descartados.push({ ...c, porque }); };
   for (const c of cambios ?? []) {
     const k = Math.round(Number(c?.renglon)) - 1;
     const fila = nuevos[k];
-    if (!fila) { descartados.push(c); continue; }
+    if (!fila) { descartar(c, 'ese renglón no existe'); continue; }
     const motivo = String(c.motivo ?? '').slice(0, 300);
+    // JUNTAR RENGLONES (18/11/2026): este renglón pasa a estar sumado en otro.
+    // «juntarEn» vacío lo separa. El destino puede ir juntando varios.
+    if (c.campo === 'juntarEn') {
+      if (c.valor == null || c.valor === '' || num(c.valor) === 0) {
+        if (!fila.juntadoEn) { descartar(c, 'no está junto con ningún renglón'); continue; }
+        registros.push({ renglon: k + 1, campo: 'juntarEn', antes: fila.juntadoEn, despues: null, motivo });
+        const separados = separarRenglon(nuevos, k);
+        for (let j = 0; j < nuevos.length; j++) nuevos[j] = separados[j];
+        continue;
+      }
+      const d = Math.round(num(c.valor) ?? NaN) - 1;
+      const destino = nuevos[d];
+      if (!Number.isInteger(d) || !destino) { descartar(c, 'el renglón donde se junta no existe'); continue; }
+      if (d === k) { descartar(c, 'un renglón no se junta consigo mismo'); continue; }
+      if (Array.isArray(fila.junta) && fila.junta.length) { descartar(c, 'ese renglón ya junta a otros: juntá los demás en él'); continue; }
+      const pega = noSeJunta(fila, esDescuento);
+      if (pega) { descartar(c, pega); continue; }
+      const pegaDestino = noSeJunta(destino, esDescuento);
+      if (pegaDestino) { descartar(c, `el renglón ${d + 1} ${pegaDestino}`); continue; }
+      const ivaDe = (f: any) => num((f.papel ?? papelDeLectura(f)).iva);
+      if (ivaDe(fila) !== ivaDe(destino)) { descartar(c, `no tiene el mismo IVA que el renglón ${d + 1}`); continue; }
+      // sin producto elegido toma el del destino; con producto, los dos tienen que entrar (o ninguno)
+      const entra = (f: any) => f.incluir !== false && !!f.sku;
+      if (fila.sku && !destino.sku) { descartar(c, `el renglón ${d + 1} no tiene producto elegido: juntalos en uno que lo tenga`); continue; }
+      if (fila.sku && entra(fila) !== entra(destino)) { descartar(c, 'uno entra al stock y el otro no: no se pueden sumar'); continue; }
+      const aporte = { renglon: k + 1, unidades: num(fila.cantidad) as number, importe: importeDe(fila) };
+      const base = { ...destino, ...(destino.antesDeJuntar ?? {}) };
+      nuevos[d] = conLoJuntado(base, [...(Array.isArray(destino.junta) ? destino.junta : []), aporte]);
+      const papelVacio: Papel = { ...(fila.papel ?? papelDeLectura(fila)), bultos: 0, sueltas: 0, importe: 0 };
+      nuevos[k] = { ...aplicarPapel(fila, papelVacio, { como: 'unidades' }), cantidad: 0, importe: 0, incluir: false, juntadoEn: d + 1, antesDeJuntar: fotoDe(fila) };
+      registros.push({ renglon: k + 1, campo: 'juntarEn', antes: null, despues: d + 1, motivo });
+      continue;
+    }
+    // un renglón juntado en otro ya no cuenta: antes de tocarlo hay que separarlo
+    if (fila.juntadoEn) { descartar(c, `ese renglón está junto con el ${fila.juntadoEn}: el cambio va en ese, o separalo primero`); continue; }
     // devolución al proveedor (3/11/2026): se marca o desmarca en cualquier renglón
     if (c.campo === 'esDevolucion') {
       const despues = c.valor === true || c.valor === 'true';
@@ -340,19 +466,19 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       // en una devolución, «ingresa» es «se resta del stock»
       if (c.campo === 'ingresa') {
         const despues = c.valor === true || c.valor === 'true';
-        if (despues && !fila.sku) { descartados.push(c); continue; }
+        if (despues && !fila.sku) { descartar(c, 'la devolución no tiene producto del catálogo elegido'); continue; }
         registros.push({ renglon: k + 1, campo: 'restaDelStock', antes: fila.incluir === true, despues, motivo });
         nuevos[k] = { ...fila, incluir: despues };
         continue;
       }
       const n = c.campo === 'unidadesDevueltas' ? num(c.valor) : null;
-      if (n == null || !(n > 0)) { descartados.push(c); continue; }
+      if (n == null || !(n > 0)) { descartar(c, 'en una devolución solo se pueden cambiar las unidades devueltas y si se resta del stock'); continue; }
       registros.push({ renglon: k + 1, campo: 'unidadesDevueltas', antes: num(fila.cantidad), despues: n, motivo });
       nuevos[k] = { ...fila, cantidad: n };
       continue;
     }
     if (esDescuento(fila)) {
-      if (c.campo !== 'noAplicar') { descartados.push(c); continue; }
+      if (c.campo !== 'noAplicar') { descartar(c, 'en un renglón de descuento solo se puede elegir si se aplica o no'); continue; }
       const despues = c.valor === true || c.valor === 'true';
       registros.push({ renglon: k + 1, campo: 'noAplicar', antes: !!fila.noAplicar, despues, motivo });
       nuevos[k] = { ...fila, noAplicar: despues };
@@ -364,10 +490,13 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // «recibidas» = todas (o nada) borra la marca.
     if (c.campo === 'recibidas') {
       const n = c.valor == null || c.valor === '' ? null : num(c.valor);
-      if (n != null && !(n >= 0)) { descartados.push(c); continue; }
-      const facturadas = fila.papel || !fila.porPeso ? cuentaDelPapel(fila.papel ?? papelDeLectura(fila)).unidades : num(fila.cantidad) ?? 0;
-      if (n != null && facturadas > 0 && n > facturadas) { descartados.push(c); continue; }
-      const nuevo = n == null || n === facturadas ? null : n;
+      if (c.valor != null && c.valor !== '' && (n == null || !(n >= 0))) { descartar(c, 'lo que entró tiene que ser un número'); continue; }
+      // por peso se cuenta en kilos; si no, en las unidades del papel (18/11/2026, Conallison)
+      const facturadas = fila.porPeso || fila.papel ? facturadoDe(fila) : cuentaDelPapel(papelDeLectura(fila)).unidades;
+      const en = fila.porPeso ? 'kg' : 'unidades';
+      if (n === 0) { descartar(c, 'si del renglón no entró nada, se marca que no ingresa («ingresa» = false)'); continue; }
+      if (n != null && facturadas > 0 && n > facturadas + 0.0005) { descartar(c, `no pueden entrar más ${en} (${n.toLocaleString('es-AR')}) que las facturadas (${facturadas.toLocaleString('es-AR')})`); continue; }
+      const nuevo = n == null || Math.abs(n - facturadas) <= 0.0005 ? null : n;
       registros.push({ renglon: k + 1, campo: 'recibidas', antes: num(fila.recibidoAMano), despues: nuevo, motivo });
       // si llegó una parte, el renglón no volvió entero (9/11/2026, Playadito pintada
       // con «-1»: el lector la marcó devuelta toda): entra lo recibido
@@ -387,7 +516,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       // pasó a peso en esta pantalla, vuelve a como estaba; si lo leyó así el
       // lector, las unidades salen del papel y el precio, de importe ÷ unidades.
       if (c.valor == null || c.valor === '' || num(c.valor) === 0) {
-        if (!fila.porPeso) { descartados.push(c); continue; }
+        if (!fila.porPeso) { descartar(c, 'el renglón no va por peso'); continue; }
         let vuelta: Record<string, any> | null = null;
         if (fila.antesDePeso) vuelta = { ...fila.antesDePeso };
         else {
@@ -395,15 +524,15 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
           const importe = Math.abs(num(fila.importe) ?? 0);
           if (unidades > 0 && importe > 0) vuelta = { cantidad: unidades, precio: Math.round((importe / unidades) * 100) / 100, importe };
         }
-        if (!vuelta) { descartados.push(c); continue; }
+        if (!vuelta) { descartar(c, 'no se sabe cuántas unidades tenía antes de pasar a peso'); continue; }
         registros.push({ renglon: k + 1, campo: 'kilos', antes: num(fila.cantidad), despues: null, motivo });
         nuevos[k] = { ...fila, ...vuelta, porPeso: false, antesDePeso: null, cantidadCorregida: null, bultoConsumido: null };
         continue;
       }
       const kg = num(c.valor);
-      if (kg == null || !(kg > 0)) { descartados.push(c); continue; }
+      if (kg == null || !(kg > 0)) { descartar(c, 'los kilos tienen que ser un número mayor a cero'); continue; }
       const importe = Math.abs(num(fila.importe) ?? 0) || (num(fila.cantidad) ?? 0) * Math.abs(num(fila.precio) ?? 0);
-      if (!(importe > 0)) { descartados.push(c); continue; }
+      if (!(importe > 0)) { descartar(c, 'el renglón no tiene importe: sin eso no se puede sacar el precio por kilo'); continue; }
       registros.push({ renglon: k + 1, campo: 'kilos', antes: fila.porPeso ? num(fila.cantidad) : null, despues: kg, motivo });
       nuevos[k] = {
         ...fila,
@@ -421,7 +550,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // pero no entra al stock. No se tocan las cantidades del papel.
     if (c.campo === 'ingresa') {
       const despues = c.valor === true || c.valor === 'true';
-      if (despues && !fila.sku) { descartados.push(c); continue; }
+      if (despues && !fila.sku) { descartar(c, 'el renglón no tiene producto del catálogo elegido'); continue; }
       registros.push({ renglon: k + 1, campo: 'ingresa', antes: fila.incluir !== false, despues, motivo });
       nuevos[k] = { ...fila, incluir: despues };
       continue;
@@ -430,7 +559,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // dice cuánto cuesta la unidad, ese es el costo de ese renglón. null lo saca.
     if (c.campo === 'costoFinal') {
       const n = c.valor == null || c.valor === '' ? null : num(c.valor);
-      if (n != null && !(n > 0)) { descartados.push(c); continue; }
+      if (n != null && !(n > 0)) { descartar(c, 'el costo tiene que ser un número mayor a cero'); continue; }
       registros.push({ renglon: k + 1, campo: 'costoFinal', antes: num(fila.costoManual), despues: n, motivo });
       nuevos[k] = { ...fila, costoManual: n };
       continue;
@@ -447,7 +576,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // el «Precio Unit» ya lo trae adentro, con el IVA. Ver conInternoDelPapel.
     if (c.campo === 'impuestoInternoUnitario') {
       const interno = c.valor == null || c.valor === '' ? null : num(c.valor);
-      if (interno != null && !(interno >= 0)) { descartados.push(c); continue; }
+      if (interno != null && !(interno >= 0)) { descartar(c, 'el impuesto interno tiene que ser un número'); continue; }
       const antes = internoUnitarioDe(fila);
       if (interno == null) {
         registros.push({ renglon: k + 1, campo: 'impuestoInternoUnitario', antes, despues: null, motivo });
@@ -455,7 +584,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
         continue;
       }
       const con = conInternoDelPapel(fila, interno);
-      if (!con) { descartados.push(c); continue; }
+      if (!con) { descartar(c, 'con ese impuesto interno el precio del renglón no da un neto válido'); continue; }
       const antesPapel: Papel = fila.papel ?? papelDeLectura(fila);
       if (num(con.papel?.precio) !== num(antesPapel.precio)) registros.push({ renglon: k + 1, campo: 'precio', antes: antesPapel.precio, despues: con.papel.precio, motivo: 'El «Precio Unit» del papel: neto + IVA + impuesto interno' });
       if (num(con.papel?.importe) !== num(antesPapel.importe)) registros.push({ renglon: k + 1, campo: 'importe', antes: antesPapel.importe, despues: con.papel.importe, motivo: 'Cantidad × «Precio Unit»' });
@@ -471,7 +600,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       if (c.valor === 'cajas' && de != null && de > 1) nuevo = { como: 'cajas', de };
       else if ((c.valor === 'abiertas' || c.valor === 'abrir') && de != null && de > 1) nuevo = { como: 'abiertas', de };
       else if (c.valor === 'unidades') nuevo = { como: 'unidades' };
-      if (!nuevo) { descartados.push(c); continue; }
+      if (!nuevo) { descartar(c, 'el renglón no tiene unidades por bulto'); continue; }
       registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: nuevo.como, motivo });
       nuevos[k] = aplicarPapel(fila, papel, nuevo);
       continue;
@@ -480,7 +609,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // y el costo es el de un paquete (10/10/2026)
     if (c.campo === 'unidadesPorVenta') {
       const n = num(c.valor);
-      if (n == null || n <= 1 || !Number.isFinite(n)) { descartados.push(c); continue; }
+      if (n == null || n <= 1 || !Number.isFinite(n)) { descartar(c, 'las unidades por paquete tienen que ser más de una'); continue; }
       // ABRIR Y AGRUPAR A LA VEZ (10/11/2026, la Rhodesia: «1 caja × 36» que se vende
       // de a 3). El papel contaba la CAJA como suelta, a precio de caja: agrupar de
       // a 3 daba 1 ÷ 3 = 0,333 paquetes, porque el «abrir la caja» de antes se
@@ -502,7 +631,7 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // la cantidad o el precio y el importe leído quedó viejo. Manda su cuenta.
     if (c.campo === 'ajustarImporte') {
       const cuenta = cuentaDelPapel(papel).cuenta;
-      if (c.valor === false || c.valor === 'false' || !(cuenta > 0)) { descartados.push(c); continue; }
+      if (c.valor === false || c.valor === 'false' || !(cuenta > 0)) { descartar(c, 'la cuenta del renglón da cero: no hay importe que poner'); continue; }
       if (cuenta !== num(papel.importe)) registros.push({ renglon: k + 1, campo: 'importe', antes: papel.importe, despues: cuenta, motivo });
       papel.importe = cuenta;
       nuevos[k] = aplicarPapel(fila, papel, entra);
@@ -510,7 +639,8 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     }
     const campo = CAMPO_IA[c.campo];
     const valor = c.valor == null ? null : num(c.valor);
-    if (!campo || (c.valor != null && valor == null) || (valor != null && valor < 0)) { descartados.push(c); continue; }
+    if (!campo) { descartar(c, 'ese dato no se puede cambiar en un renglón'); continue; }
+    if ((c.valor != null && valor == null) || (valor != null && valor < 0)) { descartar(c, 'el valor tiene que ser un número y no puede ser negativo'); continue; }
     registros.push({ renglon: k + 1, campo, antes: papel[campo], despues: valor, motivo });
     papel[campo] = valor;
     nuevos[k] = aplicarPapel(fila, papel, entra);
@@ -538,6 +668,10 @@ export function tablaParaIA(
     if (esDescuento(fila)) {
       return { renglon: k + 1, descuento: true, descripcion: fila.descripcion, importe: num(fila.importe), aplicaA: destino(k), noAplicar: !!fila.noAplicar };
     }
+    // juntado en otro renglón (18/11/2026): ya no cuenta, sus unidades y su plata están allá
+    if (fila.juntadoEn) {
+      return { renglon: k + 1, descripcion: fila.descripcion, juntadoEnElRenglon: fila.juntadoEn, nota: 'ya no cuenta ni entra al stock: sus unidades y su importe están sumados en ese renglón' };
+    }
     const p: Papel = fila.papel ?? papelDeLectura(fila);
     const c = cuentaDelPapel(p);
     return {
@@ -545,6 +679,7 @@ export function tablaParaIA(
       codigo: fila.codigo ?? null,
       descripcion: fila.descripcion,
       producto: fila.nombre ?? null,
+      ...(Array.isArray(fila.junta) && fila.junta.length ? { juntaLosRenglones: fila.junta.map((x: any) => x.renglon) } : {}),
       // no está en el papel: lo agregó una persona o el chat en esta pantalla
       ...(fila.agregado ? { agregadoEnPantalla: true } : {}),
       bultos: p.bultos, unidadesPorBulto: p.uxb, sueltas: p.sueltas,
@@ -561,8 +696,9 @@ export function tablaParaIA(
       entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio), porPeso: !!fila.porPeso },
       // la columna de kilos del papel, si la leyó: con eso se pasa a peso
       kgDelPapel: num(fila.kg),
-      // llegó una parte: las unidades que entraron de verdad (null = llegaron todas)
+      // llegó una parte: lo que entró de verdad, en kilos si va por peso y si no en unidades (null = llegó todo)
       recibidas: num(fila.recibidoAMano),
+      ...(faltanteDe(fila) > 0 ? { facturado: facturadoDe(fila), faltaron: faltanteDe(fila), entraAlStockLoQueLlego: cantidadQueEntra(fila) } : {}),
       ingresa: fila.incluir !== false,
       bonificacionYaEnElPrecio: num(p.descIncluido),
       ...(costo?.(k) ?? {}),
@@ -609,7 +745,9 @@ export function frenarReglasAbsurdas<T extends Record<string, any>>(
 ): { items: T[]; registros: Registro[]; frenados: number[] } {
   const items = despues.slice();
   const frenados: number[] = [];
-  for (const k of [...new Set(registros.map((g) => g.renglon - 1))]) {
+  // se mira cada renglón tocado y, si se juntó en otro, también ese (su precio pasa a ser el promedio)
+  const tocados = registros.flatMap((g) => (g.campo === 'juntarEn' && g.despues != null ? [g.renglon - 1, Number(g.despues) - 1] : [g.renglon - 1]));
+  for (const k of [...new Set(tocados)]) {
     const a = antes[k];
     const d = despues[k];
     const catalogo = num(a?.costoCatalogo) ?? 0;
@@ -617,11 +755,24 @@ export function frenarReglasAbsurdas<T extends Record<string, any>>(
     const lejosAntes = lejosDelCatalogo(a, catalogo);
     const lejosDespues = lejosDelCatalogo(d, catalogo);
     if (lejosDespues > Math.log(3) && lejosAntes < lejosDespues - Math.log(2)) {
-      items[k] = a;
       frenados.push(k + 1);
     }
   }
-  return { items, registros: registros.filter((g) => !frenados.includes(g.renglon)), frenados };
+  // lo juntado se frena entero: si vuelve el destino, vuelven los que se le sumaron (y al revés)
+  for (let cambio = true; cambio;) {
+    cambio = false;
+    for (const g of registros) {
+      if (g.campo !== 'juntarEn' || g.despues == null) continue;
+      const par = [g.renglon, Number(g.despues)];
+      if (par.some((n) => frenados.includes(n)) && !par.every((n) => frenados.includes(n))) {
+        for (const n of par) if (!frenados.includes(n)) frenados.push(n);
+        cambio = true;
+      }
+    }
+  }
+  for (const n of frenados) items[n - 1] = antes[n - 1];
+  const sacados = (g: Registro) => frenados.includes(g.renglon) || (g.campo === 'juntarEn' && frenados.includes(Number(g.despues)));
+  return { items, registros: registros.filter((g) => !sacados(g)), frenados: frenados.sort((a, b) => a - b) };
 }
 
 // ---- renglones agregados (13/11/2026) ----

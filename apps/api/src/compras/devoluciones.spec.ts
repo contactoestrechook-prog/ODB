@@ -111,7 +111,7 @@ describe('el chat de la factura y las devoluciones', () => {
     const r2 = aplicarCambiosIA(r1.items, [{ renglon: 2, campo: 'unidadesDevueltas', valor: 6, motivo: 'son 6 botellas' }, { renglon: 2, campo: 'precio', valor: 1 }], esDesc);
     expect(r2.items[1].cantidad).toBe(6);
     // la plata de una devolución no se toca desde el chat
-    expect(r2.descartados).toEqual([{ renglon: 2, campo: 'precio', valor: 1 }]);
+    expect(r2.descartados).toEqual([{ renglon: 2, campo: 'precio', valor: 1, porque: 'en una devolución solo se pueden cambiar las unidades devueltas y si se resta del stock' }]);
     const r3 = aplicarCambiosIA(r2.items, [{ renglon: 2, campo: 'ingresa', valor: false, motivo: 'no la llevamos todavía' }], esDesc);
     expect(r3.items[1].incluir).toBe(false);
   });

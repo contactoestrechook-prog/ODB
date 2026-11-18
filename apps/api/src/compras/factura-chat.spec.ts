@@ -1,6 +1,6 @@
 // El chat de la factura (8/10/2026): lo que devuelve la IA se filtra antes de
 // llegar a la pantalla. Solo pasan cambios aplicables.
-import { medirLlamada, CAMPOS_RENGLON, fraseDeOtrosComprobantes, motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
+import { medirLlamada, CAMPOS_RENGLON, fraseDeOtrosComprobantes, motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada, TOPE_DE_CAMBIOS, pedidoDeCorreccion, MARCA_CORRECCION, MARCA_AUTOMATICO } from './factura-chat.service';
 
 // «No aprendió los cambios ni los razonamientos, tuvimos que poner todo otra
 // vez» (La Serenísima, 5/11/2026): la regla se guarda sola y se aplica sola.
@@ -195,5 +195,50 @@ describe('las reglas de una charla sin proveedor', () => {
   it('sin turnos no hay reglas', () => {
     expect(reglasDeTurnos([])).toEqual([]);
     expect(reglasDeTurnos(null as any)).toEqual([]);
+  });
+});
+
+// 18/11/2026, Distribuidora City (54 renglones): el chat mandó 86 cambios, entraron
+// 60 y contestó como si estuvieran todos.
+describe('el tope de cambios no corta callado', () => {
+  const cambio = (n: number) => ({ renglon: (n % 54) + 1, campo: 'sueltas', valor: 2, motivo: '' });
+  it('86 cambios en una factura de 54 renglones entran todos', () => {
+    const r = validarRespuestaChat({ respuesta: 'Listo.', cambios: Array.from({ length: 86 }, (_, k) => cambio(k)) }, 54);
+    expect(r.cambios).toHaveLength(86);
+    expect(r.descartados).toHaveLength(0);
+  });
+  it('si se pasa del tope, lo que sobra vuelve como descartado y se le pide que lo corrija', () => {
+    const r = validarRespuestaChat({ respuesta: 'Listo.', cambios: Array.from({ length: TOPE_DE_CAMBIOS + 7 }, (_, k) => cambio(k)) }, 54);
+    expect(r.cambios).toHaveLength(TOPE_DE_CAMBIOS);
+    expect(r.descartados).toEqual([{ renglon: null, campo: 'cambios', porque: `eran ${TOPE_DE_CAMBIOS + 7} cambios y en un mensaje entran ${TOPE_DE_CAMBIOS}: los últimos 7 no se aplicaron` }]);
+    expect(motivoParaCorregir(r)).toContain('no se aplicaron');
+  });
+});
+
+// 18/11/2026: Ana pidió dos veces juntar los Saphirus y el chat no tenía cómo.
+describe('juntar renglones desde el chat', () => {
+  it('«juntarEn» es un dato que el chat puede mandar', () => {
+    expect(CAMPOS_RENGLON).toContain('juntarEn');
+    const r = validarRespuestaChat({ respuesta: 'Junté los Textil en el 40.', cambios: [{ renglon: 41, campo: 'juntarEn', valor: 40, motivo: 'un renglón por tipo' }, { renglon: 42, campo: 'juntarEn', valor: null, motivo: '' }] }, 54);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.cambios).toEqual([{ renglon: 41, campo: 'juntarEn', valor: 40, motivo: 'un renglón por tipo' }, { renglon: 42, campo: 'juntarEn', valor: null, motivo: '' }]);
+    expect(motivoParaCorregir(r)).toBeNull();
+  });
+});
+
+// 18/11/2026, Conallison: «Tenés razón, antes no había quedado aplicado. Ahora sí»,
+// con el cartel «No se aplicó» abajo, dos veces.
+describe('lo que la pantalla no pudo aplicar vuelve al chat', () => {
+  it('el pedido lleva cada rechazo con su motivo y prohíbe decir que quedó hecho', () => {
+    const t = pedidoDeCorreccion(['Renglón 1 · lo que entró: no pueden entrar más kg (5) que las facturadas (4,52)', 'Renglón 8 · juntar: va por peso']);
+    expect(t).toContain('LA PANTALLA NO PUDO APLICAR');
+    expect(t).toContain('- Renglón 1 · lo que entró: no pueden entrar más kg (5) que las facturadas (4,52)');
+    expect(t).toContain('- Renglón 8 · juntar: va por peso');
+    expect(t).toContain('Nunca digas «listo» ni «ahora sí»');
+  });
+  it('esas vueltas se guardan con su propia marca, distinta de la automática', () => {
+    expect(MARCA_CORRECCION).not.toBe(MARCA_AUTOMATICO);
+    // empieza como la automática: no se cuenta como un mensaje que escribió la persona
+    expect(MARCA_CORRECCION.startsWith(MARCA_AUTOMATICO)).toBe(true);
   });
 });

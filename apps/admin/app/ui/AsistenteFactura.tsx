@@ -42,6 +42,7 @@ const NOMBRE_CAMPO: Record<string, string> = {
   llevaInternos: 'paga impuestos internos', impuestoInternoUnitario: 'impuesto interno por unidad', costoFinal: 'costo por unidad',
   aceptarDiferencia: 'diferencia aceptada', percepcionesAlCosto: 'percepciones al costo',
   revisado: 'revisado antes de registrar', producto: 'producto vinculado',
+  recibidas: 'lo que entró', kilos: 'kilos', juntarEn: 'juntado en el renglón', restaDelStock: 'se resta del stock', unidadesDevueltas: 'unidades devueltas', esDevolucion: 'devolución',
   neto: 'neto', percepcionIva: 'percepción IVA', percepcionIibb: 'percepción IIBB', impuestosInternos: 'impuestos internos', otros: 'otros', total: 'total',
 };
 const valorLegible = (v: unknown) => (v == null || v === '' ? 'vacío' : typeof v === 'number' ? v.toLocaleString('es-AR', { maximumFractionDigits: 3 }) : v === true ? 'sí' : v === false ? 'no' : String(v));
@@ -51,6 +52,9 @@ export const describirCambio = (c: Pick<CambioHecho, 'renglon' | 'campo' | 'ante
   // un renglón agregado (13/11/2026): «antes» es su id, no se muestra
   c.campo === 'renglonNuevo'
     ? `Renglón ${c.renglon} agregado: ${valorLegible(c.despues)}`
+    // juntar renglones (18/11/2026)
+    : c.campo === 'juntarEn'
+    ? (c.despues != null ? `Renglón ${c.renglon}: junto con el renglón ${valorLegible(c.despues)}` : `Renglón ${c.renglon}: separado del renglón ${valorLegible(c.antes)}`)
     : `${c.renglon == null ? 'Pie' : `Renglón ${c.renglon}`} · ${NOMBRE_CAMPO[c.campo] ?? c.campo}: ${legible(c.campo, c.antes)} → ${legible(c.campo, c.despues)}`;
 
 const ERRORES: Record<number, string> = { 401: 'Se venció la sesión: volvé a entrar.', 403: 'Tu usuario no puede usar el asistente.' };
@@ -108,6 +112,9 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   const [pendiente, setPendiente] = useState<string | null>(null);
   const [aplicandoReglas, setAplicandoReglas] = useState(false);
   const yaPasadas = useRef<Set<string>>(new Set());
+  // lo que la pantalla le pasa al chat, como está AHORA (una segunda vuelta dentro del mismo envío necesita lo último)
+  const vivo = useRef({ pie, controles, comprobante });
+  vivo.current = { pie, controles, comprobante };
   // la memoria del artículo corre antes que las reglas: una promesa por factura y proveedor
   const memoria = useRef<Map<string, Promise<unknown>>>(new Map());
   const fin = useRef<HTMLDivElement>(null);
@@ -176,7 +183,11 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
         if (!r.ok || d?.omitido || !vigente) return;
         const { aplicados, noAplicados } = await onAplicar(d.cambios ?? [], d.cambiosPie ?? [], true);
         const cuantas = reglas.length === 1 ? 'la regla guardada' : `las ${reglas.length} reglas guardadas`;
-        setMensajes((xs) => [...xs, { rol: 'ia', texto: `Apliqué ${cuantas} de ${proveedorNombre ?? 'este proveedor'}. ${String(d.respuesta ?? '')}`.trim(), cambios: aplicados, noAplicados }]);
+        // si la pantalla rechazó algo, no se repite lo que la IA dijo que hizo (18/11/2026)
+        const textoAuto = noAplicados.length
+          ? `Pasé ${cuantas} de ${proveedorNombre ?? 'este proveedor'}, pero ${aplicados.length ? 'una parte no se pudo aplicar' : 'no se pudo aplicar'}: abajo está qué y por qué. Lo demás quedó como se leyó.`
+          : `Apliqué ${cuantas} de ${proveedorNombre ?? 'este proveedor'}. ${String(d.respuesta ?? '')}`.trim();
+        setMensajes((xs) => [...xs, { rol: 'ia', texto: textoAuto, cambios: aplicados, noAplicados }]);
       } catch { /* si falla, la factura queda como se leyó y las reglas siguen en su pestaña */ }
       finally { setPensando(false); setAplicandoReglas(false); }
     }, 900);
@@ -228,11 +239,54 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(ERRORES[r.status] ?? d?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
-      const { aplicados, noAplicados } = await onAplicar(d.cambios ?? [], d.cambiosPie ?? [], false, Array.isArray(d.renglonesNuevos) ? d.renglonesNuevos : []);
+      const primera = await onAplicar(d.cambios ?? [], d.cambiosPie ?? [], false, Array.isArray(d.renglonesNuevos) ? d.renglonesNuevos : []);
       // lo que la IA propuso y no se pudo aplicar, a la vista (antes se perdía en silencio)
       const delServidor = (Array.isArray(d.descartados) ? d.descartados : [])
         .map((x: any) => `${x.renglon ? `Renglón ${x.renglon}` : 'Cambio'} · ${NOMBRE_CAMPO[x.campo] ?? x.campo}: ${x.porque}`);
-      setMensajes((xs) => [...xs, { rol: 'ia', texto: String(d.respuesta ?? 'Listo.'), cambios: aplicados, noAplicados: [...delServidor, ...noAplicados] }]);
+      let aplicados = primera.aplicados;
+      let noAplicados = [...delServidor, ...primera.noAplicados];
+      let respuesta = String(d.respuesta ?? 'Listo.');
+      // LO QUE LA PANTALLA NO PUDO APLICAR VUELVE AL CHAT (18/11/2026, Conallison: la
+      // IA decía «Listo» y «Ahora sí» con el cartel «No se aplicó» pegado abajo, tres
+      // veces seguidas). La IA contesta antes de que la pantalla aplique: si algo se
+      // rechaza, se lo decimos con el motivo y esperamos su segunda respuesta, que es
+      // la única que ve la persona. Una sola vuelta.
+      if (noAplicados.length) {
+        const rechazados = noAplicados;
+        try {
+          // un respiro para que la tabla tome lo que sí se aplicó
+          await new Promise((listo) => setTimeout(listo, 150));
+          const r2 = await fetch('/api/entrada-foto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              accion: 'chat', id: lecturaId ?? 'sin-lectura', proveedorId, proveedor: proveedorNombre, comprobante: vivo.current.comprobante,
+              tabla: tabla(), pie: vivo.current.pie, controles: vivo.current.controles,
+              mensajes: [...nuevos.map((m) => ({ rol: m.rol, texto: m.texto })), { rol: 'ia', texto: respuesta }],
+              noAplicados: rechazados,
+            }),
+          });
+          const d2 = await r2.json().catch(() => ({}));
+          if (!r2.ok) throw new Error('sin segunda respuesta');
+          const segunda = await onAplicar(d2.cambios ?? [], d2.cambiosPie ?? [], false, Array.isArray(d2.renglonesNuevos) ? d2.renglonesNuevos : []);
+          const delServidor2 = (Array.isArray(d2.descartados) ? d2.descartados : [])
+            .map((x: any) => `${x.renglon ? `Renglón ${x.renglon}` : 'Cambio'} · ${NOMBRE_CAMPO[x.campo] ?? x.campo}: ${x.porque}`);
+          aplicados = [...aplicados, ...segunda.aplicados];
+          const siguenSinAplicar = [...delServidor2, ...segunda.noAplicados];
+          if (siguenSinAplicar.length) {
+            // probó de otra forma y tampoco: no se repite lo que la IA dijo que hizo
+            noAplicados = siguenSinAplicar;
+            respuesta = `Probé de otra forma y la pantalla tampoco lo tomó, así que no quedó hecho${aplicados.length ? ' (lo que sí se aplicó está acá abajo)' : ''}. El motivo está en el cartel: quedó registrado para corregirlo.`;
+          } else {
+            // lo rechazado ya se resolvió o está explicado en la respuesta nueva
+            noAplicados = segunda.aplicados.length ? [] : rechazados;
+            respuesta = String(d2.respuesta ?? '').trim() || 'No pude aplicar lo que pediste: el motivo está acá abajo.';
+          }
+        } catch {
+          respuesta = `${aplicados.length ? 'Apliqué solo una parte de lo que pediste' : 'No pude aplicar lo que pediste'}: abajo está qué no quedó hecho y por qué.`;
+        }
+      }
+      setMensajes((xs) => [...xs, { rol: 'ia', texto: respuesta, cambios: aplicados, noAplicados }]);
       if (d.reglaGuardada?.id) { setAprendida({ id: String(d.reglaGuardada.id), regla: String(d.reglaGuardada.regla ?? '') }); cargarReglas(); }
       // si no se pudo guardar sola, queda la propuesta con su botón
       else if (d.reglaProveedor && proveedorId && !reglas.some((x) => x.regla === d.reglaProveedor)) setPropuesta(String(d.reglaProveedor));

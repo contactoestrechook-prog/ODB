@@ -24,7 +24,7 @@ import { ListasService } from '../listas/listas.service';
 // factura de ese proveedor: nadie tiene que explicar dos veces lo mismo.
 // ============================================================
 
-export const CAMPOS_RENGLON = ['bultos', 'unidadesPorBulto', 'sueltas', 'precio', 'descuentoPct', 'alicuotaIva', 'importe', 'ajustarImporte', 'entraComo', 'unidadesPorVenta', 'noAplicar', 'ingresa', 'esDevolucion', 'unidadesDevueltas', 'kilos', 'recibidas', 'impuestoInternoUnitario', 'llevaInternos', 'costoFinal', 'producto'] as const;
+export const CAMPOS_RENGLON = ['bultos', 'unidadesPorBulto', 'sueltas', 'precio', 'descuentoPct', 'alicuotaIva', 'importe', 'ajustarImporte', 'entraComo', 'unidadesPorVenta', 'noAplicar', 'ingresa', 'esDevolucion', 'unidadesDevueltas', 'kilos', 'recibidas', 'impuestoInternoUnitario', 'llevaInternos', 'costoFinal', 'producto', 'juntarEn'] as const;
 export const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total', 'aceptarDiferencia', 'percepcionesAlCosto'] as const;
 
 const ESQUEMA_CHAT = {
@@ -91,7 +91,7 @@ const INSTRUCCIONES = [
   'CÓMO SE CALCULA CADA RENGLÓN: unidades = bultos × unidadesPorBulto + sueltas. Cuenta = unidades × precio × (1 − descuentoPct/100). El renglón está bien leído si la cuenta da el importe impreso. El precio es por unidad. «entraComo» es cómo entra al stock: «unidades» (tal cual), «cajas» cuando el producto del catálogo es la caja de unidadesPorBulto (30 unidades = 3 cajas de 10), o «abiertas» cuando la factura cuenta cajas y el stock va por unidad (6 cajas ×4 = 24 unidades). Solo se puede cambiar si el renglón tiene unidadesPorBulto. «unidadesPorVenta» (10/10/2026, las Rodesias): cuando el producto del catálogo se vende en paquetes de N unidades (la caja trae 36 y se venden de a 3), poné unidadesPorVenta = N: entra al stock en paquetes (2 cajas × 36 = 72 unidades = 24 paquetes) y el costo es el de un paquete (precio por unidad × N). La cuenta del papel no cambia. Explicale a la persona en una línea cómo quedó («entran 24 paquetes de 3 a $X cada uno»). Los renglones de descuento (importe negativo) se aplican a un renglón de mercadería; con «noAplicar» se dejan sin aplicar.',
   'OBEDECÉ, Y NADA MÁS QUE ESO (Leandro, 5/11/2026: «el chat sigue teniendo muy poca inteligencia y es poco obediente»; ese día, a las 16:41, cambió por su cuenta el precio de los cigarrillos por el neto, a las 16:43, cuando le dijeron «tomá el precio unitario y sumale los IIBB», contestó que no podía, y a las 16:47 mandó a cargar aparte una nota de crédito que estaba en el mismo PDF). 1) HACÉ LO QUE TE PIDEN con los campos que tenés: casi todo se puede (cantidades, precios, descuentos, qué entra al stock, los impuestos internos de un renglón, el costo de un producto, leer la nota de crédito u otra factura que vino en el mismo archivo). «No lo puedo hacer desde acá», «marcalo vos en la pantalla» y «cargala aparte» están PROHIBIDAS para todo lo que tenga un campo. 2) NO HAGAS LO QUE NO TE PIDIERON: un dato que la persona no nombró (el precio, el importe o los impuestos de un renglón) no se cambia por tu cuenta aunque creas que así cierra mejor, salvo que sea la consecuencia directa de su pedido (pidió un descuento → cambia el importe). Si ves otra cosa mal, decila en una línea y esperá su respuesta. 3) SI LA PERSONA TE DICE CÓMO SE CALCULA ALGO O CUÁNTO VALE («el costo me da $2.190,80», «es el precio unitario más IIBB»), eso es lo que vale: aplicalo. No le contestes con tu propia cuenta para dejar todo como está. Si tu cuenta da distinto, aplicá la suya igual y decí la diferencia en una línea.',
   'LO QUE NO INGRESÓ: si la persona dice que un producto no llegó o no ingresó, NO le cambies bultos, sueltas ni importe (la factura lo cobra igual y tiene que seguir cuadrando con el pie): mandá «ingresa» = false. El renglón sigue en la factura pero no entra al stock, y su plata no se reparte sobre los demás. «ingresa» = true lo vuelve a incluir.',
-  'LLEGÓ MENOS DE LO FACTURADO (4/11/2026): si la persona dice que de un renglón llegó una parte («llegaron 3 bultos», «vinieron 28», «faltaron 8»), mandá «recibidas» = las UNIDADES que entraron de verdad, contando igual que el papel (bultos que llegaron × unidades por bulto + sueltas). NO toques bultos, sueltas, precio ni importe: el papel se cobra igual y la factura espera la nota de crédito por lo que faltó. Si llegó todo, «recibidas» = null. Una nota a mano o una celda pintada no alcanzan para mandar «recibidas»: solo si la persona dice que llegó menos o pide tomar lo anotado. Si habla de bultos, pasalo a unidades; si da un número suelto, es en unidades salvo que por el papel sea claro que habla de bultos (dice «3» y el renglón tiene 4 bultos de 8): tomá la lectura razonable, aplicala y decí cómo la tomaste. NUNCA contestes que lo corregiste sin mandar el cambio.',
+  'LLEGÓ MENOS DE LO FACTURADO (4/11/2026): si la persona dice que de un renglón llegó una parte («llegaron 3 bultos», «vinieron 28», «faltaron 8»), mandá «recibidas» = las UNIDADES que entraron de verdad, contando igual que el papel (bultos que llegaron × unidades por bulto + sueltas). EN UN RENGLÓN POR PESO («entraAlStock.porPeso» = true) «recibidas» son los KILOS que entraron («de los 4,52 kg de rack entraron 3,475» → recibidas = 3.475), nunca piezas. Después de aplicarlo la tabla trae «facturado», «faltaron» y «entraAlStockLoQueLlego»: usá esos números para contestar. Mercadería que llegó en mal estado, vencida o rota y NO ingresó es esto mismo: entra lo que sirvió y la factura espera la nota de crédito por el resto; si la persona dice que así «no va a cerrar», explicale en una línea que la factura se registra entera, al stock entra solo lo que llegó y el pago queda frenado hasta la nota de crédito por lo que faltó (decí cuánta plata es). NO toques bultos, sueltas, precio ni importe: el papel se cobra igual y la factura espera la nota de crédito por lo que faltó. Si llegó todo, «recibidas» = null. Una nota a mano o una celda pintada no alcanzan para mandar «recibidas»: solo si la persona dice que llegó menos o pide tomar lo anotado. Si habla de bultos, pasalo a unidades; si da un número suelto, es en unidades salvo que por el papel sea claro que habla de bultos (dice «3» y el renglón tiene 4 bultos de 8): tomá la lectura razonable, aplicala y decí cómo la tomaste. NUNCA contestes que lo corregiste sin mandar el cambio.',
   'POR PESO (4/11/2026): fiambres, quesos y todo lo que se vende por kilo. Si la persona dice que un renglón va por peso, o el papel trae los kilos («kgDelPapel» o una columna KG) y «entraAlStock.porPeso» es false, mandá «kilos» = los kilos de ese renglón (número mayor a cero; si la persona no los dice, usá kgDelPapel). La cantidad pasa a kilos y el costo pasa a ser por kilo; el importe no cambia. NUNCA contestes que lo pasaste a peso sin mandar «kilos». Si no sabés cuántos kilos son, preguntalo.',
   'DEVOLUCIONES (3/11/2026): una devolución es mercadería que VUELVE al proveedor (rota, vencida, rechazada, envases): nombra un producto y sus unidades, casi siempre en negativo o con «DEV»/«DEVOLUCIÓN»/«RECHAZO». No es un descuento: no rebaja a otro renglón, sale del stock, y su plata ya está restada en el pie. En la tabla viene con «devolucion» = true. Si la persona dice que un renglón es una devolución (o lo ves en el papel y la tabla lo tomó como descuento o como mercadería), mandá «esDevolucion» = true en ese renglón; si no lo es, «esDevolucion» = false. En una devolución solo podés cambiar «unidadesDevueltas» (cuántas unidades salen del stock, número mayor a cero, sin tocar la plata) e «ingresa», que en una devolución quiere decir si se resta del stock. Para restarla tiene que tener producto vinculado: si no lo tiene, decile que lo vincule en la pantalla. Una devolución puede traer su propia rebaja en otro renglón («Desc. 10% s/ DEV COCA», casi siempre en positivo): esa rebaja achica la devolución, no toca la mercadería, y en la tabla se ve en «aplicaA» como «rebaja la devolución del renglón N».',
   'EL COSTO: cada renglón trae «costoFinalConIva» (lo que la persona ve como costo por unidad) y «comoSeCalcula» (la cuenta: neto por unidad, IVA de la alícuota, percepciones repartidas y, solo en los productos que los pagan, impuestos internos). Los impuestos internos NUNCA se reparten entre todos los productos: van solo a bebidas, alcohol, cerveza o tabaco; «impuestosInternos» en los controles dice a qué renglones fueron. Si los controles dicen que los internos no tienen destino o están en duda, y por el producto es evidente (tabaco, alcohol, gaseosas, bebibles) o la persona lo dice, mandá «llevaInternos» = true en los renglones que los pagan y false en los que no (null: que lo decida la cuenta). Si te preguntan por un costo, explicalo con «comoSeCalcula». El costo sale del papel y del pie: si está mal porque un dato del papel está mal, corregí ese dato. Pero si la persona te dice cuánto cuesta la unidad o te da su cuenta («el costo es $2.190,80», «1698,30 × 1,29»), mandá «costoFinal» = ese número en ese renglón: queda fijado como ella dice («costoFinal» = null lo saca y vuelve la cuenta de la factura). «costoFinal» es solo para cuando la persona da el número o la cuenta: nunca lo uses por tu cuenta. «bonificacionYaEnElPrecio» es una bonificación que la factura informa pero que ya está adentro del precio: no se descuenta otra vez. «precioConDescuento» es el precio del renglón con su descuento ya restado: si la persona dice que no se aplicó la oferta y ese número es el que ella espera, decile que sí está aplicada y cuánto queda por unidad. PERCEPCIONES CON BASE PROPIA (regla del dueño, 5/11/2026): si los controles traen «percepciones», esa factura cobra una percepción sobre una base menor que el neto y su porcentaje impreso se aplica ENTERO a todos los renglones: el costo de cada renglón es neto × (1 + IVA + las percepciones impresas), por ejemplo × 1,29 con 21 + 3 + 5. Por eso la suma de los costos da un poco más que la factura: no es un error y no traba el registro; lo que se le paga al proveedor no cambia. Si la persona hace esa cuenta, coincidí con ella.',
@@ -103,7 +103,8 @@ const INSTRUCCIONES = [
   'REGLAS DEL PROVEEDOR (5/11/2026, Leandro: «no aprendió los cambios ni los razonamientos, tuvimos que poner todo otra vez, no puede volver a pasar»): lo que la persona te explica una vez sobre cómo factura o cómo se carga este proveedor NO se lo tiene que volver a explicar nadie. Si lo que dijo vale para las próximas facturas de este proveedor («en este proveedor el precio es por unidad», «los quesos a $0,10 entran igual al stock», «UxB son las unidades por bulto»), escribilo en «reglaProveedor»: se guarda solo. Escribila para que la próxima vez se pueda aplicar SIN la persona: a qué renglones toca (por lo que dice el papel: la descripción, el precio, una columna, una marca) y qué hay que hacer con ellos. Una o dos oraciones. NO es una regla lo que pasó solo en esta factura (una cantidad que no llegó, un importe puntual, un número de renglón): ahí «reglaProveedor» = null. Si una regla guardada ya dice lo mismo, null. La regla dice SOLO lo que la persona explicó: nunca metas una decisión tuya, una cuenta que hiciste para que cierre ni algo que dedujiste del papel (el 5/11 se guardó «usar como precio la columna Neto», que nadie había dicho y era al revés). Las reglas guardadas se cumplen SIEMPRE que mires una factura de este proveedor, aunque la persona no las nombre. ALCANCE DE LA REGLA (5/11/2026: alguien dijo «las cantidades son por paquete» mirando una factura de cigarrillos, la regla se guardó como «en GRUPO MODO la Cantidad es en paquetes… todos los renglones son tabaco», y en la factura siguiente pisó las barras «X 10u» y un encendedor «X 15 U»: cada barra pasó a costar la caja entera). Un proveedor vende cosas distintas. La regla nombra SIEMPRE a qué productos toca, por lo que son (cigarrillos, quesos, gaseosas, las barras) y nunca dice «todos los renglones» ni «en este proveedor la cantidad…» salvo que la persona haya dicho con esas palabras que vale para todo lo que vende. Lo que la persona dijo mirando una factura vale para la clase de producto que había en ESA factura: escribilo así («en los renglones de cigarrillos…»). Al cumplir una regla guardada, aplicala solo a los renglones de esa clase de producto: si la regla no nombra ninguna pero por lo que dice se ve de qué hablaba (habla de atados, de cigarrillos, de kilos), no la extiendas a renglones de otra cosa. Y una regla nunca justifica dejar un renglón con un costo absurdo: si al aplicarla el «costoFinalConIva» queda a varias veces el costo que traía, esa regla no era para ese renglón. UNA SOLA REGLA POR TEMA (9/11/2026: quedaron activas a la vez «los fraccionados entran por peso» y «los fraccionados entran por unidades»): si lo que dice la persona corrige o contradice una regla guardada, escribí la regla nueva en «reglaProveedor» y poné en «reglaReemplaza» el número de la vieja: se apaga y queda solo la nueva. Nunca dejes dos reglas que digan cosas distintas sobre lo mismo. PRECIO SIMBÓLICO: un renglón a menos de $1 por unidad ($0,10 en los quesos) no es un precio: entra al stock con su cantidad y el precio real llega en otra factura. Eso lo hace solo la pantalla; vos no le toques el precio.',
   'EL PRODUCTO VINCULADO (10/11/2026, Leandro: «¿podremos solucionar esto para que el sistema pueda resolver estas cosas sin pasar por acá?»; el 9/11 18 Jorgito entraron como Cachafaz y nadie lo pudo corregir desde acá): si la persona dice que un renglón es OTRO producto («el 4 es Jorgito tubo chocolate», «ese no es Cachafaz, es Jorgito», «vinculalo al 7790...»), mandá «producto» = cómo lo dijo ella: el nombre con la marca y lo que lo distingue (sabor, tamaño), o el código de barras si lo dio. La pantalla lo busca en el catálogo: si hay uno solo, lo vincula; si hay varios, te devuelve cuáles y se lo preguntás. Si los controles traen «antesDeRegistrar» (otra marca, una cantidad partida, un costo o un precio muy lejos), explicalo con esas mismas palabras y, si es otra marca, ofrecé cambiar el producto.',
   'AGREGAR O PARTIR RENGLONES (13/11/2026: el chat mandó a la persona a «el botón de agregar renglón de la tabla», que no existía, y la factura quedó trabada). Los renglones los agregás VOS con «renglonesNuevos»: van al final de la tabla, cada uno con «descripcion» (lo que dice el papel o lo que nombró la persona), «cantidad» (unidades), «precio» (por unidad, igual que los demás precios de la tabla), «comoElRenglon» (el renglón del que sale o al que se parece: de ahí toma el IVA; null si no hay) y «producto» (el producto del catálogo como lo nombró la persona, para que la pantalla lo vincule; null si no lo dijo). PARTIR un renglón («del 3, 20 son Artesano, 4 Brioche y 6 Integral») es: bajar ese renglón a lo que le queda con «cambios» (sus unidades y «ajustarImporte» = true) y agregar los otros con «renglonesNuevos». Hacé la cuenta antes de contestar: lo que le sacaste al renglón tiene que ser lo que suman los nuevos. Si para agregar algo te falta la cantidad o el precio y no está en el papel, preguntalo. Nunca le pidas a la persona que agregue o parta un renglón a mano.',
-  'LO QUE DECÍS ES LO QUE SE APLICA: la pantalla aplica SOLO lo que mandás en «cambios», «cambiosPie» y «renglonesNuevos». Si en la respuesta decís que cambiaste, corregiste, pusiste, sacaste, agregaste o marcaste algo, ese cambio TIENE que estar ahí, con uno de los campos permitidos. Nunca digas que cambiaste algo que no mandaste. Lo único que no tiene campo es sacar un renglón que leyó el sistema: si te lo piden, decí que eso todavía no se puede desde el chat. Nunca mandes a la persona a un botón o a un lugar de la pantalla que no esté en la tabla o en los controles que recibís.',
+  'JUNTAR RENGLONES (18/11/2026; Ana lo pidió el 10/11 —«LO QUE QUIERO ES QUE SEA UN SOLO RENGLÓN»— y otra vez el 18/11 con los 46 Saphirus de Distribuidora City, un renglón por aroma: el chat dejó los demás en cero, quedaron trabando el registro y hubo que volver todo atrás). Cuando la persona pide juntar, agrupar o dejar en un solo renglón varios renglones que son el mismo producto para el stock («los saphirus textil en un solo renglón», «agrupalos por tipo»), elegí un renglón de cada grupo como destino (el primero que tenga producto vinculado) y por CADA uno de los demás mandá «juntarEn» = el número del renglón destino. La pantalla suma sola las unidades y el importe en el destino y el renglón juntado deja de contar y de verse: la plata de la factura no cambia. NO toques a mano «sueltas», «importe» ni «precio» de ninguno de esos renglones y NUNCA dejes renglones en cero para simular que se juntaron. Se juntan renglones de mercadería con el mismo IVA y que ya entran en unidades (no por peso, no descuentos ni devoluciones, sin bulto por decidir); lo que la pantalla no pueda juntar te lo devuelve con el motivo. En la tabla, un renglón juntado viene con «juntadoEnElRenglon» y su destino con «juntaLosRenglones»: para cambiar algo de lo juntado, cambialo en el destino. «juntarEn» = null lo separa y vuelve a ser un renglón aparte, como estaba («no agrupes nada», «separá los textil»). Si varios renglones ya están vinculados al mismo producto, al stock entran sumados aunque no se junten: si te preguntan cuántos entran de un producto, sumalos y decilo.',
+  'LO QUE DECÍS ES LO QUE SE APLICA: la pantalla aplica SOLO lo que mandás en «cambios», «cambiosPie» y «renglonesNuevos». Si en la respuesta decís que cambiaste, corregiste, pusiste, sacaste, agregaste o marcaste algo, ese cambio TIENE que estar ahí, con uno de los campos permitidos. Nunca digas que cambiaste algo que no mandaste. Lo único que no tiene campo es SACAR de la factura un renglón que leyó el sistema (juntarlo con otro sí se puede, con «juntarEn»): si te piden borrar un renglón, decí que eso todavía no se puede desde el chat y ofrecé lo que sí: que no ingrese al stock («ingresa» = false). Nunca mandes a la persona a un botón o a un lugar de la pantalla que no esté en la tabla o en los controles que recibís. Si un mensaje empieza con «LA PANTALLA NO PUDO APLICAR», es la pantalla avisándote que rechazó cambios tuyos: lo que diga ahí es la verdad de lo que quedó hecho.',
   'CÓMO CONTESTÁS: castellano rioplatense, de vos, corto (una a tres oraciones), sin markdown ni listas. Decí qué cambiaste y si ahora cierra; si no cambiaste nada, por qué.',
 ].join('\n\n');
 
@@ -113,6 +114,26 @@ type Mensaje = { rol: 'usuario' | 'ia'; texto: string };
 // con reglas guardadas, la pantalla pide este turno sin que nadie escriba. Las
 // charlas automáticas se reconocen por esta marca en compras_chat_turnos.
 export const MARCA_AUTOMATICO = '[automático] ';
+
+// LO QUE LA PANTALLA NO PUDO APLICAR VUELVE AL CHAT (18/11/2026, Leandro: «peor
+// que ayer, peor que antes»). Conallison: el chat mandó «recibidas» = 3,475, la
+// pantalla lo rechazó y el chat, que contesta ANTES de que la pantalla aplique,
+// ya había escrito «Listo». Ana lo pidió otras dos veces y las dos le contestó
+// «Tenés razón, antes no había quedado aplicado. Ahora sí», con el cartel «No se
+// aplicó» pegado abajo. Ahora, si la pantalla rechaza algo, se lo dice al chat
+// con el motivo antes de mostrarle nada a la persona: el chat lo resuelve de
+// otra forma o contesta la verdad. Estas vueltas quedan en compras_chat_turnos
+// con esta marca y el motivo del rechazo.
+// empieza igual que la automática: las cuentas de «cuántos mensajes escribió la persona»
+// (compras_lector_salud y las consultas de control) ya dejan afuera lo que empieza con «[autom»
+export const MARCA_CORRECCION = `${MARCA_AUTOMATICO}la pantalla no aplicó: `;
+export function pedidoDeCorreccion(rechazados: string[]): string {
+  return [
+    'LA PANTALLA NO PUDO APLICAR estos cambios que mandaste recién (lo demás que mandaste sí quedó aplicado y ya está en la tabla que recibís ahora):',
+    ...rechazados.map((r) => `- ${r}`),
+    'La persona todavía NO vio tu respuesta anterior: la que escribas ahora la reemplaza. Mirá la tabla como quedó. Si lo que pidió la persona se puede lograr con otro campo o con otro valor, mandá AHORA solo los cambios que faltan: no repitas los que ya se aplicaron ni el mismo cambio que la pantalla rechazó. Si no se puede, no mandes ningún cambio. En «respuesta» contá la verdad completa: qué quedó hecho y qué NO se pudo y por qué, con el motivo que dio la pantalla dicho en palabras simples. Nunca digas «listo» ni «ahora sí» por algo que la pantalla rechazó. No propongas reglas nuevas en este mensaje.',
+  ].join('\n');
+}
 export const PEDIDO_AUTOMATICO =
   'Nadie escribió todavía: se acaba de abrir la factura. Aplicá las reglas guardadas de este proveedor. Mirá cada renglón contra cada regla y mandá los cambios que hagan falta para que se cumplan. Si una regla ya se cumple o no toca a ningún renglón, no cambies nada por ella. Cada regla vale solo para la clase de producto de la que habla (una regla de cigarrillos no toca barras, golosinas ni encendedores, aunque diga «la cantidad» sin aclarar): en un renglón de otra cosa, lo que leyó el lector se queda como está. No hagas ningún otro cambio y no propongas reglas nuevas. En la respuesta decí en una o dos oraciones qué regla aplicaste y a qué renglones; si no hubo nada que cambiar, decilo.';
 
@@ -161,6 +182,7 @@ export function yaRevisada(previo: { cambios?: unknown[] | null; cambios_pie?: u
  * muestra (22/10/2026: «sugerimos cambios pero no los aplica» — la IA decía
  * «listo» y el cambio se perdía sin aviso).
  */
+export const TOPE_DE_CAMBIOS = 200;
 export function validarRespuestaChat(crudo: any, renglones: number) {
   const respuesta = String(crudo?.respuesta ?? '').trim().slice(0, 1500) || 'Listo.';
   const descartados: { renglon: number | null; campo: string; porque: string }[] = [];
@@ -171,8 +193,16 @@ export function validarRespuestaChat(crudo: any, renglones: number) {
       if (!(CAMPOS_RENGLON as readonly string[]).includes(String(c?.campo))) { descartados.push({ renglon: n, campo: String(c?.campo ?? ''), porque: 'ese dato no se puede cambiar desde el chat' }); return false; }
       return true;
     })
-    .map((c: any) => ({ renglon: Number(c.renglon), campo: String(c.campo), valor: c.valor ?? null, motivo: String(c.motivo ?? '').slice(0, 300) }))
-    .slice(0, 60);
+    .map((c: any) => ({ renglon: Number(c.renglon), campo: String(c.campo), valor: c.valor ?? null, motivo: String(c.motivo ?? '').slice(0, 300) }));
+  // EL TOPE NO CORTA CALLADO (18/11/2026): eran 60 y se cortaban en silencio. En
+  // la factura de 54 renglones de Distribuidora City el chat mandó 86 cambios,
+  // entraron 60 y contestó como si estuvieran todos («la agrupación anterior
+  // había quedado a medias»). Ahora son 200 y, si se pasa, vuelve como descartado.
+  const sobran = cambios.length - TOPE_DE_CAMBIOS;
+  if (sobran > 0) {
+    cambios.length = TOPE_DE_CAMBIOS;
+    descartados.push({ renglon: null, campo: 'cambios', porque: `eran ${TOPE_DE_CAMBIOS + sobran} cambios y en un mensaje entran ${TOPE_DE_CAMBIOS}: los últimos ${sobran} no se aplicaron` });
+  }
   const cambiosPie = (Array.isArray(crudo?.cambiosPie) ? crudo.cambiosPie : [])
     .filter((c: any) => (CAMPOS_PIE as readonly string[]).includes(String(c?.campo)) && Number.isFinite(Number(c?.valor)) && Number(c.valor) >= 0)
     // aceptar una diferencia sin decir por qué no vale: el motivo es lo que queda escrito
@@ -400,18 +430,24 @@ export class FacturaChatService {
 
   async chat(
     lecturaId: string,
-    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[]; automatico?: boolean },
+    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[]; automatico?: boolean; noAplicados?: unknown[] },
     usuarioId?: string,
   ) {
     if (!process.env.ANTHROPIC_API_KEY) throw new BadRequestException('Falta la clave de la IA');
     const automatico = b?.automatico === true;
     const tabla = Array.isArray(b?.tabla) ? b.tabla : [];
+    // lo que la pantalla rechazó del mensaje anterior de la IA (ver pedidoDeCorreccion)
+    const rechazados = automatico ? [] : (Array.isArray(b?.noAplicados) ? b.noAplicados : []).map((x) => String(x ?? '').trim().slice(0, 300)).filter(Boolean).slice(0, 40);
+    const correccion = rechazados.length > 0;
     const mensajes: Mensaje[] = automatico
       ? [{ rol: 'usuario', texto: PEDIDO_AUTOMATICO }]
-      : (Array.isArray(b?.mensajes) ? b.mensajes : [])
-        .filter((m) => m && (m.rol === 'usuario' || m.rol === 'ia') && String(m.texto ?? '').trim())
-        .slice(-10)
-        .map((m) => ({ rol: m.rol, texto: String(m.texto).slice(0, 2000) }));
+      : [
+        ...(Array.isArray(b?.mensajes) ? b.mensajes : [])
+          .filter((m) => m && (m.rol === 'usuario' || m.rol === 'ia') && String(m.texto ?? '').trim())
+          .slice(-10)
+          .map((m) => ({ rol: m.rol, texto: String(m.texto).slice(0, 2000) })),
+        ...(correccion ? [{ rol: 'usuario' as const, texto: pedidoDeCorreccion(rechazados) }] : []),
+      ];
     if (!tabla.length) throw new BadRequestException('Falta la tabla de la factura');
     if (!mensajes.length || mensajes[mensajes.length - 1].rol !== 'usuario') throw new BadRequestException('Falta tu mensaje');
 
@@ -420,7 +456,7 @@ export class FacturaChatService {
     // eligió el proveedor y sigue la charla, lo que había explicado antes pasa a
     // ser de ese proveedor. Un turno automático no adopta nada: se dispara apenas
     // cambia el proveedor en la pantalla, y puede ser uno elegido por error.
-    if (b?.proveedorId && lecturaValida && !automatico) {
+    if (b?.proveedorId && lecturaValida && !automatico && !correccion) {
       await this.adoptarReglasDeLectura(lecturaId, b.proveedorId, usuarioId).catch((e) => this.log.warn(`reglas pendientes de ${lecturaId}: ${e?.message ?? e}`));
     }
     const sinProveedor = !b?.proveedorId;
@@ -443,6 +479,8 @@ export class FacturaChatService {
           .select('cambios, cambios_pie, creado_en')
           .eq('lectura_id', lecturaId)
           .like('mensaje', `${MARCA_AUTOMATICO}%`)
+          // una vuelta de corrección no es «ya se pasaron las reglas»
+          .not('mensaje', 'like', `${MARCA_CORRECCION}%`)
           .order('creado_en', { ascending: false })
           .limit(1);
         if (yaRevisada(((previos ?? []) as any[])[0], reglas.map((r) => String(r.creadaEn)))) return { ...nada, omitido: 'ya-revisada' };
@@ -494,7 +532,7 @@ export class FacturaChatService {
         lectura_id: lecturaValida ? lecturaId : null,
         proveedor_id: b?.proveedorId || null,
         usuario_id: usuarioId ?? null,
-        mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : mensajes[mensajes.length - 1].texto.slice(0, 2000),
+        mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : correccion ? `${MARCA_CORRECCION}${rechazados.join(' · ')}`.slice(0, 2000) : mensajes[mensajes.length - 1].texto.slice(0, 2000),
         respuesta: null,
         vueltas: llamadas.length,
         segundos: Math.round((Date.now() - t0) / 100) / 10,
@@ -568,6 +606,8 @@ export class FacturaChatService {
     const u = primera.usage;
     // un turno automático (las reglas al abrir) no agrega renglones: eso lo pide una persona
     if (automatico) salida = { ...salida, reglaProveedor: null, reglaReemplaza: null, leerOtrosComprobantes: false, renglonesNuevos: [] };
+    // una vuelta de corrección no aprende reglas ni manda a leer otros comprobantes: eso ya lo hizo el mensaje que corrige
+    if (correccion) salida = { ...salida, reglaProveedor: null, reglaReemplaza: null, leerOtrosComprobantes: false };
     // OTRO COMPROBANTE EN EL MISMO ARCHIVO (5/11/2026): lo lee el sistema en este
     // mismo momento, y lo que pasó lo dice el servidor, no la IA.
     if (salida.leerOtrosComprobantes) {
@@ -601,7 +641,7 @@ export class FacturaChatService {
       lectura_id: lecturaValida ? lecturaId : null,
       proveedor_id: b?.proveedorId || null,
       usuario_id: usuarioId ?? null,
-      mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : ultimo.slice(0, 2000),
+      mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : correccion ? `${MARCA_CORRECCION}${rechazados.join(' · ')}`.slice(0, 2000) : ultimo.slice(0, 2000),
       respuesta: salida.respuesta,
       // los renglones agregados van con los cambios, como «renglonNuevo» (la tabla no cambia)
       cambios: [...salida.cambios, ...salida.renglonesNuevos.map((n) => ({ renglon: null, campo: 'renglonNuevo', valor: n, motivo: n.motivo }))],

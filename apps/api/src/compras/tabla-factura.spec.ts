@@ -1,7 +1,7 @@
 // La factura como tabla (8/10/2026). La cuenta vive en el panel
 // (apps/admin/app/lib/tabla-factura.ts) porque se recalcula en vivo; se prueba
 // acá porque la API es la que tiene los tests. Casos reales de Oxxon y Distri Sur.
-import { aplicarCambiosIA, aplicarPapel, frenarReglasAbsurdas, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel } from '../../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, frenarReglasAbsurdas, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon } from '../../../admin/app/lib/tabla-factura';
 
 const lectura = (cantidad: number, precio: number, importe: number, extra: Record<string, unknown> = {}) => ({ cantidad, precio, importe, ...extra });
 
@@ -369,5 +369,179 @@ describe('paquetes de N en un renglón que cuenta cajas', () => {
   it('si el papel ya cuenta unidades, agrupa como siempre', () => {
     const fila: any[] = [{ descripcion: 'RODESIA x 36', cantidad: 72, precio: 774.53, importe: 55766.16, papel: { bultos: 2, uxb: 36, sueltas: 0, precio: 774.53, desc: null, iva: 21, importe: 55766.16 } }];
     expect(aplicarCambiosIA(fila, [{ renglon: 1, campo: 'unidadesPorVenta', valor: 3 }], () => false).items[0]).toMatchObject({ cantidad: 24 });
+  });
+});
+
+// 18/11/2026, Conallison 0020-00127749. La carne se leyó «1 × $38.495 = $173.997,40»
+// con 4,52 en la columna de kilos. Ana: «el precio es por kilo» → el chat la pasó a
+// peso. Después: «en rack de ojo no entró 4,52 kilos, entraron 3,475» → la pantalla
+// contestó tres veces «recibidas: el valor no es válido para ese dato» (comparaba
+// los kilos contra la pieza del papel) mientras el chat decía «ahora sí». La
+// factura se descartó sin cargar.
+describe('llegó una parte de un renglón por peso: se cuenta en kilos', () => {
+  const esDesc = () => false;
+  const rack = () => {
+    const leido: any = { ...lectura(1, 38495, 173997.4, { descripcion: 'RACK DE OJO PORCIONADO', kg: 4.52, sku: 'L13832', incluir: true }) };
+    leido.papel = papelDeLectura(leido);
+    return aplicarCambiosIA([leido], [{ renglon: 1, campo: 'kilos', valor: 4.52 }], esDesc).items;
+  };
+  it('pasada a peso por el chat queda en 4,52 kg a $38.495 el kilo, con su papel de 1 pieza', () => {
+    expect(rack()[0]).toMatchObject({ porPeso: true, cantidad: 4.52, precio: 38495, importe: 173997.4 });
+    expect(unidadesDelPapel(rack()[0].papel)).toBe(1);
+    expect(facturadoDe(rack()[0])).toBe(4.52);
+  });
+  it('«entraron 3,475 kg» se aplica: entran 3,475, faltan 1,045 y la plata no se toca', () => {
+    const r = aplicarCambiosIA(rack(), [{ renglon: 1, campo: 'recibidas', valor: 3.475, motivo: 'el resto vino en mal estado' }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.registros).toEqual([{ renglon: 1, campo: 'recibidas', antes: null, despues: 3.475, motivo: 'el resto vino en mal estado' }]);
+    expect(r.items[0]).toMatchObject({ recibidoAMano: 3.475, cantidad: 4.52, precio: 38495, importe: 173997.4 });
+    expect(faltanteDe(r.items[0])).toBe(1.045);
+    expect(cantidadQueEntra(r.items[0])).toBe(3.475);
+  });
+  it('lo que ve el chat después dice cuánto se facturó, cuánto faltó y cuánto entra', () => {
+    const r = aplicarCambiosIA(rack(), [{ renglon: 1, campo: 'recibidas', valor: 3.475 }], esDesc);
+    expect(tablaParaIA(r.items, esDesc, () => null)[0]).toMatchObject({ recibidas: 3.475, facturado: 4.52, faltaron: 1.045, entraAlStockLoQueLlego: 3.475 });
+  });
+  it('más kilos que los facturados no se aplican, y dice por qué', () => {
+    const r = aplicarCambiosIA(rack(), [{ renglon: 1, campo: 'recibidas', valor: 5 }], esDesc);
+    expect(r.registros).toHaveLength(0);
+    expect(r.descartados[0].porque).toBe('no pueden entrar más kg (5) que las facturadas (4,52)');
+  });
+  it('todos los kilos (o vacío) borra la marca', () => {
+    const con = aplicarCambiosIA(rack(), [{ renglon: 1, campo: 'recibidas', valor: 3.475 }], esDesc).items;
+    expect(aplicarCambiosIA(con, [{ renglon: 1, campo: 'recibidas', valor: 4.52 }], esDesc).items[0].recibidoAMano).toBeNull();
+    expect(aplicarCambiosIA(con, [{ renglon: 1, campo: 'recibidas', valor: null }], esDesc).items[0].recibidoAMano).toBeNull();
+  });
+  it('un renglón que el lector ya leyó por peso (sin papel) también', () => {
+    const queso: any[] = [lectura(3.06, 15416, 47172.96, { porPeso: true, papel: null, sku: 'Q1', incluir: true })];
+    const r = aplicarCambiosIA(queso, [{ renglon: 1, campo: 'recibidas', valor: 2.5 }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(cantidadQueEntra(r.items[0])).toBe(2.5);
+    expect(faltanteDe(r.items[0])).toBe(0.56);
+  });
+  it('en unidades sigue como siempre: Pronto Manzana de Oxxon, 36 facturadas y 28 que entraron', () => {
+    const pronto: any = lectura(8, 1439.61, 46643.23, { bultos: 4, unidadesSueltas: 4, unidadesPorBulto: 8, bonificacionPct: 10, sku: 'P1', incluir: true });
+    pronto.papel = papelDeLectura(pronto);
+    const fila = aplicarPapel(pronto, pronto.papel, { como: 'unidades' });
+    const r = aplicarCambiosIA([fila], [{ renglon: 1, campo: 'recibidas', valor: 28 }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(facturadoDe(r.items[0])).toBe(36);
+    expect(faltanteDe(r.items[0])).toBe(8);
+    expect(cantidadQueEntra(r.items[0])).toBe(28);
+    expect(aplicarCambiosIA([fila], [{ renglon: 1, campo: 'recibidas', valor: 40 }], esDesc).descartados[0].porque).toBe('no pueden entrar más unidades (40) que las facturadas (36)');
+  });
+  it('«recibidas» = 0 no se guarda callado: va por «ingresa»', () => {
+    const r = aplicarCambiosIA(rack(), [{ renglon: 1, campo: 'recibidas', valor: 0 }], esDesc);
+    expect(r.registros).toHaveLength(0);
+    expect(r.descartados[0].porque).toMatch(/no ingresa/);
+  });
+});
+
+// 18/11/2026, Distribuidora City 12046: 54 renglones, 46 de Saphirus (uno por
+// aroma, 2 unidades cada uno). Ana, el 10/11 y otra vez hoy: «los saphirus en un
+// solo renglón agrupados por textil, difusor y aero». El chat los dejaba en cero,
+// quedaban «no cierra» y el registro se trababa.
+describe('juntar renglones', () => {
+  const esDesc = (f: any) => !!f.esDescuento;
+  const aroma = (descripcion: string, precio = 3525, extra: Record<string, unknown> = {}) => {
+    const leido: any = lectura(2, precio, 2 * precio, { descripcion, sku: '7454', nombre: 'Aromatizante Saphirus Textil VARIOS', incluir: true, alicuotaIva: 21, ...extra });
+    return { ...leido, papel: papelDeLectura(leido) };
+  };
+  const textiles = () => [aroma('SAPHIRUS TEXTIL COCO X 2'), aroma('SAPHIRUS TEXTIL UVA X 2'), aroma('SAPHIRUS TEXTIL BEBE X 2'), aroma('FOSFOROS X 10', 500, { sku: 'F1' })];
+  const suma = (xs: any[]) => xs.reduce((s, x) => s + (Number(x.importe) || 0), 0);
+
+  it('el destino suma unidades e importe, los juntados quedan en cero y la plata de la factura no cambia', () => {
+    const antes = textiles();
+    const r = aplicarCambiosIA(antes, [{ renglon: 2, campo: 'juntarEn', valor: 1, motivo: 'un renglón por tipo' }, { renglon: 3, campo: 'juntarEn', valor: 1 }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.registros.map((g) => [g.renglon, g.campo, g.despues])).toEqual([[2, 'juntarEn', 1], [3, 'juntarEn', 1]]);
+    expect(r.items[0]).toMatchObject({ cantidad: 6, precio: 3525, importe: 21150, incluir: true });
+    expect(cuentaDelPapel(r.items[0].papel)).toMatchObject({ unidades: 6, cierra: true });
+    expect(r.items[0].junta.map((x: any) => x.renglon)).toEqual([2, 3]);
+    expect(r.items[1]).toMatchObject({ juntadoEn: 1, cantidad: 0, importe: 0, incluir: false });
+    expect(r.items[2]).toMatchObject({ juntadoEn: 1, cantidad: 0, importe: 0, incluir: false });
+    expect(r.items[3]).toBe(antes[3]);
+    expect(suma(r.items)).toBe(suma(antes));
+  });
+  it('con precios distintos el destino queda al promedio y la cuenta sigue dando el importe', () => {
+    const r = aplicarCambiosIA([aroma('AERO A', 4850), aroma('AERO B', 4900)], [{ renglon: 2, campo: 'juntarEn', valor: 1 }], esDesc);
+    expect(r.items[0]).toMatchObject({ cantidad: 4, precio: 4875, importe: 19500 });
+    expect(cuentaDelPapel(r.items[0].papel).cierra).toBe(true);
+  });
+  it('separar uno lo deja como estaba y el destino lo descuenta; separar todos deja la tabla igual que antes', () => {
+    const antes = textiles();
+    const juntos = aplicarCambiosIA(antes, [{ renglon: 2, campo: 'juntarEn', valor: 1 }, { renglon: 3, campo: 'juntarEn', valor: 1 }], esDesc).items;
+    const uno = separarRenglon(juntos, 2);
+    expect(uno[2]).toMatchObject({ cantidad: 2, importe: 7050, incluir: true, juntadoEn: null });
+    expect(uno[0]).toMatchObject({ cantidad: 4, importe: 14100 });
+    expect(uno[0].junta.map((x: any) => x.renglon)).toEqual([2]);
+    const ninguno = separarRenglon(uno, 1);
+    for (const k of [0, 1, 2]) expect(ninguno[k]).toMatchObject({ cantidad: 2, precio: 3525, importe: 7050, incluir: true, papel: antes[k].papel });
+    expect(ninguno[0].junta).toBeNull();
+    expect(suma(ninguno)).toBe(suma(antes));
+  });
+  it('el chat también separa: «juntarEn» vacío', () => {
+    const juntos = aplicarCambiosIA(textiles(), [{ renglon: 2, campo: 'juntarEn', valor: 1 }], esDesc).items;
+    const r = aplicarCambiosIA(juntos, [{ renglon: 2, campo: 'juntarEn', valor: null }], esDesc);
+    expect(r.registros).toEqual([{ renglon: 2, campo: 'juntarEn', antes: 1, despues: null, motivo: '' }]);
+    expect(r.items[1]).toMatchObject({ cantidad: 2, importe: 7050, juntadoEn: null });
+    expect(r.items[0]).toMatchObject({ cantidad: 2, importe: 7050 });
+  });
+  it('un renglón sin producto elegido toma el del destino; al revés no se puede', () => {
+    const filas = [aroma('SAPHIRUS TEXTIL COCO X 2'), aroma('SAPHIRUS TEXTIL NUEVO X 2', 3525, { sku: '', nombre: null, incluir: false })];
+    expect(aplicarCambiosIA(filas, [{ renglon: 2, campo: 'juntarEn', valor: 1 }], esDesc).items[0]).toMatchObject({ cantidad: 4, importe: 14100, incluir: true });
+    expect(aplicarCambiosIA(filas, [{ renglon: 1, campo: 'juntarEn', valor: 2 }], esDesc).descartados[0].porque).toMatch(/no tiene producto elegido/);
+  });
+  it('no junta lo que no se puede sumar, y dice por qué', () => {
+    const filas: any[] = [
+      aroma('SAPHIRUS AERO A', 4850),
+      aroma('SAPHIRUS AERO B', 4850, { incluir: false }),
+      aroma('SAPHIRUS AERO C', 4850, { alicuotaIva: 10.5 }),
+      { ...aroma('QUESO', 15000), porPeso: true },
+      { ...aroma('YERBA X 10', 3000), unidadesPorBulto: 10 },
+      { descripcion: 'DESCUENTO', esDescuento: true, cantidad: 1, precio: -100, importe: -100 },
+    ];
+    const r = aplicarCambiosIA(filas, [2, 3, 4, 5, 6, 1, 9].map((n) => ({ renglon: n, campo: 'juntarEn', valor: n === 1 ? 1 : 1 })), esDesc);
+    expect(r.registros).toHaveLength(0);
+    expect(r.items).toEqual(filas);
+    expect(r.descartados.map((d) => d.porque)).toEqual([
+      'uno entra al stock y el otro no: no se pueden sumar',
+      'no tiene el mismo IVA que el renglón 1',
+      'va por peso',
+      'todavía no se decidió cómo entra su bulto',
+      'es un renglón de descuento',
+      'un renglón no se junta consigo mismo',
+      'ese renglón no existe',
+    ]);
+  });
+  it('un renglón juntado no se toca: el cambio va en el destino', () => {
+    const juntos = aplicarCambiosIA(textiles(), [{ renglon: 2, campo: 'juntarEn', valor: 1 }], esDesc).items;
+    const r = aplicarCambiosIA(juntos, [{ renglon: 2, campo: 'sueltas', valor: 5 }, { renglon: 3, campo: 'juntarEn', valor: 2 }], esDesc);
+    expect(r.registros).toHaveLength(0);
+    expect(r.descartados[0].porque).toMatch(/está junto con el 1/);
+    expect(r.descartados[1].porque).toBe('el renglón 2 ya está junto con el renglón 1');
+  });
+  it('la IA ve los juntados como tales y el destino dice a cuáles junta', () => {
+    const juntos = aplicarCambiosIA(textiles(), [{ renglon: 2, campo: 'juntarEn', valor: 1 }, { renglon: 3, campo: 'juntarEn', valor: 1 }], esDesc).items;
+    const t = tablaParaIA(juntos, esDesc, () => null);
+    expect(t[0]).toMatchObject({ renglon: 1, unidades: 6, importe: 21150, cierra: true, juntaLosRenglones: [2, 3] });
+    expect(t[1]).toMatchObject({ renglon: 2, juntadoEnElRenglon: 1 });
+    expect((t[1] as any).importe).toBeUndefined();
+  });
+  it('los 15 Textil de City: 30 unidades a $3.525 en un renglón, $105.750', () => {
+    const quince = Array.from({ length: 15 }, (_, k) => aroma(`SAPHIRUS TEXTIL AROMA ${k + 1} X 2`));
+    const r = aplicarCambiosIA(quince, quince.slice(1).map((_, k) => ({ renglon: k + 2, campo: 'juntarEn', valor: 1 })), esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0]).toMatchObject({ cantidad: 30, precio: 3525, importe: 105750 });
+    expect(r.items.filter((x) => x.juntadoEn === 1)).toHaveLength(14);
+    expect(suma(r.items)).toBe(105750);
+  });
+  it('si una regla aplicada sola deja el destino a un costo absurdo, vuelve el grupo entero', () => {
+    const antes = [{ ...aroma('SAPHIRUS TEXTIL COCO X 2'), costoCatalogo: 4265 }, { ...aroma('CAJA MAYORISTA X 2', 90000), costoCatalogo: 4265 }];
+    const r = aplicarCambiosIA(antes, [{ renglon: 2, campo: 'juntarEn', valor: 1 }], esDesc);
+    const f = frenarReglasAbsurdas(antes, r.items, r.registros);
+    expect(f.frenados).toEqual([1, 2]);
+    expect(f.items).toEqual(antes);
+    expect(f.registros).toHaveLength(0);
   });
 });
