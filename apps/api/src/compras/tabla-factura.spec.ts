@@ -644,3 +644,28 @@ describe('la unidad del renglón: bultos a precio de bulto', () => {
     expect(r.items[0].papel).toMatchObject({ bultos: 4, uxb: 8, sueltas: 0 });
   });
 });
+
+// 18/11/2026 13:46, Oxxon 0006-00301307, renglón 9: «QF- PATY CLASICO X (4 UNID)»,
+// 1 bulto de 24 a $5.507,47 cada uno, 10 % → $118.961,42. Le escribieron «paty clasico
+// un bulto de 24 unidades», el chat mandó «entraComo» = abiertas y quedaron 576. Lo
+// corrigieron a mano a 24. Lo encontró el examen al comparar esa charla con lo registrado.
+describe('«abrir» un renglón que ya cuenta las unidades de adentro no multiplica dos veces', () => {
+  const paty = (): any => ({
+    descripcion: 'QF- PATY CLASICO X (4 UNID)', cantidad: 24, precio: 5507.47, importe: 118961.42, bonificacionPct: 10, sku: 'P9', incluir: true,
+    papel: { bultos: 1, uxb: 24, sueltas: 0, precio: 5507.47, desc: 10, iva: 21, importe: 118961.42 },
+  });
+  it('entran las 24, al mismo precio, y la plata no cambia', () => {
+    const r = aplicarCambiosIA([paty()], [{ renglon: 1, campo: 'entraComo', valor: 'abiertas', motivo: 'un bulto de 24' }], () => false);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0]).toMatchObject({ cantidad: 24, precio: 5507.47, importe: 118961.42 });
+    expect(cuentaDelPapel(r.items[0].papel).cierra).toBe(true);
+    expect(entraDeRenglon(r.items[0], r.items[0].papel)).toEqual({ como: 'unidades' });
+  });
+  it('y por la tabla tampoco: aplicarPapel con «abiertas» sobre bultos deja las unidades de adentro', () => {
+    expect(aplicarPapel(paty(), paty().papel, { como: 'abiertas', de: 24 })).toMatchObject({ cantidad: 24, precio: 5507.47 });
+  });
+  it('las cajas cerradas a precio de caja se siguen abriendo como siempre', () => {
+    const cajas: any = { descripcion: 'VINO Caja 6x750', cantidad: 5, precio: 60000, importe: 300000, papel: { bultos: 0, uxb: 6, sueltas: 5, precio: 60000, desc: null, iva: 21, importe: 300000 } };
+    expect(aplicarPapel(cajas, cajas.papel, { como: 'abiertas', de: 6 })).toMatchObject({ cantidad: 30, precio: 10000 });
+  });
+});

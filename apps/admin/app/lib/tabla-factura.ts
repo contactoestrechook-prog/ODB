@@ -215,7 +215,14 @@ export function aplicarPapel<T extends Record<string, any>>(fila: T, papel: Pape
   const unidades = unidadesDelPapel(papel);
   const precio = num(papel.precio);
   const comoCajas = entra?.como === 'cajas' && entra.de > 1 ? entra.de : null;
-  const abiertas = entra?.como === 'abiertas' && entra.de > 1 ? entra.de : null;
+  // «ABRIR» ES PARA LO QUE EL PAPEL CUENTA COMO CAJAS CERRADAS (18/11/2026, Oxxon:
+  // «QF- PATY CLASICO X (4 UNID)», 1 bulto de 24 a precio de unidad. A «paty clásico
+  // un bulto de 24 unidades» el chat mandó «abiertas» y el renglón pasó a 24 × 24 =
+  // 576 al precio dividido; lo volvieron a mano). Si la cantidad está en «bultos»,
+  // las de adentro ya están contadas (bultos × unidades por bulto) y el precio ya es
+  // de cada una: abrir no multiplica de nuevo, entran esas unidades.
+  const yaCuentaLasDeAdentro = (num(papel.bultos) ?? 0) > 0;
+  const abiertas = entra?.como === 'abiertas' && entra.de > 1 && !yaCuentaLasDeAdentro ? entra.de : null;
   const cantidad = comoCajas ? redondear(unidades / comoCajas, 3) : abiertas ? unidades * abiertas : unidades;
   const precioStock = precio == null ? null : comoCajas ? redondear(precio * comoCajas) : abiertas ? redondear(precio / abiertas) : precio;
   const enBultos = !comoCajas && (num(papel.bultos) ?? 0) > 0 && (num(papel.uxb) ?? 0) > 1;
@@ -715,7 +722,8 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       const de = num(papel.uxb);
       let nuevo: EntraComo | undefined;
       if (c.valor === 'cajas' && de != null && de > 1) nuevo = { como: 'cajas', de };
-      else if ((c.valor === 'abiertas' || c.valor === 'abrir') && de != null && de > 1) nuevo = { como: 'abiertas', de };
+      // con la cantidad en «bultos» las de adentro ya están contadas: «abrir» es que entren esas unidades
+      else if ((c.valor === 'abiertas' || c.valor === 'abrir') && de != null && de > 1) nuevo = (num(papel.bultos) ?? 0) > 0 ? { como: 'unidades' } : { como: 'abiertas', de };
       else if (c.valor === 'unidades') nuevo = { como: 'unidades' };
       if (!nuevo) { descartar(c, 'el renglón no tiene unidades por bulto'); continue; }
       registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: nuevo.como, motivo });
