@@ -16,7 +16,13 @@ def todas(ruta):
         a += 1000
 def norm(t): return re.sub(r'[^a-z0-9]+', ' ', unicodedata.normalize('NFD', str(t or '')).encode('ascii', 'ignore').decode().lower()).strip()
 art = list(csv.reader(open(f'{D}/articulos.csv', encoding='utf-8'), delimiter=';'))[1:]
-provs = todas('proveedores?select=id,razon_social&order=id')
+# CÓDIGOS REPETIDOS EN EL CRACK (18/11/2026): el 10610, el 12252 y el 8139 son dos artículos cada
+# uno, con proveedores distintos. Cada fila le sacaba al producto el proveedor de la otra (el 18/11
+# le iba a dejar sin ninguno a Domain Bousquet y a Gin Bombay Sunset): no se tocan, como en la carga.
+_veces = collections.Counter(a[0].strip() for a in art)
+repetidos = {c for c, n in _veces.items() if n > 1}
+art = [a for a in art if a[0].strip() not in repetidos]
+provs =todas('proveedores?select=id,razon_social&order=id')
 m = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mapa-proveedores.json')))
 prov_id_por_nombre = collections.defaultdict(list)
 for p in provs: prov_id_por_nombre[norm(p['razon_social'])].append(p['id'])
