@@ -95,9 +95,23 @@ if echo "$CAMBIADOS" | grep -qE '^apps/(api/src/(compras|listas)/|api/scripts/re
     echo "AVISO: no se repasaron las facturas registradas (falta apps/api/.env o las dependencias de la API)."
   fi
 fi
+# EL EXAMEN DEL CHAT DE LA FACTURA (18/11/2026). Leandro: «siempre encontrás la
+# falla pero nunca encontrás el problema de raíz»; y a «¿hago que el examen corra
+# solo en cada publicación y la frene si rinde peor?»: «Sí, que frene». Si se
+# publica la API y cambió algo del chat de la factura (el chat, la prueba de sus
+# cambios, la cuenta de la factura o el examen mismo), el servidor le toma el
+# examen a la imagen nueva antes de levantarla (infra/servidor/publicar.sh): si
+# no aprueba, no se publica y main no se toca. Gasta IA (lo dice al terminar;
+# la primera vez, USD 0,27). SIN_EXAMEN_CHAT=1 lo saltea: solo con el OK de Leandro.
+EXAMEN_CHAT=no
+if echo "$SERVICIOS" | grep -qw api \
+  && echo "$CAMBIADOS" | grep -qE '^apps/(api/src/compras/(factura-chat|probar-cambios|panel/|examen/)|admin/app/lib/tabla-factura)'; then
+  EXAMEN_CHAT=si
+  if [ "$SIN_EXAMEN_CHAT" = 1 ]; then EXAMEN_CHAT=no; echo "AVISO: se publica SIN tomarle el examen al chat de la factura (SIN_EXAMEN_CHAT=1)."; fi
+fi
 echo "Publicando$SERVICIOS desde $COMMIT en el servidor propio: $MENSAJE"
 # manda el código (git archive del commit), compila con docker compose y levanta
-sh infra/servidor/publicar.sh $SERVICIOS
+EXAMEN_CHAT=$EXAMEN_CHAT sh infra/servidor/publicar.sh $SERVICIOS
 # lo publicado pasa a ser main
 git push origin HEAD:main
 echo "Publicado$SERVICIOS desde $COMMIT y main quedó en $COMMIT."

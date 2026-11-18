@@ -22,6 +22,25 @@ ssh_ "set -e; cd /srv/odb
   [ -f hosts.env ] || cp codigo/infra/servidor/hosts.env.ejemplo hosts.env
   export VERSION=$VERSION
   docker compose --env-file hosts.env build $*
+  # EL EXAMEN DEL CHAT DE LA FACTURA (18/11/2026, Leandro: «Sí, que frene»). Si
+  # cambió algo del chat (lo decide scripts/publicar.sh), la imagen recién
+  # compilada rinde el examen ANTES de levantarse: las charlas reales, con la IA
+  # de verdad y sin escribir nada (apps/api/src/compras/examen). Si no aprueba,
+  # no se levanta: sigue corriendo la versión anterior y el código del servidor
+  # vuelve al de antes. El resultado de cada examen queda en /srv/odb/examen-chat.log.
+  if [ '${EXAMEN_CHAT:-no}' = si ]; then
+    echo 'Tomando el examen del chat de la factura a la versión nueva (todavía sin levantar)…'
+    docker compose --env-file hosts.env run --rm --no-deps -T api node dist/compras/examen/examen-chat.js > /tmp/examen-chat.log 2>&1 && APROBO=si || APROBO=no
+    grep -v 'Nest\]' /tmp/examen-chat.log || true
+    { echo; date '+%d/%m/%Y %H:%M'; grep -v 'Nest\]' /tmp/examen-chat.log; } >> /srv/odb/examen-chat.log
+    if [ \"\$APROBO\" != si ]; then
+      echo 'CANDADO: la versión nueva NO aprobó el examen del chat. No se levantó: sigue corriendo la anterior.'
+      # el código del servidor vuelve al de la versión que sigue corriendo (si algo de esto falla, igual se frena)
+      rm -rf codigo.rechazado; mv codigo codigo.rechazado || true; [ -d codigo.anterior ] && mv codigo.anterior codigo || true
+      [ -d codigo ] && cp codigo/infra/servidor/docker-compose.yml codigo/infra/servidor/Caddyfile . 2>/dev/null || true
+      exit 1
+    fi
+  fi
   docker compose --env-file hosts.env up -d --remove-orphans $*
   echo $VERSION > VERSION
   # cada publicación deja una imagen de ~1 GB por servicio: el 13/11/2026 había
