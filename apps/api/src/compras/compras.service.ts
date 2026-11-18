@@ -95,6 +95,10 @@ export type EntradaDirectaDto = {
     condicionVenta?: string;
     archivoUrl?: string; // comprobante original en el bucket
     pagada?: boolean; // contado en el momento → nace pagada
+    // COMPRA EVENTUAL (18/11/2026): proveedor nuevo, por única vez (la Coca-Cola que se salió
+    // a buscar a cualquier precio). Entra al stock y se paga, pero NO cambia el costo ni el
+    // precio de venta, y el proveedor no queda como el de esos productos.
+    compraEventual?: boolean;
     // renglones que volvieron con el repartidor (pintados o anotados a mano)
     devueltos?: { descripcion: string; importe?: number | null }[];
   };
@@ -506,6 +510,12 @@ export class ComprasService {
       })),
     );
 
+    // COMPRA EVENTUAL: solo para un proveedor que nunca tuvo una factura de las de siempre
+    const eventual = !!dto.factura?.compraEventual && !!dto.factura?.numero && Number(dto.factura?.total) > 0;
+    if (eventual && !(await this.primeraCompraProveedor(dto.proveedorId)).primeraVez) {
+      throw new BadRequestException('Este proveedor ya tiene facturas cargadas: la compra eventual es solo para un proveedor nuevo. Destildá «Compra eventual» para registrarla como siempre.');
+    }
+
     // regla de oro con el margen del rubro de cada producto (o el % indicado)
     const skus = dto.items.map((i) => i.sku);
     const { data: prods } = await this.db
@@ -517,7 +527,8 @@ export class ComprasService {
     );
     // Remarcación por renglón (lo que el usuario editó en la pantalla), con
     // fallback al override general → margen del rubro → default.
-    const itemsPrecio = dto.items
+    // una compra eventual no toca costo ni precio de venta: sin esta lista la base no remarca
+    const itemsPrecio = eventual ? [] : dto.items
       .filter((i) => Number(i.costo) > 0)
       .map((i) => {
         const margen = margenAplicable(i.margenPct ?? dto.margenPct, margenPor.get(i.sku) ?? null);
@@ -554,7 +565,8 @@ export class ComprasService {
 
     // Aprende el vínculo renglón→producto y la remarcación, para que la próxima
     // compra del mismo proveedor matchee sola y traiga el margen anterior.
-    await this.aprenderVinculos(dto.proveedorId, dto.items);
+    // En una compra eventual no: ese proveedor no pasa a ser el de estos productos.
+    if (!eventual) await this.aprenderVinculos(dto.proveedorId, dto.items);
 
     // El catálogo aprende el IVA de cada producto de las facturas que lo prueban.
     // El 15/9/2026 los 19.846 productos estaban al 21% (también los que van al
@@ -602,6 +614,7 @@ export class ComprasService {
         oc_id: resultado.oc_id,
         remito_id: resultado.remito_id,
         cargada_por: dto.usuarioId ?? null,
+        compra_eventual: eventual,
       })
         .select('id')
         .single();
@@ -638,7 +651,7 @@ export class ComprasService {
         // factura — se avisa y se puede cargar desde Compras → Registrar factura
         resultado.facturaError = errF.message;
       } else {
-        resultado.factura = { numero: f.numero, total: Number(f.total), estado: f.pagada ? 'pagada' : 'pendiente' };
+        resultado.factura = { numero: f.numero, total: Number(f.total), estado: f.pagada ? 'pagada' : 'pendiente', compraEventual: eventual };
       }
     }
 
@@ -1151,7 +1164,7 @@ export class ComprasService {
   async facturaDetalle(id: string) {
     const { data: f, error } = await this.db
       .from('facturas_proveedor')
-      .select('id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, remito_id, oc_id, espera_nc, espera_nc_motivo, nc_id, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(razon_social, cuit)')
+      .select('id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, remito_id, oc_id, espera_nc, espera_nc_motivo, nc_id, cargada_por, compra_eventual, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(razon_social, cuit)')
       .eq('id', id)
       .single();
     if (error) throw new BadRequestException(error.message);
@@ -1187,7 +1200,28 @@ export class ComprasService {
         vencimiento: x.vencimiento ?? null,
       }));
     }
-    return { ...f, items };
+    // RENGLONES (18/11/2026): lo que entró al stock con esta factura, para corregirlo.
+    // Se corrigen solo si la factura es la entrada (orden directa y sin otra factura).
+    let renglones: any[] = [];
+    let corregible = false;
+    if (f.oc_id) {
+      const [{ data: oc }, { data: otras }, { data: oi }] = await Promise.all([
+        this.db.from('ordenes_compra').select('origen').eq('id', f.oc_id).maybeSingle(),
+        this.db.from('facturas_proveedor').select('id').eq('oc_id', f.oc_id).neq('id', id).neq('estado', 'anulada'),
+        this.db.from('ordenes_compra_items').select('producto_id, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)').eq('oc_id', f.oc_id),
+      ]);
+      corregible = (oc as any)?.origen === 'directa' && !(otras ?? []).length && f.estado !== 'anulada';
+      renglones = ((oi ?? []) as any[])
+        .map((x) => ({
+          productoId: x.producto_id,
+          sku: x.producto?.sku ?? null,
+          nombre: x.producto?.nombre ?? '(producto eliminado)',
+          cantidad: Number(x.cantidad_recibida ?? 0),
+          costo: Number(x.costo_unitario ?? 0),
+        }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    }
+    return { ...f, items, renglones, corregible };
   }
 
   // Carga manual completa: facturas de mercadería, GASTOS (sin stock, con
@@ -1373,13 +1407,19 @@ export class ComprasService {
   // dueño (Juan Pablo) lo aprueba o rechaza por sistema. Al aprobar se aplica con
   // la misma lógica que la edición directa. Todo queda trazado: quién pidió,
   // quién resolvió, cuándo, y la auditoría de la edición resultante.
-  async solicitarCambioFactura(facturaId: string, dto: { cambios?: Record<string, any>; motivo?: string; tipo?: 'editar' | 'anular' }, usuarioId?: string) {
+  async solicitarCambioFactura(facturaId: string, dto: { cambios?: Record<string, any>; motivo?: string; tipo?: 'editar' | 'anular' | 'renglones' }, usuarioId?: string) {
     const { data: f } = await this.db.from('facturas_proveedor').select('id, numero, estado, proveedor:proveedores(razon_social)').eq('id', facturaId).maybeSingle();
     if (!f) throw new BadRequestException('Factura inexistente');
     if (f.estado === 'anulada') throw new BadRequestException('La factura está anulada');
-    const tipo = dto.tipo === 'anular' ? 'anular' : 'editar';
-    const cambios = tipo === 'anular' ? {} : Object.fromEntries(Object.entries(dto.cambios ?? {}).filter(([, v]) => v !== undefined));
+    // 'renglones' (18/11/2026): corregir lo que entró (cantidad, costo, producto, sacar o agregar)
+    const tipo = dto.tipo === 'anular' ? 'anular' : dto.tipo === 'renglones' ? 'renglones' : 'editar';
+    const cambios = tipo === 'anular'
+      ? {}
+      : tipo === 'renglones'
+        ? { renglones: Array.isArray(dto.cambios?.renglones) ? dto.cambios!.renglones : [] }
+        : Object.fromEntries(Object.entries(dto.cambios ?? {}).filter(([, v]) => v !== undefined));
     if (tipo === 'editar' && !Object.keys(cambios).length) throw new BadRequestException('No hay ningún cambio pedido');
+    if (tipo === 'renglones' && !(cambios as any).renglones.length) throw new BadRequestException('No hay ningún renglón para corregir');
     const motivo = String(dto.motivo ?? '').trim();
     if (!motivo) throw new BadRequestException('Indique el motivo del cambio');
     // una sola pendiente por factura y tipo: si ya hay, se actualiza
@@ -1397,8 +1437,10 @@ export class ComprasService {
     const { data: duenos } = await this.db.from('usuarios').select('id').eq('rol', 'dueno').eq('activo', true);
     const { data: quien } = usuarioId ? await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle() : { data: null as any };
     const prov = (f as any).proveedor?.razon_social ?? '';
-    const titulo = tipo === 'anular' ? `Pide anular la factura ${f.numero} (${prov})` : `Pide cambiar la factura ${f.numero} (${prov})`;
-    const detalle = `${quien?.nombre ?? 'Un usuario'}: ${motivo}${tipo === 'editar' ? ` · campos: ${Object.keys(cambios).join(', ')}` : ''}. Se aprueba desde Facturas de compra → Cambios pendientes.`;
+    const titulo = tipo === 'anular' ? `Pide anular la factura ${f.numero} (${prov})`
+      : tipo === 'renglones' ? `Pide corregir renglones de la factura ${f.numero} (${prov})`
+      : `Pide cambiar la factura ${f.numero} (${prov})`;
+    const detalle = `${quien?.nombre ?? 'Un usuario'}: ${motivo}${tipo === 'editar' ? ` · campos: ${Object.keys(cambios).join(', ')}` : tipo === 'renglones' ? ` · ${(cambios as any).renglones.length} renglón(es)` : ''}. Se aprueba desde Facturas de compra → Cambios pendientes.`;
     for (const d of (duenos ?? []) as any[]) {
       await this.db.from('alertas_internas').insert({ para_usuario: d.id, tipo: 'cambio_factura', titulo, detalle, referencia: { facturaId, solicitudId: id } }).then(() => null, () => null);
     }
@@ -1419,11 +1461,12 @@ export class ComprasService {
   }
 
   async resolverCambioFactura(id: string, decision: 'aprobar' | 'rechazar', respuesta: string | undefined, usuarioId?: string) {
-    const { data: c } = await this.db.from('facturas_proveedor_cambios').select('id, factura_id, tipo, cambios, estado, solicitado_por, factura:facturas_proveedor(numero)').eq('id', id).maybeSingle();
+    const { data: c } = await this.db.from('facturas_proveedor_cambios').select('id, factura_id, tipo, cambios, motivo, estado, solicitado_por, factura:facturas_proveedor(numero)').eq('id', id).maybeSingle();
     if (!c) throw new BadRequestException('Solicitud inexistente');
     if (c.estado !== 'pendiente') throw new BadRequestException(`La solicitud ya está ${c.estado}`);
     if (decision === 'aprobar') {
-      if (c.tipo === 'anular') await this.anularFactura(c.factura_id, `Solicitud aprobada: ${respuesta ?? ''}`.trim(), usuarioId);
+      if (c.tipo === 'anular') await this.anularFactura(c.factura_id, [c.motivo, respuesta ? `aprobada: ${respuesta}` : 'aprobada'].filter(Boolean).join(' · '), usuarioId);
+      else if (c.tipo === 'renglones') await this.corregirRenglonesFactura(c.factura_id, { renglones: (c.cambios as any)?.renglones ?? [], motivo: `${c.motivo ?? 'pedido'} (aprobado${respuesta ? `: ${respuesta}` : ''})` }, usuarioId);
       else await this.editarFactura(c.factura_id, c.cambios ?? {}, usuarioId);
     }
     const estado = decision === 'aprobar' ? 'aprobada' : 'rechazada';
@@ -1435,7 +1478,7 @@ export class ComprasService {
       await this.db.from('alertas_internas').insert({
         para_usuario: c.solicitado_por,
         tipo: 'cambio_factura',
-        titulo: `${estado === 'aprobada' ? 'Aprobado' : 'Rechazado'}: ${c.tipo === 'anular' ? 'anulación' : 'cambio'} de la factura ${numero}`,
+        titulo: `${estado === 'aprobada' ? 'Aprobado' : 'Rechazado'}: ${c.tipo === 'anular' ? 'anulación' : c.tipo === 'renglones' ? 'corrección de renglones' : 'cambio'} de la factura ${numero}`,
         detalle: respuesta || (estado === 'aprobada' ? 'El cambio ya está aplicado.' : 'Sin detalle.'),
         referencia: { facturaId: c.factura_id, solicitudId: id },
       }).then(() => null, () => null);
@@ -1454,58 +1497,81 @@ export class ComprasService {
   //    ella), sumados por producto y sucursal, salen con un ajuste en negativo.
   //    Si la OC es de un pedido (recibida contra la orden) o la comparte otra
   //    factura, no se adivina: se avisa que el stock se ajusta desde Stock.
+  // 18/11/2026 (Leandro: «que eso conlleve a retirar del stock, y la factura y en
+  // administración, todo lo que se ingresó»): la anulación es UNA transacción en la base
+  // (anular_factura_proveedor, db/migracion-anular-factura-completa.sql). Además del stock:
+  //  · el costo y el precio de venta que puso la factura vuelven a los de antes, salvo que
+  //    otra compra o alguien los haya cambiado después (eso se dice, no se pisa);
+  //  · sale del historial de compras, de cuentas a pagar, de la deuda con el proveedor y del
+  //    libro IVA (estado «anulada»);
+  //  · el stock nunca queda negativo: lo ya vendido se dice en «sinRestar»;
+  //  · si la mercadería entró con el remito de la pistola, el remito vuelve a esperar su
+  //    factura y el stock no se toca (lo contó el depósito).
   async anularFactura(id: string, motivo: string, usuarioId?: string) {
-    const { data: f } = await this.db.from('facturas_proveedor').select('id, estado, numero, oc_id, proveedor_id').eq('id', id).maybeSingle();
-    if (!f) throw new BadRequestException('Factura inexistente');
-    if (f.estado === 'anulada') return { ok: true, stock: { restadas: [], sinRestar: [], aviso: null } };
-    if (f.estado === 'en_pago') throw new BadRequestException('Esta factura está en una orden de pago: primero sacala de la orden.');
-    const { data: pagos } = await this.db.from('facturas_proveedor_pagos').select('monto').eq('factura_id', id);
-    const pagado = ((pagos ?? []) as any[]).reduce((s, p) => s + Number(p.monto ?? 0), 0);
-    if (pagado > 0) throw new BadRequestException(`Tiene pagos cargados por $${pagado.toLocaleString('es-AR')}: primero anulá el pago.`);
-
-    const stock = await this.devolverStockDeFactura(f as any, motivo, usuarioId);
-    const { error } = await this.db.from('facturas_proveedor').update({ estado: 'anulada', monto_pagado: 0 }).eq('id', id);
-    if (error) throw new BadRequestException(error.message);
-    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'anular_factura_proveedor', entidad: 'facturas_proveedor', entidad_id: id, datos_despues: { motivo: motivo || null, stock } });
-    return { ok: true, stock };
+    const { data, error } = await this.db.rpc('anular_factura_proveedor', {
+      p_factura: id, p_motivo: motivo || null, p_usuario: usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const r = (data ?? {}) as any;
+    if (r.ya_anulada) return { ok: true, stock: { restadas: [], sinRestar: [], sumadas: [], aviso: null }, costos: [] };
+    invalidarAbastecimiento(); // cambió el stock y quizás el costo
+    return { ok: true, stock: r.stock ?? { restadas: [], sinRestar: [], aviso: null }, costos: r.costos ?? [], remitosLiberados: r.remitosLiberados ?? 0 };
   }
 
-  private async devolverStockDeFactura(f: { id: string; numero: string; oc_id: string | null }, motivo: string, usuarioId?: string) {
-    const restadas: { producto: string; cantidad: number }[] = [];
-    const sinRestar: { producto: string; cantidad: number; motivo: string }[] = [];
-    if (!f.oc_id) return { restadas, sinRestar, aviso: 'Esta factura no tiene una entrada de mercadería: el stock no se toca.' };
-    const [{ data: oc }, { data: otras }] = await Promise.all([
-      this.db.from('ordenes_compra').select('numero, origen').eq('id', f.oc_id).maybeSingle(),
-      this.db.from('facturas_proveedor').select('id').eq('oc_id', f.oc_id).neq('id', f.id).neq('estado', 'anulada'),
+  // CORREGIR LOS RENGLONES DE UNA FACTURA (18/11/2026, Leandro: «modificar algún ítem de esa
+  // factura, retirarlo, lo que fuera»). Cambiar la cantidad, el costo o el producto, sacar un
+  // renglón o agregar uno que faltó. La base lo hace todo junto (corregir_renglones_factura):
+  // el stock, el costo y el precio de venta se acomodan; lo que se saca o se cambia de producto
+  // vuelve a como estaba. El total de la factura no cambia (es el del papel). Acá solo se
+  // calcula el precio de venta del costo nuevo, con la misma regla que al recibir.
+  async corregirRenglonesFactura(
+    facturaId: string,
+    dto: { renglones?: { productoId?: string | null; productoNuevoId?: string | null; cantidad: number; costo: number }[]; motivo?: string },
+    usuarioId?: string,
+  ) {
+    const motivo = String(dto?.motivo ?? '').trim();
+    if (!motivo) throw new BadRequestException('Contá por qué se corrige (por ejemplo: «eran 6, no 12»)');
+    const renglones = (dto?.renglones ?? []).filter((r) => r && (r.productoId || r.productoNuevoId));
+    if (!renglones.length) throw new BadRequestException('No hay renglones para corregir');
+    const { data: f } = await this.db.from('facturas_proveedor').select('proveedor_id, compra_eventual').eq('id', facturaId).maybeSingle();
+    if (!f) throw new BadRequestException('Factura inexistente');
+    const ids = [...new Set(renglones.map((r) => r.productoNuevoId || r.productoId).filter(Boolean) as string[])];
+    const [{ data: prods }, { data: margenes }] = await Promise.all([
+      this.db.from('productos').select('id, categoria:categorias(margen_sugerido)').in('id', ids),
+      this.db.from('proveedor_productos').select('producto_id, margen_pct').eq('proveedor_id', (f as any).proveedor_id).in('producto_id', ids),
     ]);
-    if ((oc as any)?.origen !== 'directa' || (otras ?? []).length) {
-      return { restadas, sinRestar, aviso: `La mercadería entró por la orden de compra #${(oc as any)?.numero ?? '?'}${(otras ?? []).length ? ', que tiene otra factura' : ''}: el stock no se toca solo; si hace falta, ajustalo desde Stock.` };
-    }
-    const { data: movs, error } = await this.db
-      .from('movimientos_stock')
-      .select('producto_id, sucursal_id, cantidad, referencia_tipo, producto:productos(nombre)')
-      .eq('referencia_id', f.oc_id)
-      .in('referencia_tipo', ['compra_directa', 'devolucion_proveedor']);
+    const rubro = new Map(((prods ?? []) as any[]).map((p) => [p.id, p.categoria?.margen_sugerido ?? null]));
+    const delProveedor = new Map(((margenes ?? []) as any[]).map((m) => [m.producto_id, m.margen_pct ?? null]));
+    const { data, error } = await this.db.rpc('corregir_renglones_factura', {
+      p_factura: facturaId,
+      p_renglones: renglones.map((r) => {
+        const destino = r.productoNuevoId || r.productoId!;
+        const costo = Number(r.costo);
+        return {
+          producto_id: r.productoId || null,
+          producto_nuevo_id: r.productoNuevoId && r.productoNuevoId !== r.productoId ? r.productoNuevoId : null,
+          cantidad: Number(r.cantidad),
+          costo,
+          // una compra eventual no remarca nada (la base tampoco toca el costo)
+          precio: (f as any).compra_eventual || !(costo > 0) ? null : precioDesdeCosto(costo, margenAplicable(delProveedor.get(destino), rubro.get(destino))),
+        };
+      }),
+      p_motivo: motivo,
+      p_usuario: usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    invalidarAbastecimiento(); // cambió el stock y quizás el costo
+    return data;
+  }
+
+  // COMPRA EVENTUAL (18/11/2026): se ofrece cuando el proveedor nunca tuvo una factura
+  // «de las de siempre» (las anuladas y las eventuales no cuentan).
+  async primeraCompraProveedor(proveedorId: string) {
+    if (!proveedorId) return { primeraVez: false };
+    const { count, error } = await this.db.from('facturas_proveedor').select('id', { count: 'exact', head: true })
+      .eq('proveedor_id', proveedorId).eq('tipo', 'factura').neq('estado', 'anulada').eq('compra_eventual', false);
     if (error) throw new BadRequestException(error.message);
-    const neto = new Map<string, { producto_id: string; sucursal_id: string; nombre: string; cantidad: number }>();
-    for (const m of (movs ?? []) as any[]) {
-      const k = `${m.producto_id}|${m.sucursal_id}`;
-      const v = neto.get(k) ?? { producto_id: m.producto_id, sucursal_id: m.sucursal_id, nombre: m.producto?.nombre ?? 'producto', cantidad: 0 };
-      v.cantidad += Number(m.cantidad ?? 0);
-      neto.set(k, v);
-    }
-    for (const v of neto.values()) {
-      const cantidad = Math.round(v.cantidad * 1000) / 1000;
-      if (!cantidad) continue;
-      const { error: e } = await this.db.rpc('registrar_movimiento', {
-        p_producto_id: v.producto_id, p_sucursal_id: v.sucursal_id, p_tipo: 'ajuste', p_cantidad: -cantidad,
-        p_motivo: `Anulación de la factura ${f.numero}${motivo ? `: ${motivo}` : ''}`,
-        p_referencia_tipo: 'anulacion_factura', p_referencia_id: f.id, p_usuario_id: usuarioId ?? null,
-      });
-      if (e) sinRestar.push({ producto: v.nombre, cantidad, motivo: e.message });
-      else restadas.push({ producto: v.nombre, cantidad });
-    }
-    return { restadas, sinRestar, aviso: null };
+    return { primeraVez: (count ?? 0) === 0 };
   }
 
   // Pago parcial directo (transferencia/efectivo/etc). Cuando completa el monto,

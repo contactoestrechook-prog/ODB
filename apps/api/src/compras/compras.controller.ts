@@ -411,6 +411,21 @@ export class ComprasController {
     return this.compras.anularFactura(id, dto?.motivo ?? '', req.usuario?.sub);
   }
 
+  // corregir lo que entró con la factura (18/11/2026); quien no es gerente ni dueño lo pide
+  // por solicitar-cambio con tipo 'renglones' y lo aprueba un dueño
+  @Roles('gerente', 'dueno')
+  @Post('compras/facturas/:id/renglones')
+  corregirRenglonesFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.corregirRenglonesFactura(id, dto ?? {}, req.usuario?.sub);
+  }
+
+  // ¿es la primera factura de este proveedor? (para ofrecer «Compra eventual», 18/11/2026)
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/proveedores/:id/primera-compra')
+  primeraCompraProveedor(@Param('id') id: string) {
+    return this.compras.primeraCompraProveedor(id);
+  }
+
   @Roles('gerente', 'dueno')
   @Post('compras/facturas/:id/pagos')
   pagoFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {

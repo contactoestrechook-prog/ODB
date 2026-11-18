@@ -521,10 +521,19 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
     setGuardando(true); setErr('');
     try {
       const r = await post({ accion: 'anularFactura', id, motivo });
+      // lo que hizo la anulación, dicho entero (18/11/2026): stock, costo, precio y lo que no se pudo
       const st = r?.stock ?? {};
-      const vuelta = (st.restadas ?? []).length ? `Salieron del stock ${st.restadas.length} producto${st.restadas.length === 1 ? '' : 's'} (lo que había sumado esta factura).` : '';
-      const no = (st.sinRestar ?? []).length ? ` No se pudieron restar: ${st.sinRestar.map((x: any) => `${x.producto} × ${x.cantidad}`).join(', ')}; ajustalos desde Stock.` : '';
-      setAnulada(`Factura anulada. ${vuelta}${no}${st.aviso ? ` ${st.aviso}` : ''}`.trim());
+      const n = (k: number, uno: string, varios: string) => `${k} ${k === 1 ? uno : varios}`;
+      const vuelta = (st.restadas ?? []).length ? `Salió del stock lo que había sumado (${n(st.restadas.length, 'producto', 'productos')}).` : '';
+      const sumadas = (st.sumadas ?? []).length ? ` Volvió al stock lo devuelto al proveedor (${n(st.sumadas.length, 'producto', 'productos')}).` : '';
+      const no = (st.sinRestar ?? []).length ? ` No se pudo restar todo porque ya se había vendido: ${st.sinRestar.map((x: any) => `${x.producto} (faltaron ${x.falta ?? x.cantidad})`).join(', ')}. Quedaron en cero.` : '';
+      const costos = (r?.costos ?? []) as any[];
+      const costoVuelto = costos.filter((c) => c.costo === 'vuelto').length;
+      const precioVuelto = costos.filter((c) => c.precio === 'vuelto').length;
+      const tocados = costos.filter((c) => c.costo === 'otra_compra' || c.costo === 'cambiado_a_mano' || c.precio === 'cambiado_despues').length;
+      const cp = costoVuelto || precioVuelto ? ` Volvieron a lo de antes ${n(costoVuelto, 'costo', 'costos')} y ${n(precioVuelto, 'precio de venta', 'precios de venta')}.` : '';
+      const otros = tocados ? ` ${n(tocados, 'producto ya tenía', 'productos ya tenían')} otro costo o precio puesto después: no se tocó.` : '';
+      setAnulada(`Factura anulada: ya no está en cuentas a pagar, ni en la deuda del proveedor, ni en el libro IVA. ${vuelta}${sumadas}${no}${cp}${otros}${st.aviso ? ` ${st.aviso}` : ''}`.trim());
       await cargarDetalle(); refrescar(); setAnulando(false);
     }
     catch (e: any) { setErr(e.message); } finally { setGuardando(false); }
@@ -551,6 +560,14 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
         {err && <Aviso tono="error">{err}</Aviso>}
         {d && (<>
           <Etiqueta tono={ESTADOS[d.estado]?.[1] ?? 'neutro'}>{ESTADOS[d.estado]?.[0] ?? d.estado}</Etiqueta>
+
+          {/* COMPRA EVENTUAL (18/11/2026): se dice en la factura qué NO hizo esta compra */}
+          {d.compra_eventual && (
+            <Aviso tono="info" titulo="Compra eventual">
+              Esta compra no cambió el costo ni el precio de venta de los productos. La mercadería entró al stock y la factura se paga como cualquier otra,
+              pero los productos siguen con el costo y el precio de siempre{d.proveedor?.razon_social ? `, y ${d.proveedor.razon_social} no quedó como su proveedor` : ''}.
+            </Aviso>
+          )}
 
           <div className="grid grid-cols-3 gap-2 rounded-xl bg-crema-claro p-3">
             <div className="min-w-0"><p className="text-xs text-tinta/60">Total</p><p className="importe truncate text-base font-semibold text-tinta sm:text-2xl">{pesos(d.monto ?? 0)}</p></div>
@@ -589,7 +606,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
             <Aviso tono="atencion" titulo={`Esta factura tiene ${misPendientes.length === 1 ? 'un pedido de cambio pendiente' : `${misPendientes.length} pedidos de cambio pendientes`} de aprobación`}>
               <div className="space-y-1">
                 {misPendientes.map((c: any) => (
-                  <p key={c.id} className="break-words">· {c.tipo === 'anular' ? 'Anulación' : `Cambio de ${Object.keys(c.cambios ?? {}).join(', ')}`} — {c.solicitante?.nombre ?? 'usuario'}: {c.motivo}</p>
+                  <p key={c.id} className="break-words">· {c.tipo === 'anular' ? 'Anulación' : c.tipo === 'renglones' ? `Corrección de ${(c.cambios?.renglones ?? []).length} renglón(es)` : `Cambio de ${Object.keys(c.cambios ?? {}).join(', ')}`} — {c.solicitante?.nombre ?? 'usuario'}: {c.motivo}</p>
                 ))}
               </div>
             </Aviso>
@@ -613,6 +630,16 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
             ) : (
               <Boton variante="secundario" onClick={() => setPidiendo('editar')}>Pedir cambio (lo aprueba un dueño)</Boton>
             )
+          )}
+
+          {/* renglones: lo que entró con esta factura, y su corrección (18/11/2026) */}
+          {(d.renglones ?? []).length > 0 && (
+            <RenglonesFactura
+              d={d}
+              editable={!!editable && !!d.corregible}
+              editaDirecto={editaDirecto}
+              listo={(m) => { setSolicitado(m); cargarDetalle(); refrescar(); }}
+            />
           )}
 
           {/* pagos */}
@@ -675,6 +702,184 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
         </>)}
       </div>
     </Modal>
+  );
+}
+
+/* ---------- renglones de la factura y su corrección (18/11/2026) ----------
+   Leandro: «modificar algún ítem de esa factura, retirarlo, lo que fuera». Se corrige lo que
+   ENTRÓ (cantidad y costo por unidad): cambiar la cantidad o el costo, pasar el renglón a otro
+   producto, sacarlo o agregar uno que faltó. El stock, el costo y el precio de venta se
+   acomodan solos; lo que se saca vuelve a como estaba. El total de la factura no cambia: es el
+   del papel. Gerencia y dueños lo hacen directo; el resto lo pide y lo aprueba un dueño. */
+function RenglonesFactura({ d, editable, editaDirecto, listo }: { d: any; editable: boolean; editaDirecto: boolean; listo: (mensaje: string) => void }) {
+  const renglones: any[] = d.renglones ?? [];
+  const [editando, setEditando] = useState(false);
+  const [filas, setFilas] = useState<any[]>([]);
+  const [motivo, setMotivo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [err, setErr] = useState('');
+  const [cambiandoDe, setCambiandoDe] = useState<number | null>(null);
+  const num = (v: any) => Number(String(v ?? '').replace(',', '.'));
+  const cant = (x: number) => x.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+
+  const empezar = () => {
+    setFilas(renglones.map((r) => ({ ...r, cantidadNueva: String(r.cantidad), costoNuevo: String(r.costo), sacar: false, nuevo: null })));
+    setMotivo(''); setErr(''); setEditando(true); setCambiandoDe(null);
+  };
+  const cambiar = (i: number, v: Record<string, any>) => setFilas((fs) => fs.map((f, k) => (k === i ? { ...f, ...v } : f)));
+
+  const totalEntrada = (editando ? filas.filter((f) => !f.sacar) : renglones)
+    .reduce((s, f) => s + (editando ? num(f.cantidadNueva) * num(f.costoNuevo) : f.cantidad * f.costo), 0);
+
+  // lo que cambió, renglón por renglón, con su explicación para quien aprueba
+  const cambios = () => filas.flatMap((f) => {
+    const c = num(f.cantidadNueva), k = num(f.costoNuevo);
+    if (!f.productoId) {
+      return f.nuevo ? [{ productoId: null, productoNuevoId: f.nuevo.id, cantidad: c, costo: k, detalle: `Agregar ${f.nuevo.nombre}: ${cant(c)} a ${pesos(k)}` }] : [];
+    }
+    if (f.sacar) return [{ productoId: f.productoId, cantidad: 0, costo: f.costo, detalle: `Sacar ${f.nombre} (${cant(f.cantidad)})` }];
+    if (f.nuevo) return [{ productoId: f.productoId, productoNuevoId: f.nuevo.id, cantidad: c, costo: k, detalle: `${f.nombre} → ${f.nuevo.nombre}: ${cant(c)} a ${pesos(k)}` }];
+    if (c === f.cantidad && k === f.costo) return [];
+    const partes = [c !== f.cantidad ? `${cant(f.cantidad)} → ${cant(c)}` : '', k !== f.costo ? `${pesos(f.costo)} → ${pesos(k)}` : ''].filter(Boolean).join(' · ');
+    return [{ productoId: f.productoId, cantidad: c, costo: k, detalle: `${f.nombre}: ${partes}` }];
+  });
+
+  const guardar = async () => {
+    setErr('');
+    const malos = filas.filter((f) => !f.sacar && (f.productoId || f.nuevo) && (!(num(f.cantidadNueva) > 0) || !(num(f.costoNuevo) >= 0)));
+    if (malos.length) { setErr(`Revisá ${malos.map((f) => f.nuevo?.nombre ?? f.nombre).join(', ')}: la cantidad tiene que ser mayor a cero y el costo un número.`); return; }
+    if (filas.some((f) => !f.productoId && !f.nuevo)) { setErr('Hay un renglón nuevo sin producto: elegilo o sacalo.'); return; }
+    const lista = cambios();
+    if (!lista.length) { setErr('No cambió nada: modificá algún renglón.'); return; }
+    if (!motivo.trim()) { setErr('Escribí el motivo de la corrección.'); return; }
+    setGuardando(true);
+    try {
+      const body = editaDirecto
+        ? { accion: 'corregirRenglonesFactura', id: d.id, renglones: lista, motivo }
+        : { accion: 'solicitarCambioFactura', id: d.id, tipo: 'renglones', cambios: { renglones: lista }, motivo };
+      const r = await fetch('/api/compras', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message ?? 'No se pudo guardar');
+      if (!editaDirecto) {
+        listo('Pedido de corrección enviado: lo aprueba un dueño y le llega el aviso a la campanita. La factura queda como está hasta entonces.');
+      } else {
+        const sin = (j.sinRestar ?? []) as any[];
+        const otros = ((j.costos ?? []) as any[]).filter((c) => c.costo === 'otra_compra' || c.costo === 'cambiado_a_mano' || c.precio === 'cambiado_despues').length;
+        listo(`Renglones corregidos: el stock, el costo y el precio de venta ya quedaron acomodados.${sin.length ? ` No se pudo restar todo porque ya se había vendido: ${sin.map((x) => `${x.producto} (faltaron ${cant(Number(x.falta))})`).join(', ')}.` : ''}${otros ? ` ${otros === 1 ? 'Un producto ya tenía' : `${otros} productos ya tenían`} otro costo puesto después: ese no se tocó.` : ''}`);
+      }
+      setEditando(false);
+    } catch (e: any) { setErr(e.message); } finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-black/[0.06] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-tinta">Lo que entró con esta factura</p>
+        {editable && !editando && (
+          <Boton variante="secundario" tamano="chico" onClick={empezar}>{editaDirecto ? 'Corregir renglones' : 'Pedir corrección de renglones'}</Boton>
+        )}
+      </div>
+
+      {!editando && (
+        <ul className="divide-y divide-black/[0.06]">
+          {renglones.map((r) => (
+            <li key={r.productoId} className="flex items-start justify-between gap-3 py-2 text-sm">
+              <span className="min-w-0 break-words text-tinta">{r.nombre}<span className="block text-xs text-tinta/60">{cant(r.cantidad)} × {pesos(r.costo)}</span></span>
+              <span className="importe shrink-0 font-medium text-tinta">{pesos(r.cantidad * r.costo)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editando && (
+        <div className="space-y-3">
+          {d.compra_eventual && <p className="text-xs text-tinta/60">Es una compra eventual: corregir no cambia el costo ni el precio de venta de los productos.</p>}
+          {filas.map((f, i) => (
+            <div key={i} className={unir('space-y-2 rounded-xl border p-3', f.sacar ? 'border-black/[0.06] bg-crema-claro opacity-70' : 'border-black/10')}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="min-w-0 break-words text-sm font-medium text-tinta">
+                  {f.productoId ? f.nombre : 'Renglón nuevo'}
+                  {f.nuevo && <span className="block text-xs font-normal text-ok">{f.productoId ? 'pasa a ' : ''}{f.nuevo.nombre}</span>}
+                  {f.sacar && <span className="block text-xs font-normal text-marca-hondo">se saca: sale del stock lo que entró ({cant(f.cantidad)})</span>}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {f.productoId && !f.sacar && (
+                    <Boton variante="fantasma" tamano="chico" onClick={() => setCambiandoDe(cambiandoDe === i ? null : i)}>{f.nuevo ? 'Otro producto' : 'Cambiar producto'}</Boton>
+                  )}
+                  {f.productoId ? (
+                    <Boton variante={f.sacar ? 'secundario' : 'fantasma'} tamano="chico" onClick={() => cambiar(i, { sacar: !f.sacar, nuevo: null })}>{f.sacar ? 'No sacar' : 'Sacar'}</Boton>
+                  ) : (
+                    <Boton variante="fantasma" tamano="chico" onClick={() => setFilas((fs) => fs.filter((_, k) => k !== i))}>Quitar</Boton>
+                  )}
+                </div>
+              </div>
+              {(cambiandoDe === i || (!f.productoId && !f.nuevo)) && (
+                <BuscarProductoFactura alElegir={(p) => { cambiar(i, { nuevo: p }); setCambiandoDe(null); }} />
+              )}
+              {!f.sacar && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Campo etiqueta="Cantidad que entró"><Entrada type="number" inputMode="decimal" value={f.cantidadNueva} onChange={(e) => cambiar(i, { cantidadNueva: e.target.value })} className="importe text-right" /></Campo>
+                  <Campo etiqueta="Costo por unidad"><Entrada type="number" inputMode="decimal" value={f.costoNuevo} onChange={(e) => cambiar(i, { costoNuevo: e.target.value })} className="importe text-right" /></Campo>
+                </div>
+              )}
+            </div>
+          ))}
+          <Boton variante="fantasma" tamano="chico" onClick={() => setFilas((fs) => [...fs, { productoId: null, nombre: '', cantidad: 0, costo: 0, cantidadNueva: '', costoNuevo: '', sacar: false, nuevo: null }])}>+ Agregar un renglón que faltó</Boton>
+        </div>
+      )}
+
+      <p className="text-xs text-tinta/60">
+        {editando ? 'Así entra' : 'Entró'} por <span className="importe font-medium text-tinta">{pesos(totalEntrada)}</span> · la factura dice <span className="importe font-medium text-tinta">{pesos(d.monto ?? 0)}</span>
+        {editando ? ' (el total de la factura no cambia: es el del papel; si está mal, corregilo arriba).' : ' (la diferencia suele ser IVA, percepciones o descuentos repartidos).'}
+      </p>
+      {!d.corregible && d.estado !== 'anulada' && (
+        <p className="text-xs text-tinta/60">Esta mercadería entró por un remito o un pedido: el stock lo contó el depósito y se ajusta desde Stock.</p>
+      )}
+
+      {editando && (
+        <div className="space-y-2 border-t border-black/[0.06] pt-3">
+          {err && <Aviso tono="error">{err}</Aviso>}
+          <Entrada aria-label="Motivo de la corrección" placeholder="Motivo (obligatorio): por ejemplo, «eran 6, no 12»" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          <div className="flex flex-wrap gap-2">
+            <Boton onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : editaDirecto ? 'Guardar corrección' : 'Enviar pedido de corrección'}</Boton>
+            <Boton variante="fantasma" onClick={() => setEditando(false)} disabled={guardando}>Cancelar</Boton>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuscarProductoFactura({ alElegir }: { alElegir: (p: { id: string; nombre: string }) => void }) {
+  const [q, setQ] = useState('');
+  const [items, setItems] = useState<any[]>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setItems([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(q.trim())}`);
+        if (r.ok) setItems(((await r.json()).items ?? []).slice(0, 8));
+      } catch { /* sin resultados */ }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  return (
+    <div className="space-y-1">
+      <Entrada aria-label="Buscar el producto" placeholder="Buscar el producto por nombre o código" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+      {items.length > 0 && (
+        <ul className="max-h-56 overflow-auto rounded-xl border border-black/10 bg-white">
+          {items.map((p) => (
+            <li key={p.id}>
+              <button type="button" onClick={() => alElegir({ id: p.id, nombre: p.nombre })}
+                className={unir('flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-tinta hover:bg-crema-claro', FOCO_ADENTRO)}>
+                <span className="min-w-0 break-words">{p.nombre}</span>
+                <span className="shrink-0 text-xs text-tinta/60">{p.sku}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -827,7 +1032,7 @@ function CambiosPendientes({ items, puedeResolver, cerrar, refrescar, abrirFactu
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <button type="button" onClick={() => abrirFactura(c.factura_id)} className={unir('break-words rounded-sm text-left text-sm font-semibold text-tinta underline-offset-4 hover:underline', FOCO)}>
-                  {c.tipo === 'anular' ? 'Anular' : 'Cambiar'} {TIPOS[c.factura?.tipo] ?? 'Factura'}{c.factura?.letra ? ` ${c.factura.letra}` : ''} {c.factura?.numero} · {c.factura?.proveedor?.razon_social ?? ''}
+                  {c.tipo === 'anular' ? 'Anular' : c.tipo === 'renglones' ? 'Corregir renglones de' : 'Cambiar'} {TIPOS[c.factura?.tipo] ?? 'Factura'}{c.factura?.letra ? ` ${c.factura.letra}` : ''} {c.factura?.numero} · {c.factura?.proveedor?.razon_social ?? ''}
                 </button>
                 <p className="text-xs text-tinta/60">Pidió {c.solicitante?.nombre ?? 'un usuario'} · {fecha(c.creado_en)} · total actual <span className="importe">{pesos(c.factura?.monto ?? 0)}</span></p>
               </div>
@@ -840,6 +1045,13 @@ function CambiosPendientes({ items, puedeResolver, cerrar, refrescar, abrirFactu
                   <span key={k} className="max-w-full break-words rounded-full bg-crema-hondo/70 px-2.5 py-1 text-xs text-tinta">{ETIQ[k] ?? k}: <strong>{String(v ?? '—')}</strong></span>
                 ))}
               </div>
+            )}
+            {c.tipo === 'renglones' && (
+              <ul className="space-y-1 text-sm text-tinta">
+                {((c.cambios?.renglones ?? []) as any[]).map((r: any, i: number) => (
+                  <li key={i} className="break-words">· {r.detalle ?? 'renglón'}</li>
+                ))}
+              </ul>
             )}
             {puedeResolver && (
               <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap sm:items-center">
