@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { pesos } from '../lib/formato';
-import { cuentaDelPapel, entraDeRenglon, papelDeLectura, unidadesDelPapel, type CampoPapel, type EntraComo, type Papel } from '../lib/tabla-factura';
+import { cuentaDelPapel, entraDeRenglon, papelDeLectura, unidadesDelPapel, vistaDelPapel, type CampoPapel, type EntraComo, type Papel } from '../lib/tabla-factura';
 import { FOCO, unir } from './kit/clases';
 
 // ============================================================
@@ -102,17 +102,31 @@ export type PropsPapel = {
   i: any;
   idx: number;
   onCambiarPapel: (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => void;
+  /**
+   * Un dato del papel, como lo ve la persona (18/11/2026). Lo aplica la pantalla
+   * de compras con lib/tabla-factura → cambiarDatoDelPapel: con el precio por
+   * bulto, «bultos» son los bultos del papel.
+   */
+  onCambiarDato: (idx: number, campo: CampoPapel | 'precioPor', antes: unknown, despues: unknown) => void;
 };
 
 /** Lo que dice el papel de un renglón, editable, con la cuenta en vivo y cómo entra al stock. */
-export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
+export function PapelDelRenglon({ i, idx, onCambiarPapel, onCambiarDato }: PropsPapel) {
   const papel: Papel = i.papel ?? papelDeLectura(i);
   const entra: EntraComo = entraDeRenglon(i, papel);
+  // LA UNIDAD DEL RENGLÓN (18/11/2026, Leandro: «toma los bultos como suelto, y no
+  // se lo puede explicar»). Se muestra como lo dice el papel: si el precio impreso
+  // es el del bulto, los bultos van en «Bultos» y el precio dice «bulto». Antes se
+  // veía cómo lo guarda la cuenta por dentro: «Bultos 0 · Sueltas 5» para 5 cajas.
+  const vista = vistaDelPapel(i, papel);
+  const porBulto = vista.precioPor === 'bulto';
   const enBultos = (numero(papel.bultos) ?? 0) > 0;
   const cajasDe = entra?.como === 'cajas' ? entra.de : (numero(papel.uxb) ?? 1);
   const c = cuentaDelPapel(papel);
-  const cambiar = (campo: CampoPapel, v: number | null) => onCambiarPapel(idx, { ...papel, [campo]: v }, entra, campo, papel[campo], v);
+  const cambiar = (campo: CampoPapel, v: number | null) => onCambiarDato(idx, campo, vista[campo], v);
   const uxb = numero(papel.uxb);
+  const precioNeto = Math.round((numero(papel.precio) ?? 0) * (1 - Math.min(100, Math.abs(numero(papel.desc) ?? 0)) / 100) * 100) / 100;
+  const bultosVista = numero(vista.bultos) ?? 0;
   const unidades = unidadesDelPapel(papel);
   // llegó una parte (la nota a mano «ingresaron 3 bultos»): al stock entran las
   // que llegaron, y eso es lo que se muestra; el papel de al lado no cambia
@@ -127,16 +141,19 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
         <b className={c.cierra ? 'text-ok' : 'text-marca-hondo'}>{c.cierra ? 'Cierra' : 'No cierra'} · {pesos(c.cuenta)}</b>
         <span className="text-tinta/60">
           {/* con la oferta a la vista: «− 10% (queda $1.698,30 c/u)», para que no parezca que no se tomó (5/11/2026) */}
-          {' '}= {unidades > 0 ? `${cifra(unidades, 3)} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(Math.round((numero(papel.precio) ?? 0) * (1 - Math.min(100, Math.abs(numero(papel.desc) ?? 0)) / 100) * 100) / 100)} c/u)` : ''}` : 'sin unidades'}
+          {' '}= {unidades <= 0 ? 'sin unidades'
+            // con precio por bulto: «5 bultos × $355.041 − 61,5% (queda $136.691 el bulto · $22.782 c/u)»
+            : porBulto && uxb ? `${cifra(bultosVista, 3)} ${bultosVista === 1 ? 'bulto' : 'bultos'} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(precioNeto)} el bulto · ${pesos(Math.round((precioNeto / uxb) * 100) / 100)} c/u)` : ` (${pesos(Math.round((precioNeto / uxb) * 100) / 100)} c/u)`}`
+            : `${cifra(unidades, 3)} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(precioNeto)} c/u)` : ''}`}
           {!c.cierra && c.dif != null ? ` · difiere ${pesos(Math.abs(c.dif))} del importe` : ''}
           {porKilo != null ? ` · ¿va por kilo? da ${cifra(porKilo, 2)} kg` : ''}
         </span>
       </p>
       <div className={unir('grid grid-cols-6 items-end gap-2', NUMEROS)}>
-        <CeldaNumero className={A2} etiqueta="Bultos" ayuda={`Bultos del renglón ${idx + 1}`} valor={numero(papel.bultos)} decimales={3} onCambio={(v) => cambiar('bultos', v)} />
+        <CeldaNumero className={A2} etiqueta="Bultos" ayuda={`Bultos del renglón ${idx + 1}`} valor={numero(vista.bultos)} decimales={3} onCambio={(v) => cambiar('bultos', v)} />
         <CeldaNumero className={A2} etiqueta="U×B" ayuda={`Unidades por bulto del renglón ${idx + 1}`} valor={uxb} decimales={0} onCambio={(v) => cambiar('uxb', v)} />
-        <CeldaNumero className={A2} etiqueta="Sueltas" ayuda={`Unidades sueltas del renglón ${idx + 1}`} valor={numero(papel.sueltas)} decimales={3} onCambio={(v) => cambiar('sueltas', v)} />
-        <CeldaNumero className={A3} etiqueta="Precio u." ayuda={`Precio unitario del renglón ${idx + 1}`} valor={numero(papel.precio)} onCambio={(v) => cambiar('precio', v)} />
+        <CeldaNumero className={A2} etiqueta="Sueltas" ayuda={`Unidades sueltas del renglón ${idx + 1}`} valor={numero(vista.sueltas)} decimales={3} onCambio={(v) => cambiar('sueltas', v)} />
+        <CeldaNumero className={A3} etiqueta={porBulto ? 'Precio bulto' : 'Precio u.'} ayuda={porBulto ? `Precio de cada bulto del renglón ${idx + 1}` : `Precio unitario del renglón ${idx + 1}`} valor={numero(papel.precio)} onCambio={(v) => cambiar('precio', v)} />
         <CeldaNumero className={A3} etiqueta="% desc" ayuda={`Descuento en % del renglón ${idx + 1}`} valor={numero(papel.desc)} onCambio={(v) => cambiar('desc', v)} />
         <CeldaNumero className={A3} etiqueta="Importe" ayuda={`Importe del papel, renglón ${idx + 1}`} valor={numero(papel.importe)} onCambio={(v) => cambiar('importe', v)} />
         <div className={unir('min-w-0', A3)}>
@@ -154,7 +171,7 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
             >
               {entra === null && <option value="">¿Cómo entra?</option>}
               {/* el papel cuenta bultos: la otra salida es la caja; cuenta cajas sueltas: abrirlas */}
-              <option value="unidades">{cifra(entran, 3)}{parte} {enBultos ? 'unid.' : 'tal cual'}</option>
+              <option value="unidades">{cifra(entran, 3)}{parte} {porBulto ? `${entran === 1 ? 'bulto' : 'bultos'} tal cual` : enBultos ? 'unid.' : 'tal cual'}</option>
               {(enBultos || entra?.como === 'cajas') && <option value="cajas">{cifra(entran / cajasDe, 3)} {entran / cajasDe === 1 ? 'caja' : 'cajas'} ×{cajasDe}</option>}
               {(!enBultos || entra?.como === 'abiertas') && <option value="abiertas">{cifra(entran * uxb, 3)} unid. (abrir ×{uxb})</option>}
             </select>
@@ -163,6 +180,21 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
           )}
         </div>
       </div>
+      {uxb != null && uxb > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-tinta/70" role="group" aria-label={`De qué es el precio impreso del renglón ${idx + 1}`}>
+          <span>El precio impreso es de:</span>
+          {(['unidad', 'bulto'] as const).map((op) => (
+            <button
+              key={op} type="button" aria-pressed={vista.precioPor === op}
+              onClick={() => { if (vista.precioPor !== op) onCambiarDato(idx, 'precioPor', vista.precioPor, op); }}
+              className={unir('min-h-7 rounded-full border px-2.5 font-medium', vista.precioPor === op ? 'border-tinta bg-tinta text-white' : 'border-black/15 bg-white text-tinta/70 hover:bg-crema-claro', FOCO)}
+            >
+              {op === 'unidad' ? 'cada unidad' : `cada bulto de ${cifra(uxb, 0)}`}
+            </button>
+          ))}
+          {porBulto && <span>· son {cifra(bultosVista, 3)} {bultosVista === 1 ? 'bulto' : 'bultos'}: {cifra(bultosVista * uxb, 3)} unidades</span>}
+        </div>
+      )}
     </div>
   );
 }

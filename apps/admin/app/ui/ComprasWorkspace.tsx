@@ -30,7 +30,7 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel } from '../lib/tabla-factura';
 import { AgregarRenglon } from './AgregarRenglon';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -1458,7 +1458,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // lo cambió una persona en la tabla. El IVA de la tabla manda sobre el que se
   // eligió antes en la tarjeta: es el mismo dato y no puede haber dos.
   const cambiarPapel = (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => {
-    setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}) } : x)));
+    setFotoItems((xs) => xs.map((x, j) => {
+      if (j !== idx) return x;
+      // bultos a precio de bulto que pasan a entrar tal cual (el producto es la caja): siguen siendo bultos en la pantalla
+      const contabaBultos = campo === 'entraComo' && entra?.como === 'unidades' && vistaDelPapel(x, x.papel).precioPor === 'bulto';
+      return { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}), ...(contabaBultos ? { cuentaBultos: true } : {}) };
+    }));
+    anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
+  };
+  // UN DATO DEL PAPEL, COMO LO VE LA PERSONA (18/11/2026, Leandro: «toma los bultos
+  // como suelto, y no se lo puede explicar»). La cuenta lo traduce: con el precio
+  // por bulto, «bultos» son los bultos del papel (lib/tabla-factura → cambiarDatoDelPapel).
+  const cambiarDato = (idx: number, campo: CampoPapel | 'precioPor', antes: unknown, despues: unknown) => {
+    setFotoItems((xs) => xs.map((x, j) => {
+      if (j !== idx) return x;
+      const r = cambiarDatoDelPapel(x, campo, despues);
+      return typeof r === 'string' ? x : { ...r, ...(campo === 'iva' ? { alicuotaElegida: null } : {}) };
+    }));
     anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
   };
   // «llegaron 18 sin descuento» en vez de «20 con 10 %»: lo elige una persona (3/11/2026)
@@ -1749,8 +1765,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
           const entra: EntraComo = c.antes === 'cajas' && de > 1 ? { como: 'cajas', de } : c.antes === 'abiertas' && de > 1 ? { como: 'abiertas', de } : c.antes === 'unidades' ? { como: 'unidades' } : null;
           return aplicarPapel(x, papel, entra);
         }
-        (papel as any)[c.campo] = c.antes == null || c.antes === '' ? null : Number(c.antes);
-        return aplicarPapel(x, papel, entraDeRenglon(x, papel));
+        // un dato del papel vuelve como se cambió: por la misma cuenta que lo tradujo
+        const vuelta = cambiarDatoDelPapel(x, c.campo as CampoPapel | 'precioPor', c.campo === 'precioPor' ? c.antes : c.antes == null || c.antes === '' ? null : Number(c.antes));
+        return typeof vuelta === 'string' ? x : vuelta;
       }));
     }
     setCambiosFactura((xs) => xs.map((y) => (y.id === c.id ? { ...y, deshecho: true } : y)));
@@ -3151,7 +3168,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                       </div>
 
                       {/* 1 bis · los números del papel, editables, con la cuenta en vivo (8/10/2026) */}
-                      {i.papel && !i.porPeso && <PapelDelRenglon i={i} idx={idx} onCambiarPapel={cambiarPapel} />}
+                      {i.papel && !i.porPeso && <PapelDelRenglon i={i} idx={idx} onCambiarPapel={cambiarPapel} onCambiarDato={cambiarDato} />}
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
                       {/* Se adapta al ancho de la TARJETA (container query), no al de la ventana:
