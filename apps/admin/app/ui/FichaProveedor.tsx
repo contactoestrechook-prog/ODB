@@ -6,6 +6,7 @@ import {
   AreaTexto, Aviso, BarraInferior, Boton, BotonLink, Campo, Cargando, Entrada, Etiqueta, Kpi, Selector, Tarjeta, TarjetaCabecera, TarjetaCuerpo, useConfirmar,
 } from './kit';
 import { cuit as cuitLegible, fecha, pesos } from '../lib/formato';
+import { ProductosDelProveedor } from './ProductosDelProveedor';
 
 // Ficha de un proveedor (27/10/2026): datos fiscales, contacto, condiciones,
 // banco, las personas y los papeles (catálogos, listas, constancia de CUIT).
@@ -350,6 +351,8 @@ export function FichaProveedor({ id }: { id: string }) {
 
       <Contactos id={id} contactos={ficha.contactos} onCambio={cargar} confirmar={confirmar} />
       <Documentos id={id} documentos={ficha.documentos} onCambio={cargar} confirmar={confirmar} />
+      {/* su lista de productos, cada uno con «Proveedor: X · cambiar» (18/11/2026) */}
+      <ProductosDelProveedor id={id} nombre={p.razon_social} />
 
       {(ficha.facturasPendientes.length > 0 || ficha.ordenes.length > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">

@@ -6,6 +6,7 @@ import {
   Kpi, Modal, Monto, ROTULO, Selector, Tarjeta, unir, type TonoEtiqueta,
 } from './kit';
 import { fecha, pesos } from '../lib/formato';
+import { CambiarProveedor, type ProveedorCorto } from './CambiarProveedor';
 
 // clip de "tiene comprobante adjunto" (en lugar del 📎)
 function IconoClip({ className = 'size-4' }: { className?: string }) {
@@ -281,7 +282,19 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
 
       <Conciliacion refrescar={() => cargar()} />
 
-      {detalleId && <DetalleFactura id={detalleId} rol={rol} cerrar={() => setDetalleId(null)} refrescar={() => { cargar(); cargarPendientes(); }} />}
+      {detalleId && (
+        <DetalleFactura
+          id={detalleId}
+          rol={rol}
+          // el proveedor de la factura (la lista lo trae con su id): se ofrece primero al cambiarle el proveedor a un renglón
+          proveedorFactura={(() => {
+            const f = ((datos.items ?? []) as { id: string; proveedor?: { id?: string; razon_social?: string } }[]).find((x) => x.id === detalleId);
+            return f?.proveedor?.id ? { id: f.proveedor.id, razonSocial: f.proveedor.razon_social ?? '' } : null;
+          })()}
+          cerrar={() => setDetalleId(null)}
+          refrescar={() => { cargar(); cargarPendientes(); }}
+        />
+      )}
       {verPendientes && <CambiosPendientes items={pendientes} puedeResolver={APRUEBA(rol)} cerrar={() => setVerPendientes(false)} refrescar={() => { cargar(); cargarPendientes(); }} abrirFactura={(fid: string) => { setVerPendientes(false); setDetalleId(fid); }} />}
       {modalCarga && <CargaManual proveedores={proveedores} cerrar={() => setModalCarga(false)} refrescar={() => cargar()} />}
     </div>
@@ -438,7 +451,7 @@ function Conciliacion({ refrescar }: { refrescar: () => void }) {
 }
 
 /* ---------- detalle: desglose editable, pagos parciales, comprobante, anular ---------- */
-function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null }) {
+function DetalleFactura({ id, cerrar, refrescar, rol, proveedorFactura }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null; proveedorFactura?: ProveedorCorto | null }) {
   const editaDirecto = EDITA_DIRECTO(rol);
   const [pidiendo, setPidiendo] = useState<null | 'editar' | 'anular'>(null);
   const [motivoCambio, setMotivoCambio] = useState('');
@@ -636,6 +649,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
           {(d.renglones ?? []).length > 0 && (
             <RenglonesFactura
               d={d}
+              proveedorFactura={proveedorFactura ?? null}
               editable={!!editable && !!d.corregible}
               editaDirecto={editaDirecto}
               listo={(m) => { setSolicitado(m); cargarDetalle(); refrescar(); }}
@@ -711,7 +725,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
    producto, sacarlo o agregar uno que faltó. El stock, el costo y el precio de venta se
    acomodan solos; lo que se saca vuelve a como estaba. El total de la factura no cambia: es el
    del papel. Gerencia y dueños lo hacen directo; el resto lo pide y lo aprueba un dueño. */
-function RenglonesFactura({ d, editable, editaDirecto, listo }: { d: any; editable: boolean; editaDirecto: boolean; listo: (mensaje: string) => void }) {
+function RenglonesFactura({ d, editable, editaDirecto, listo, proveedorFactura }: { d: any; editable: boolean; editaDirecto: boolean; listo: (mensaje: string) => void; proveedorFactura: ProveedorCorto | null }) {
   const renglones: any[] = d.renglones ?? [];
   const [editando, setEditando] = useState(false);
   const [filas, setFilas] = useState<any[]>([]);
@@ -784,7 +798,20 @@ function RenglonesFactura({ d, editable, editaDirecto, listo }: { d: any; editab
         <ul className="divide-y divide-black/[0.06]">
           {renglones.map((r) => (
             <li key={r.productoId} className="flex items-start justify-between gap-3 py-2 text-sm">
-              <span className="min-w-0 break-words text-tinta">{r.nombre}<span className="block text-xs text-tinta/60">{cant(r.cantidad)} × {pesos(r.costo)}</span></span>
+              <span className="min-w-0 break-words text-tinta">
+                {r.nombre}
+                <span className="block text-xs text-tinta/60">{cant(r.cantidad)} × {pesos(r.costo)}</span>
+                {/* de quién es este producto hoy; si no es de este proveedor, se pasa en dos toques (18/11/2026) */}
+                {r.productoId && (
+                  <CambiarProveedor
+                    producto={{ id: r.productoId, nombre: r.nombre }}
+                    esperado={proveedorFactura?.id}
+                    sugeridos={proveedorFactura ? [proveedorFactura] : undefined}
+                    pantalla="factura"
+                    onCambio={() => { /* la factura no cambia: solo el proveedor del producto */ }}
+                  />
+                )}
+              </span>
               <span className="importe shrink-0 font-medium text-tinta">{pesos(r.cantidad * r.costo)}</span>
             </li>
           ))}

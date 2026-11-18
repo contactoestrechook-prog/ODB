@@ -365,6 +365,7 @@ export const SECCIONES: Seccion[] = [
           'En «Más filtros» están marca, proveedor, por peso o por unidad, con o sin código de barras, activos o inactivos, y los rangos de stock, valor y lo vendido en 30 días.',
           'Tocá el encabezado de una columna para ordenar por ella; tocarlo otra vez da vuelta el orden.',
           'Tocá un producto para abrir su ficha de inventario. «Volver al stock» te deja como estabas, con los mismos filtros.',
+          'La columna «Proveedor» dice a quién se le compra hoy cada producto. Compras, administración, gerencia y dueños ven al lado «cambiar»: se pasa a otro proveedor en dos toques (ver «Cambiar el proveedor de un producto»).',
           '«Exportar a Excel» baja todo lo filtrado, no solo la página que se ve.',
         ],
       },
@@ -594,6 +595,7 @@ export const SECCIONES: Seccion[] = [
           'Escribí el motivo y guardá. El stock, el costo y el precio de venta se acomodan solos; lo que sacás o cambiás de producto vuelve a como estaba antes de la factura.',
           'El total de la factura no cambia: es el del papel. Si el total se leyó mal, se corrige arriba, en el desglose.',
           'Si algo ya se vendió y no alcanza el stock para sacarlo, el sistema saca lo que hay (queda en cero) y te dice cuánto faltó.',
+          'Cada renglón dice además a quién se le compra hoy ese producto. Si dice «Se le compra a X» en ámbar, es de otro proveedor: con «cambiar» se lo pasás al de esta factura (aparece primero en la lista). La factura no cambia.',
         ],
       },
       {
@@ -740,6 +742,7 @@ export const SECCIONES: Seccion[] = [
           'Dentro de cada nota, primero van los huecos, después los principales en falta, después lo que tiene reemplazo. Lo que no registra ventas queda al final.',
           'Lo urgente (sin stock o que no llega a tiempo) viene tildado. Lo que solo bajó de 12 queda sin tildar para que decidas vos.',
           'Tildá o destildá cada producto y corregí la cantidad con − y +. Si cambiás la cantidad, el producto se tilda solo.',
+          'Cada renglón dice «Proveedor: X · cambiar». Si ese producto se le compra a otro, tocá «cambiar» y elegilo: sale de esta nota y aparece en la del proveedor nuevo. Lo tildado en las otras notas no se pierde.',
           'Abajo ves el total de lo tildado. "Armar pedido con lo tildado" crea la orden de compra y la deja esperando la firma del dueño en Aprobaciones.',
         ],
       },
@@ -887,6 +890,7 @@ export const SECCIONES: Seccion[] = [
           'Cada renglón muestra el stock, cuántos días aguanta y cuánto conviene pedir. El sugerido se calcula con lo que se vendió en los últimos 30 días, para cubrir 14.',
           'Si un producto ya está pedido y todavía no llegó, abajo del stock dice "Ya pedido: N en camino" y el día que confirmó el proveedor. Así no se pide dos veces.',
           'Cargá las cantidades con los botones, o escribí el número.',
+          'Cada producto dice a quién se le compra hoy. Si dice «Se le compra a X» en ámbar, ya es de otro proveedor; con «cambiar» se lo pasás a quien quieras.',
           'Al final ves la nota de pedido con lo elegido (la tarjeta roja): cantidad, producto, costo y total. Es lo que va a recibir el proveedor.',
           'Si un producto no está en la lista del proveedor, tocá "+ Producto que no está", buscalo y agregalo. Queda cargado para siempre.',
           '"Enviar a aprobación". El pedido queda esperando la firma del dueño.',
@@ -897,6 +901,45 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Mientras no haya ventas cargadas en el sistema, el sugerido va a mostrar cero: no tiene con qué calcular todavía.',
           'La lista de cada proveedor se completa sola cada vez que se recibe mercadería suya.',
+        ],
+      },
+    ],
+  },
+  {
+    // 18/11/2026, Leandro: «tenemos que poder cambiar un producto de proveedor desde
+    // cualquier lado, tiene que ser muy fácil reasignarlo».
+    id: 'compras-cambiar-proveedor',
+    titulo: 'Cambiar el proveedor de un producto',
+    area: 'Compras',
+    roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'Desde cualquier pantalla donde aparece el producto, en dos toques: «Proveedor: X · cambiar».',
+    bloques: [
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Donde aparece un producto dice a quién se le compra hoy: «Proveedor: X». Está en la ficha del producto, en Stock, en cada renglón de Qué comprar, en el armado de un pedido, en los renglones de una factura ya cargada (Facturas de compra → abrir la factura), en la lista de productos de la ficha del proveedor y en Mesa de compras → Proveedores.',
+          'Tocá «cambiar» (o «asignar», si no tiene proveedor). Se abre la lista de proveedores activos con un buscador: escribí el nombre o el CUIT.',
+          'Tocá el proveedor nuevo. Listo: abajo aparece qué cambió. Si te equivocaste, «Volver a …» lo deja como estaba.',
+          'En una factura, el proveedor de esa factura aparece primero en la lista.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Qué pasa cuando lo cambiás',
+        filas: [
+          ['El proveedor nuevo', 'Queda como el proveedor decidido del producto: lo usan Qué comprar, los pedidos y el Analista desde ese momento, y la carga del sistema viejo (el Crack) lo respeta y no lo pisa.'],
+          ['El proveedor viejo', 'Si nunca se le compró ese producto (ni factura, ni orden, ni código suyo cargado), el producto sale de su lista. Si ya se le compró, queda en su lista como historia, pero ya no se le sugiere.'],
+          ['El historial', 'No se borra nada: facturas, órdenes y costos de antes quedan como estaban.'],
+          ['Quién lo hizo', 'Queda registrado quién lo cambió, cuándo, de qué proveedor a cuál y desde qué pantalla.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Lo cambian compras, administración, gerencia y dueños. Depósito y caja ven el proveedor, pero no «cambiar».',
+          '«Se le compra a X» en ámbar quiere decir que estás mirando la lista de otro proveedor (un pedido, una factura o una ficha) y ese producto hoy se le compra a X.',
+          'Mientras no tenga un proveedor decidido, el de un producto es el último que se lo vendió. Una vez que lo cambiás con «cambiar», queda ese aunque una factura o una orden vengan de otro, hasta que lo vuelvas a cambiar.',
+          'Un proveedor dado de baja no aparece en la lista: primero hay que reactivarlo en su ficha.',
         ],
       },
     ],
@@ -917,6 +960,7 @@ export const SECCIONES: Seccion[] = [
           'En "Personas" cargá al vendedor, a cobranzas o al que reparte, con su teléfono o mail.',
           'En "Catálogos y papeles" elegí qué es (catálogo, lista de precios, constancia de CUIT, datos bancarios…), elegí el PDF o la foto y tocá "Subir". "Abrir" lo muestra; "Sacar" lo quita de la ficha.',
           'Para crear uno nuevo: "Nuevo proveedor", con la razón social (y el CUIT si lo tenés), y después se completa la ficha.',
+          'En «Productos» está su lista: cada producto dice a quién se le compra hoy y con «cambiar» se pasa a otro proveedor. «Se le compran a otro» muestra los que están en su lista pero hoy se le compran a otro.',
         ],
       },
       {
