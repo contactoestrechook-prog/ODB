@@ -238,6 +238,100 @@ export function aplicarPapel<T extends Record<string, any>>(fila: T, papel: Pape
   };
 }
 
+// ---- cómo lo dice el papel: la unidad del renglón (18/11/2026) ----
+// Leandro, con la factura de Luigi Bosca en la pantalla: «toma los bultos como
+// suelto, y no se lo puede explicar». El papel decía «5 cajas de 6 a $355.041 la
+// caja» y la pantalla mostraba «Bultos 0 · Sueltas 5». El stock entraba bien (30
+// botellas): lo que estaba mal era lo que se le mostraba a la persona y al chat.
+//
+// LA RAÍZ. Esta cuenta nació con «bultos × unidades por bulto + sueltas, y el
+// precio SIEMPRE por unidad». Cuando el precio impreso es el de la caja no tiene
+// dónde ponerlo: guarda las cajas en «sueltas» (para que cantidad × precio dé el
+// importe) y recuerda aparte que «entran abiertas». Ese truco interno era lo que
+// se veía. Medido ese día: 63 renglones en 18 facturas de 15 proveedores, y la
+// misma frase escrita al chat cuatro veces en tres días («lo que ponés como
+// sueltas son bultos»): el chat acomodaba la entrada y la pantalla seguía
+// diciendo «sueltas».
+//
+// Cómo lo resuelven los demás (foros de Odoo y ERPNext, sistemas de facturas de
+// gastronomía): cada renglón tiene UNA cantidad, SU unidad y el precio DE ESA
+// unidad («5 cajas a $X la caja; cada caja trae 6»). La unidad y el precio van
+// siempre juntos. Acá eso es «precioPor»: 'unidad' o 'bulto'.
+//
+// La cuenta de adentro no cambia (ni lo ya registrado, ni la memoria de los
+// artículos): cambia lo que se MUESTRA y lo que se ACEPTA, en la pantalla y en
+// el chat, que pasan los dos por estas dos funciones.
+
+export type VistaPapel = Papel & { precioPor: 'unidad' | 'bulto' };
+
+/**
+ * El renglón como lo dice el papel. Si el precio impreso es el del bulto, los
+ * bultos van en «bultos» (no en «sueltas») y precioPor = 'bulto'.
+ */
+export function vistaDelPapel(fila: any, papelDado?: Papel | null): VistaPapel {
+  const papel: Papel = papelDado ?? fila?.papel ?? papelDeLectura(fila);
+  const uxb = num(papel.uxb) ?? 0;
+  const sueltas = num(papel.sueltas) ?? 0;
+  const enSueltas = uxb > 1 && (num(papel.bultos) ?? 0) === 0 && sueltas > 0;
+  if (enSueltas && !fila?.porPeso) {
+    const entra = entraDeRenglon(fila, papel);
+    // cajas a precio de caja: se abren (entran las de adentro), o el producto del catálogo es la caja
+    if (entra?.como === 'abiertas' || fila?.cuentaBultos === true || fila?.bultoDescartadoComo === 'caja') {
+      return { ...papel, bultos: sueltas, sueltas: 0, precioPor: 'bulto' };
+    }
+  }
+  return { ...papel, precioPor: 'unidad' };
+}
+
+/**
+ * Cambia UN dato del renglón tal como lo ve la persona (la vista de arriba) y
+ * devuelve el renglón recalculado. La usan la tabla de la pantalla, el chat y
+ * el «deshacer»: una sola forma de cambiar el papel. Devuelve un texto si el
+ * cambio no se puede hacer (el porqué).
+ */
+export function cambiarDatoDelPapel<T extends Record<string, any>>(fila: T, campo: CampoPapel | 'precioPor', valor: unknown): T | string {
+  const papel: Papel = { ...(fila.papel ?? papelDeLectura(fila)) };
+  const entra = entraDeRenglon(fila, papel);
+  const vista = vistaDelPapel(fila, papel);
+  const precio = num(papel.precio);
+  if (campo === 'precioPor') {
+    const uxb = num(papel.uxb) ?? 0;
+    if (valor !== 'bulto' && valor !== 'unidad') return 'el precio es por «unidad» o por «bulto»';
+    if (!(uxb > 1)) return 'el renglón no dice cuántas unidades trae el bulto: primero hay que poner las unidades por bulto';
+    if (valor === vista.precioPor) return fila;
+    if (valor === 'bulto') {
+      // la cantidad del papel son bultos y el precio impreso es el de cada bulto: al stock entran las de adentro
+      const b = num(papel.bultos) ?? 0;
+      const s = num(papel.sueltas) ?? 0;
+      if (b > 0 && s > 0) return 'el renglón tiene bultos y además unidades sueltas: con el precio por bulto no se puede saber cuánto valen las sueltas';
+      return { ...aplicarPapel(fila, { ...papel, bultos: 0, sueltas: b > 0 ? b : s }, { como: 'abiertas', de: uxb }), cuentaBultos: true };
+    }
+    // el precio impreso es el de cada unidad y la cantidad son bultos
+    return { ...aplicarPapel(fila, { ...papel, bultos: vista.bultos, sueltas: 0 }, { como: 'unidades' }), cuentaBultos: null };
+  }
+  const v = valor == null || valor === '' ? null : num(valor);
+  if (valor != null && valor !== '' && v == null) return 'el valor tiene que ser un número';
+  if (v != null && v < 0) return 'el valor no puede ser negativo';
+  if (vista.precioPor === 'bulto' && (campo === 'bultos' || campo === 'sueltas' || campo === 'uxb')) {
+    const nueva = { ...vista, [campo]: v };
+    const uxb = num(nueva.uxb) ?? 0;
+    const b = num(nueva.bultos) ?? 0;
+    const s = num(nueva.sueltas) ?? 0;
+    // se quedó sin «x N»: ya no hay bulto, la cantidad son unidades al precio impreso
+    if (!(uxb > 1)) return { ...aplicarPapel(fila, { ...papel, uxb: null, bultos: 0, sueltas: b + s }, { como: 'unidades' }), cuentaBultos: null };
+    // bultos a precio de bulto MÁS unidades sueltas: la misma plata dicha por unidad
+    if (s > 0) {
+      if (precio == null) return 'falta el precio del renglón';
+      return { ...aplicarPapel(fila, { ...papel, uxb, bultos: b, sueltas: s, precio: redondear(precio / uxb, 4) }, { como: 'unidades' }), cuentaBultos: null };
+    }
+    // por dentro los bultos a precio de bulto van en «sueltas»; si se abrían, se siguen abriendo
+    const sigue: EntraComo = entra?.como === 'abiertas' ? { como: 'abiertas', de: uxb } : { como: 'unidades' };
+    return { ...aplicarPapel(fila, { ...papel, uxb, bultos: 0, sueltas: b }, sigue), cuentaBultos: true };
+  }
+  (papel as any)[campo] = v;
+  return aplicarPapel(fila, papel, entra);
+}
+
 // ---- cambios pedidos por la IA (el chat de la factura) ----
 
 /** Los nombres de campo que usa la IA → los del papel. */
@@ -606,6 +700,15 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = con;
       continue;
     }
+    // LA UNIDAD DEL RENGLÓN (18/11/2026): «el precio es por bulto», «son cajas, no sueltas»
+    if (c.campo === 'precioPor') {
+      const antes = vistaDelPapel(fila).precioPor;
+      const r = cambiarDatoDelPapel(fila, 'precioPor', c.valor);
+      if (typeof r === 'string') { descartar(c, r); continue; }
+      if (r !== fila) registros.push({ renglon: k + 1, campo: 'precioPor', antes, despues: String(c.valor), motivo });
+      nuevos[k] = r;
+      continue;
+    }
     const papel: Papel = { ...(fila.papel ?? papelDeLectura(fila)) };
     const entra: EntraComo = entraDeRenglon(fila, papel);
     if (c.campo === 'entraComo') {
@@ -616,7 +719,9 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       else if (c.valor === 'unidades') nuevo = { como: 'unidades' };
       if (!nuevo) { descartar(c, 'el renglón no tiene unidades por bulto'); continue; }
       registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: nuevo.como, motivo });
-      nuevos[k] = aplicarPapel(fila, papel, nuevo);
+      // si el renglón contaba bultos a precio de bulto y pasa a entrar tal cual (el producto es la caja), sigue contando bultos
+      const contabaBultos = vistaDelPapel(fila, papel).precioPor === 'bulto';
+      nuevos[k] = { ...aplicarPapel(fila, papel, nuevo), ...(contabaBultos && nuevo.como === 'unidades' ? { cuentaBultos: true } : {}) };
       continue;
     }
     // se vende en paquetes de N (las Rodesias: caja de 36, paquetes de 3): entra en paquetes
@@ -655,9 +760,11 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     const valor = c.valor == null ? null : num(c.valor);
     if (!campo) { descartar(c, 'ese dato no se puede cambiar en un renglón'); continue; }
     if ((c.valor != null && valor == null) || (valor != null && valor < 0)) { descartar(c, 'el valor tiene que ser un número y no puede ser negativo'); continue; }
-    registros.push({ renglon: k + 1, campo, antes: papel[campo], despues: valor, motivo });
-    papel[campo] = valor;
-    nuevos[k] = aplicarPapel(fila, papel, entra);
+    // el dato se cambia como lo ve la persona: en un renglón con precio por bulto, «bultos» son los bultos
+    const cambiado = cambiarDatoDelPapel(fila, campo, valor);
+    if (typeof cambiado === 'string') { descartar(c, cambiado); continue; }
+    registros.push({ renglon: k + 1, campo, antes: vistaDelPapel(fila, papel)[campo], despues: valor, motivo });
+    nuevos[k] = cambiado;
   }
   // «aceptados»: los cambios tal como vinieron, sin los que se descartaron (el chat los vuelve a mandar a la pantalla)
   return { items: nuevos, registros, descartados, aceptados: (cambios ?? []).filter((c) => !rechazo.has(c)) };
@@ -689,6 +796,9 @@ export function tablaParaIA(
     }
     const p: Papel = fila.papel ?? papelDeLectura(fila);
     const c = cuentaDelPapel(p);
+    // como lo dice el papel: con precio por bulto, los bultos van en «bultos» (18/11/2026)
+    const v = vistaDelPapel(fila, p);
+    const porBulto = v.precioPor === 'bulto';
     return {
       renglon: k + 1,
       codigo: fila.codigo ?? null,
@@ -697,9 +807,11 @@ export function tablaParaIA(
       ...(Array.isArray(fila.junta) && fila.junta.length ? { juntaLosRenglones: fila.junta.map((x: any) => x.renglon) } : {}),
       // no está en el papel: lo agregó una persona o el chat en esta pantalla
       ...(fila.agregado ? { agregadoEnPantalla: true } : {}),
-      bultos: p.bultos, unidadesPorBulto: p.uxb, sueltas: p.sueltas,
-      precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
-      unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
+      bultos: v.bultos, unidadesPorBulto: v.uxb, sueltas: v.sueltas,
+      precio: v.precio, precioPor: v.precioPor, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
+      // por bulto: las unidades son las de adentro (bultos × unidades por bulto) y la cuenta es bultos × precio
+      unidades: porBulto ? (num(v.bultos) ?? 0) * (num(v.uxb) ?? 1) : c.unidades, cuenta: c.cuenta, cierra: c.cierra,
+      ...(porBulto && (num(v.precio) ?? 0) > 0 ? { precioDeCadaUnidad: redondear((num(v.precio) as number) / (num(v.uxb) as number)) } : {}),
       // el precio con el descuento del renglón ya aplicado (lo que la persona espera ver)
       ...((num(p.desc) ?? 0) !== 0 && (num(p.precio) ?? 0) > 0 ? { precioConDescuento: redondear((num(p.precio) as number) * (1 - Math.min(100, Math.abs(num(p.desc) as number)) / 100)) } : {}),
       // cigarrillos: el precio es el «Precio Unit» del papel; aparte, su neto y su interno

@@ -9,8 +9,9 @@
 // menos que la anterior («peor que ayer»).
 //
 // Este examen le toma a la versión que está en esta imagen las charlas REALES:
-//   · los casos fundadores: las dos del 18/11 que originaron el reclamo
-//     (Conallison y Distribuidora City), armadas desde sus lecturas;
+//   · los casos fundadores: las tres del 18/11 que originaron los reclamos
+//     (Conallison, Distribuidora City y Leoncio Arizu), armadas desde sus
+//     lecturas o desde la charla tal como quedó grabada;
 //   · las charlas grabadas: desde ese día cada mensaje que una persona le
 //     escribe al chat queda guardado con la factura como estaba
 //     (compras_chat_turnos.uso.entrada) y con los cambios que hizo la versión
@@ -33,7 +34,8 @@
 // ============================================================
 import { existsSync, readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
-import { aplicarCambiosIA, cantidadQueEntra, cuentaDelPapel, faltanteDe, papelDeLectura, tablaParaIA } from '../panel/tabla-factura';
+import { aplicarCambiosIA, cantidadQueEntra, cuentaDelPapel, faltanteDe, papelDeLectura, tablaParaIA, vistaDelPapel } from '../panel/tabla-factura';
+import { tablaDespues } from '../probar-cambios';
 import { FacturaChatService, MARCA_AUTOMATICO } from '../factura-chat.service';
 import { costoUSD } from '../../bot/tarifas';
 import { comparar, compararCharla, resultadoDe, veredicto, type Charla, type Verdad } from './puntaje';
@@ -119,6 +121,14 @@ async function principal() {
     const city = await lectura('80006f39-53ec-4bfd-9fe3-7da3eebb4b25');
     const filasCity = (city.items as any[]).map(filaDePantalla);
     const msgCity = 'apliquemos la regla de distribuidora city los saphirus en un solo renglon agrupados por textil, difusor y aero';
+    // Leoncio Arizu 0175-00004531 (vinos, 18/11 13:39), la charla real tal como quedó grabada: «lo que pones sueltas
+    // son bultos». El chat acomodó la entrada al stock y la pantalla siguió mostrando «Bultos 0 · Sueltas 5».
+    const { data: arizu } = await real.from('compras_chat_turnos').select('mensaje, entrada:uso->entrada').eq('id', '228610cb-5b52-4702-9166-802bd9167ddc').maybeSingle();
+    const eArizu = (arizu as any)?.entrada;
+    const filasArizu: any[] = Array.isArray(eArizu?.filas) ? eArizu.filas : [];
+    const msgArizu = String((arizu as any)?.mensaje ?? 'lo que pones sueltas son bultos');
+    // los renglones que el papel cuenta en cajas y estaban en «sueltas»
+    const enSueltas = filasArizu.map((x, k) => ({ x, k })).filter(({ x }) => (num(x.papel?.uxb) ?? 0) > 1 && (num(x.papel?.bultos) ?? 0) === 0 && (num(x.papel?.sueltas) ?? 0) > 0);
     return [
       {
         nombre: 'Conallison · llegó menos, por peso', mensaje: msgCon, lecturaId: 'examen', filas: filasCon, cuerpo: cuerpoDe(con, filasCon, msgCon),
@@ -138,6 +148,23 @@ async function principal() {
             ...(suma(f) === suma(filasCity) ? [] : [`la plata de la factura pasó de ${suma(filasCity)} a ${suma(f)}`]),
             ...(f.some(traba) ? [`quedan renglones trabando el registro: ${f.map((x, k) => (traba(x) ? k + 1 : 0)).filter(Boolean).join(', ')}`] : []),
             ...(aLaVista <= 12 ? [] : [`siguen a la vista ${aLaVista} renglones de Saphirus de ${saphirus.length}`]),
+          ];
+        },
+      },
+      {
+        nombre: 'Leoncio Arizu · «lo que ponés sueltas son bultos»', mensaje: msgArizu, lecturaId: 'examen', filas: filasArizu,
+        cuerpo: { proveedor: eArizu?.proveedor ?? null, comprobante: eArizu?.comprobante ?? null, filas: filasArizu, tabla: tablaDespues(filasArizu, eArizu?.tabla ?? []), pie: eArizu?.pie ?? null, controles: eArizu?.controles ?? null, mensajes: [{ rol: 'usuario', texto: msgArizu }] },
+        espera: (f) => {
+          if (!filasArizu.length) return ['no se encontró la charla grabada de este caso (compras_chat_turnos 228610cb)'];
+          const mal = enSueltas.filter(({ x, k }) => {
+            const v = vistaDelPapel(f[k]);
+            const cajas = num(x.papel.sueltas) as number;
+            return !(v.precioPor === 'bulto' && cerca(num(v.bultos), cajas) && (num(v.sueltas) ?? 0) === 0 && cerca(num(f[k].cantidad), cajas * (num(x.papel.uxb) as number)));
+          });
+          return [
+            ...(mal.length ? [`${mal.length} de ${enSueltas.length} renglones siguen mostrando las cajas como sueltas (o no entran las botellas de adentro): ${mal.map(({ k }) => k + 1).join(', ')}`] : []),
+            ...(suma(f) === suma(filasArizu) ? [] : [`la plata de la factura pasó de ${suma(filasArizu)} a ${suma(f)}`]),
+            ...(f.some(traba) ? [`quedan renglones trabando el registro: ${f.map((x, k) => (traba(x) ? k + 1 : 0)).filter(Boolean).join(', ')}`] : []),
           ];
         },
       },

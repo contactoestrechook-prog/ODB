@@ -569,6 +569,8 @@ export const SECCIONES: Seccion[] = [
           'El renglón que junta a otros lo dice ("junta 15 renglones del papel") y tiene el botón "Separar". También podés pedírselo a la IA ("no agrupes nada") o deshacerlo en "Cambios".',
           'Antes de contestarte, la IA prueba el cambio en la factura. Si la pantalla no lo puede tomar, o deja algún renglón trabando el registro, lo ve, prueba de otra forma y recién ahí te contesta. Si no hay forma, te dice qué no se pudo y por qué: no da por hecho lo que no quedó.',
           'La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
+          'Cuando la factura cuenta cajas y el precio impreso es el de la caja (vinos, bebidas), el renglón lo muestra como dice el papel: las cajas en "Bultos", lo que trae cada una en "U×B" y "Precio bulto". Al stock entran las unidades de adentro, cada una al precio de la caja dividido.',
+          'Si un renglón quedó con las cajas en "Sueltas", debajo de los números elegí "El precio impreso es de: cada bulto de 6". O decíselo a la IA como te salga: "son bultos", "el precio es por caja". La plata del renglón no cambia.',
         ],
       },
       {

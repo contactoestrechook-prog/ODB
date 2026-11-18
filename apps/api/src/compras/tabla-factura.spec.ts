@@ -1,7 +1,7 @@
 // La factura como tabla (8/10/2026). La cuenta vive en el panel
 // (apps/admin/app/lib/tabla-factura.ts) porque se recalcula en vivo; se prueba
 // acá porque la API es la que tiene los tests. Casos reales de Oxxon y Distri Sur.
-import { aplicarCambiosIA, aplicarPapel, frenarReglasAbsurdas, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon } from '../../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, frenarReglasAbsurdas, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, vistaDelPapel, cambiarDatoDelPapel } from '../../../admin/app/lib/tabla-factura';
 
 const lectura = (cantidad: number, precio: number, importe: number, extra: Record<string, unknown> = {}) => ({ cantidad, precio, importe, ...extra });
 
@@ -543,5 +543,104 @@ describe('juntar renglones', () => {
     expect(f.frenados).toEqual([1, 2]);
     expect(f.items).toEqual(antes);
     expect(f.registros).toHaveLength(0);
+  });
+});
+
+// 18/11/2026, Leoncio Arizu 0175-00004531 (vinos). El papel: «LUIGI BOSCA DE SANGRE
+// WHITE BLEND Caja 6x750», 5 cajas a $177.520,66 la caja, 61,5 % de bonificación,
+// $341.727,27. La pantalla mostraba «Bultos 0 · Sueltas 5». Leandro: «toma los
+// bultos como suelto, y no se lo puede explicar». Del 16 al 18/11 se lo escribieron
+// al chat cuatro veces; el chat hacía entrar las botellas y la pantalla seguía igual.
+describe('la unidad del renglón: bultos a precio de bulto', () => {
+  const esDesc = () => false;
+  // como llegó a la pantalla: 5 en «sueltas», ×6 por decidir
+  const whiteBlend = (): any => ({
+    descripcion: 'LUIGI BOSCA DE SANGRE WHITE BLEND Caja 6x750', cantidad: 5, precio: 177520.6612, importe: 341727.27, bonificacionPct: 61.5, unidadesPorBulto: 6, sku: 'L4742', incluir: true,
+    papel: { bultos: 0, uxb: 6, sueltas: 5, precio: 177520.6612, desc: 61.5, iva: 21, importe: 341727.27 },
+  });
+  // el bonificado al 100 %: el lector lo dejó como 1 bulto de 6
+  const regalo = (): any => ({
+    descripcion: 'LUIGI BOSCA DE SANGRE MALBEC ED.LIMITADA Caja 6x750', cantidad: 1, precio: 355041.3223, importe: 0, bonificacionPct: 100, unidadesPorBulto: 6, sku: '', incluir: false,
+    papel: { bultos: 1, uxb: 6, sueltas: 0, precio: 355041.3223, desc: 100, iva: 21, importe: 0 },
+  });
+
+  it('sin decidir todavía, se ve como se leyó', () => {
+    expect(vistaDelPapel(whiteBlend())).toMatchObject({ bultos: 0, sueltas: 5, precioPor: 'unidad' });
+  });
+  it('«el precio es por bulto»: UN cambio, y la pantalla muestra 5 bultos de 6, entran 30 botellas y la plata no cambia', () => {
+    const r = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto', motivo: 'son cajas' }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.registros).toEqual([{ renglon: 1, campo: 'precioPor', antes: 'unidad', despues: 'bulto', motivo: 'son cajas' }]);
+    const f = r.items[0];
+    expect(vistaDelPapel(f)).toMatchObject({ bultos: 5, uxb: 6, sueltas: 0, precio: 177520.6612, precioPor: 'bulto' });
+    expect(f).toMatchObject({ cantidad: 30, importe: 341727.27, bonificacionPct: 61.5, unidadesPorBulto: null });
+    expect(f.precio).toBeCloseTo(29586.78, 2);
+    expect(cuentaDelPapel(f.papel).cierra).toBe(true);
+  });
+  it('lo que hacía el chat hasta ese día («entraComo» = abiertas) ahora también se ve como bultos', () => {
+    const f = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'entraComo', valor: 'abiertas' }], esDesc).items[0];
+    expect(f.cantidad).toBe(30);
+    expect(vistaDelPapel(f)).toMatchObject({ bultos: 5, sueltas: 0, precioPor: 'bulto' });
+  });
+  it('el chat lo ve igual que la persona: bultos 5, precio por bulto, 30 unidades de adentro', () => {
+    const f = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items;
+    expect(tablaParaIA(f, esDesc, () => null)[0]).toMatchObject({ bultos: 5, unidadesPorBulto: 6, sueltas: 0, precio: 177520.6612, precioPor: 'bulto', unidades: 30, precioDeCadaUnidad: 29586.78, cierra: true });
+    // y uno con precio por unidad dice «unidad»
+    expect(tablaParaIA([whiteBlend()], esDesc, () => null)[0]).toMatchObject({ bultos: 0, sueltas: 5, precioPor: 'unidad' });
+  });
+  it('el bonificado que estaba como «1 bulto de 6» también pasa a precio por bulto: entran 6', () => {
+    const f = aplicarCambiosIA([regalo()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items[0];
+    expect(vistaDelPapel(f)).toMatchObject({ bultos: 1, sueltas: 0, precioPor: 'bulto' });
+    expect(f.cantidad).toBe(6);
+  });
+  it('con precio por bulto, corregir «bultos» corrige los bultos (y se puede deshacer)', () => {
+    const porBulto = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items;
+    const r = aplicarCambiosIA(porBulto, [{ renglon: 1, campo: 'bultos', valor: 4 }], esDesc);
+    expect(r.registros).toEqual([{ renglon: 1, campo: 'bultos', antes: 5, despues: 4, motivo: '' }]);
+    expect(vistaDelPapel(r.items[0])).toMatchObject({ bultos: 4, sueltas: 0, precioPor: 'bulto' });
+    expect(r.items[0].cantidad).toBe(24);
+    const vuelta = cambiarDatoDelPapel(r.items[0], 'bultos', 5) as any;
+    expect(vuelta.cantidad).toBe(30);
+    expect(vistaDelPapel(vuelta)).toMatchObject({ bultos: 5, precioPor: 'bulto' });
+  });
+  it('si el producto del catálogo es la caja, entran 5 cajas y la pantalla sigue diciendo 5 bultos', () => {
+    const porBulto = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items;
+    const f = aplicarCambiosIA(porBulto, [{ renglon: 1, campo: 'entraComo', valor: 'unidades' }], esDesc).items[0];
+    expect(f).toMatchObject({ cantidad: 5, precio: 177520.6612 });
+    expect(vistaDelPapel(f)).toMatchObject({ bultos: 5, sueltas: 0, precioPor: 'bulto' });
+  });
+  it('«el precio es de cada unidad»: quedan 5 bultos de 6 a ese precio cada botella (la cuenta deja de cerrar, y se ve)', () => {
+    const porBulto = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items;
+    const f = aplicarCambiosIA(porBulto, [{ renglon: 1, campo: 'precioPor', valor: 'unidad' }], esDesc).items[0];
+    expect(vistaDelPapel(f)).toMatchObject({ bultos: 5, sueltas: 0, precioPor: 'unidad' });
+    expect(f).toMatchObject({ cantidad: 30, precio: 177520.6612 });
+    expect(cuentaDelPapel(f.papel).cierra).toBe(false);
+  });
+  it('bultos a precio de bulto más unidades sueltas: la misma plata dicha por unidad', () => {
+    const porBulto = aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).items;
+    const f = cambiarDatoDelPapel(porBulto[0], 'sueltas', 2) as any;
+    expect(f.papel).toMatchObject({ bultos: 5, uxb: 6, sueltas: 2 });
+    expect(f.papel.precio).toBeCloseTo(29586.7769, 3);
+    expect(f.cantidad).toBe(32);
+    expect(vistaDelPapel(f).precioPor).toBe('unidad');
+  });
+  it('dice por qué cuando no se puede', () => {
+    const sinBulto: any = { descripcion: 'VINO SUELTO', cantidad: 5, precio: 1000, importe: 5000, papel: { bultos: 0, uxb: null, sueltas: 5, precio: 1000, desc: null, iva: 21, importe: 5000 } };
+    expect(aplicarCambiosIA([sinBulto], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).descartados[0].porque).toMatch(/no dice cuántas unidades trae el bulto/);
+    const mezclado: any = { ...whiteBlend(), unidadesPorBulto: null, cantidad: 32, papel: { ...whiteBlend().papel, bultos: 5, sueltas: 2 } };
+    expect(aplicarCambiosIA([mezclado], [{ renglon: 1, campo: 'precioPor', valor: 'bulto' }], esDesc).descartados[0].porque).toMatch(/bultos y además unidades sueltas/);
+    expect(aplicarCambiosIA([whiteBlend()], [{ renglon: 1, campo: 'precioPor', valor: 'caja' }], esDesc).descartados[0].porque).toMatch(/«unidad» o por «bulto»/);
+  });
+  it('lo que ya andaba no cambia: bultos a precio de unidad y unidades sueltas se ven como siempre', () => {
+    const pronto: any = lectura(8, 1439.61, 46643.23, { bultos: 4, unidadesSueltas: 4, unidadesPorBulto: 8, bonificacionPct: 10 });
+    pronto.papel = papelDeLectura(pronto);
+    expect(vistaDelPapel(pronto)).toMatchObject({ bultos: 4, uxb: 8, sueltas: 4, precioPor: 'unidad' });
+    const durazno: any = lectura(4, 2183.46, 7860.47, { bonificacionPct: 10 });
+    durazno.papel = papelDeLectura(durazno);
+    expect(vistaDelPapel(durazno)).toMatchObject({ bultos: 0, sueltas: 4, precioPor: 'unidad' });
+    // y cambiar un dato en ellos da lo mismo que antes
+    const r = aplicarCambiosIA([{ ...pronto, cantidad: 36 }], [{ renglon: 1, campo: 'sueltas', valor: 0 }], esDesc);
+    expect(r.registros).toEqual([{ renglon: 1, campo: 'sueltas', antes: 4, despues: 0, motivo: '' }]);
+    expect(r.items[0].papel).toMatchObject({ bultos: 4, uxb: 8, sueltas: 0 });
   });
 });
