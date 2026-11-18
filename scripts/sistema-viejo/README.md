@@ -142,7 +142,7 @@ Trampas del día:
 - Desde la Mac, en el sandbox: el `fetch` de Node necesita `NODE_USE_ENV_PROXY=1`, y las
   lecturas largas a veces llegan cortadas (los scripts reintentan).
 
-## Carga del 18/11/2026 (auditorías 1242/1243, 1245, 1246)
+## Carga del 18/11/2026 (auditorías 1240 puesta al día, 1242/1244 carga, 1245 espejo, 1246 barras)
 
 - **Las altas traen sus barras.** Antes, la carga solo agregaba barras a productos que ya
   existían: el producto nuevo quedaba sin poder escanearse hasta la carga siguiente (el
