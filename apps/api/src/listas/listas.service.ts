@@ -9,6 +9,7 @@ import { cuitValido, elegirProveedor } from '../compras/proveedor-match';
 import { proveedorPorArticulos, type ArticuloConocido } from '../compras/proveedor-por-articulos';
 import { claveArticulo } from '../compras/ficha-articulo';
 import { marcasAMano, pideLoManuscrito } from '../compras/manuscrito';
+import { sinDudasDeMas } from '../compras/dudas-de-mas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
@@ -37,6 +38,7 @@ type Match = {
   margenPct: number | null; // remarcación guardada de la última compra (si hay)
   sugerido?: boolean; // propuesto por la IA: el operador tiene que confirmar ("¿es este?")
   alicuotaCatalogo?: number | null; // IVA del producto en el catálogo (para verificar contra el pie)
+  vendidoPorPeso?: boolean; // el producto está marcado «se vende por peso» en el catálogo (18/11/2026)
   motivo?: string; // por qué la IA cree que es ese producto
   precioActual?: number | null; // precio minorista de hoy: el control antes de registrar avisa si cambia mucho (10/11/2026)
 } | null;
@@ -1098,8 +1100,16 @@ export class ListasService {
     // a cambio de que la lectura no repita la pregunta que ya se contestó. El
     // proveedor queda el que se identificó en la primera. Si la segunda falla o
     // vuelve vacía, queda la primera. Se apaga con ODB_RELEER_CON_REGLAS=0.
+    //
+    // SOLO SI HAY ALGO QUE GANAR (18/11/2026). Lo que arregla la segunda lectura
+    // son las dudas: en las pruebas del 17/11 y en las seis relecturas del 18/11
+    // los renglones salieron iguales las dos veces, y las dudas bajaron (2→0,
+    // 3→1) solo donde la primera había dejado alguna. Sin dudas no hay nada que
+    // mejorar y se pagaba igual: los 54 renglones de Distribuidora City tardaron
+    // 75,8 s en vez de 38. Las reglas igual se aplican al abrir la factura.
     let releidaConReglas = false;
-    if (proveedor?.id && !reglasProveedor.length && process.env.ODB_RELEER_CON_REGLAS !== '0') {
+    const dudasDeLaPrimera = Array.isArray(datos.dudas) ? datos.dudas.length : 0;
+    if (proveedor?.id && !reglasProveedor.length && dudasDeLaPrimera > 0 && process.env.ODB_RELEER_CON_REGLAS !== '0') {
       const reglas = await this.reglasDeLectura(proveedor.id).catch(() => [] as string[]);
       if (reglas.length) {
         try {
@@ -1319,7 +1329,8 @@ export class ListasService {
       releidaConReglas,
       notasManuscritas: datos.notasManuscritas ?? null,
       dudas: [
-        ...(Array.isArray(datos.dudas) ? datos.dudas : []),
+        // el CUIT que no se lee no se pregunta si el proveedor ya se reconoció y lo tiene en su ficha
+        ...sinDudasDeMas(Array.isArray(datos.dudas) ? datos.dudas : [], { proveedorConCuit: !!proveedor?.id && cuitValido(proveedor?.cuit) }),
         // la lectura no trajo la columna de bonificación y el importe la prueba
         // (3/11/2026): se avisa, nunca pasa callada
         ...(() => {
@@ -1597,7 +1608,7 @@ export class ListasService {
   private async matchear<T extends { codigo: string | null; descripcion: string; precio: number | null }>(items: T[], proveedorId: string): Promise<(T & { match: Match })[]> {
     const { data: catalogoProv } = await this.db
       .from('proveedor_productos')
-      .select('codigo_proveedor, alias_descripcion, ultimo_costo, margen_pct, producto:productos(sku, nombre, costo)')
+      .select('codigo_proveedor, alias_descripcion, ultimo_costo, margen_pct, producto:productos(sku, nombre, costo, vendido_por_peso)')
       .eq('proveedor_id', proveedorId);
     const filas = (catalogoProv ?? []) as any[];
     const porCodigoProv = new Map(filas.filter((r) => r.codigo_proveedor).map((r) => [r.codigo_proveedor.toLowerCase(), r]));
@@ -1631,7 +1642,7 @@ export class ListasService {
       } else if (item.codigo && /^\d{8,14}$/.test(item.codigo)) {
         const { data: cb } = await this.db
           .from('codigos_barras')
-          .select('producto:productos(sku, nombre, costo)')
+          .select('producto:productos(sku, nombre, costo, vendido_por_peso)')
           .eq('codigo', item.codigo)
           .maybeSingle();
         if (cb?.producto) match = this.armarMatch(cb.producto, (cb.producto as any).costo, item.precio, 'codigo_barras', null);
@@ -1655,7 +1666,7 @@ export class ListasService {
         if (similar) {
           const { data: prod } = await this.db
             .from('productos')
-            .select('sku, nombre, costo')
+            .select('sku, nombre, costo, vendido_por_peso')
             .eq('sku', (similar as any).sku)
             .single();
           // guardián de marca: la primera palabra significativa del renglón
@@ -1803,7 +1814,7 @@ export class ListasService {
       if (proveedor?.id) {
         const { data } = await this.db
           .from('proveedor_productos')
-          .select('alias_descripcion, ultimo_costo, producto:productos(sku, nombre, costo)')
+          .select('alias_descripcion, ultimo_costo, producto:productos(sku, nombre, costo, vendido_por_peso)')
           .eq('proveedor_id', proveedor.id);
         for (const r of (data ?? []) as any[]) {
           if (!r?.producto?.sku) continue;
@@ -1988,6 +1999,9 @@ export class ListasService {
       variacionPct: costo && precioNuevo != null ? Math.round(((precioNuevo - costo) / costo) * 1000) / 10 : null,
       metodo,
       margenPct: margenPct != null ? Number(margenPct) : null,
+      // lo que el catálogo ya sabe: con esto el lector acepta la columna de kilos
+      // aunque el papel no diga «kg» (18/11/2026; se pedía y nunca se cargaba)
+      ...(producto.vendido_por_peso ? { vendidoPorPeso: true } : {}),
     };
   }
 }

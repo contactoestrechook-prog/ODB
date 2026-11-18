@@ -319,6 +319,34 @@ describe('interpretarRenglon — la tabla de precedencia completa', () => {
     expect(r.porPeso).toBe(true);
   });
 
+  // 18/11/2026, Conallison 0020-00127749: ni el papel ni el lector dicen «kilo».
+  // Ana tuvo que escribir «el precio es por kilo» para que la carne entrara por peso.
+  it('la cuenta lo dice sola: 1 × $38.495 no da el importe y 4,52 kg × $38.495 sí → por peso, sin que nadie lo diga', () => {
+    const r = leer({ descripcion: 'RACK DE OJO PORCIONADO', cantidad: 1, precio: 38495, importe: 173997.4, kg: 4.52, puedePorPeso: false });
+    expect(r.decision).toBe('peso_columna');
+    expect(r.cantidad).toBeCloseTo(4.52, 3);
+    expect(r.porPeso).toBe(true);
+  });
+  it('la columna de kilos como dato de transporte no cambia nada: si unidades × precio da el importe, entra en unidades', () => {
+    const r = leer({ descripcion: 'GALLETITAS SURTIDAS', cantidad: 12, precio: 1000, importe: 12000, kg: 3.6, puedePorPeso: false });
+    expect(r.porPeso).toBe(false);
+    expect(r.cantidad).toBe(12);
+  });
+  it('si los kilos tampoco dan el importe al centavo, no se pasa a peso por la cuenta', () => {
+    const r = leer({ descripcion: 'RACK DE OJO PORCIONADO', cantidad: 1, precio: 38495, importe: 180000, kg: 4.52, puedePorPeso: false });
+    expect(r.porPeso).toBe(false);
+  });
+  it('la bebida nunca, aunque la cuenta dé', () => {
+    const r = leer({ descripcion: 'CERVEZA LATA 473', cantidad: 1, precio: 1000, importe: 24000, kg: 24, puedePorPeso: false });
+    expect(r.porPeso).toBe(false);
+  });
+  it('el catálogo dice «x peso» o tiene la marca de vendido por peso: el artículo puede ir por peso', () => {
+    expect(puedeVendersePorPesoConCatalogo('RACK DE OJO PORCIONADO', { nombre: 'Rack de ojo porcionado x peso Muge' })).toBe(true);
+    expect(puedeVendersePorPesoConCatalogo('ENTRAÑA', { nombre: 'Entraña Muge', vendidoPorPeso: true })).toBe(true);
+    expect(puedeVendersePorPesoConCatalogo('RACK DE OJO PORCIONADO', { nombre: 'Rack de ojo Muge' })).toBe(false);
+    expect(puedeVendersePorPesoConCatalogo('CERVEZA LATA 473', { nombre: 'Cerveza x peso', vendidoPorPeso: true })).toBe(false);
+  });
+
   it('fiambre por peso CON bonificación (Oxxon, 4/11/2026): entra en kilos, con su 10 %', () => {
     const jamon = leer({ descripcion: 'BCT- JAMON NAT BOCATTI X (6,6 KG)', cantidad: 6, precio: 17614.03, importe: 619520.7, kg: 39, bonificacionPct: 10, puedePorPeso: true });
     expect(jamon.decision).toBe('peso_columna');

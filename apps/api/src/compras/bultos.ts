@@ -275,7 +275,9 @@ export function descuentoEsDelRenglon(
  */
 const RE_BEBIDA = /\b(\d+\s*)?(ml|cc|cm3|lts?|litros?)\b|\b\d+\s*l\b|\b(cerveza|birra|lata|latas|botella|botellas|vino|tinto|blanco|malbec|cabernet|chardonnay|torrontes|syrah|merlot|espumante|champagne|champ[aá]n|sidra|blend|reserva|varietal|bonarda|chenin|pinot|rosado|tannat|semillon|semill[oó]n|gaseosa|agua|soda|jugo|whisky|whiskey|vodka|gin|ron|fernet|aperitivo|licor|amargo|vermouth|tequila|pack)\b/i;
 
-const RE_POR_PESO = /\b(kgs?|kilos?|kilogramos?|gramos?|grs?)\b|\b(fiambre|jam[oó]n|queso|quesos|salame|salam[ií]n|mortadela|bondiola|panceta|lomito|matambre|milanesa|carne|pollo|pechuga|molida|muzzarella|mozzarella|provolone|roquefort|cheddar|feta|fraccionad[oa]|horma|granel|suelto)\b/i;
+// «x peso» / «por peso» (18/11/2026): así se llaman en el catálogo los cortes de carne
+// («Rack de ojo porcionado x peso Muge») y el papel de Conallison no dice «kilo» en ningún lado
+const RE_POR_PESO = /\b(kgs?|kilos?|kilogramos?|gramos?|grs?)\b|\b(?:x|por)\s*peso\b|\b(fiambre|jam[oó]n|queso|quesos|salame|salam[ií]n|mortadela|bondiola|panceta|lomito|matambre|milanesa|carne|pollo|pechuga|molida|muzzarella|mozzarella|provolone|roquefort|cheddar|feta|fraccionad[oa]|horma|granel|suelto)\b/i;
 
 export function puedeVendersePorPeso(descripcion: string): boolean {
   const t = String(descripcion ?? '');
@@ -790,6 +792,19 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
   }
   const bonif = Math.min(100, Math.abs(Number(l.bonificacionPct) || 0));
   const kg = Number(l.kg) || 0;
+  // LA CUENTA LO DICE SOLA (18/11/2026, Conallison: «RACK DE OJO PORCIONADO»
+  // 1 × $38.495 = $173.997,40, con 4,52 en la columna de kilos). Ni el papel ni
+  // el lector dicen «kilo», pero 4,52 × 38.495 da el importe al centavo y
+  // 1 × 38.495 no: el precio es por kilo. Es evidencia dura, así que no hace
+  // falta que el artículo «pueda» ir por peso; la bebida, nunca. Ana tuvo que
+  // escribirle «el precio es por kilo» para que entrara.
+  const justo = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.05, Math.abs(b) * 0.001);
+  const cierraPorKilo = !bulto && kg > 0 && precio > 0 && importe != null && importe > 0
+    && Math.abs(kg - cantidad) > 0.01
+    && justo(kg * precio * (1 - bonif / 100), importe)
+    && Math.abs(cantidad * precio * (1 - bonif / 100) - importe) > importe * TOLERANCIA_CIERRE
+    && !RE_BEBIDA.test(String(l.descripcion ?? ''));
+  const puedePorPeso = l.puedePorPeso || cierraPorKilo;
 
   const base: RenglonInterpretado = {
     decision: 'cierra',
@@ -861,7 +876,7 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     //     bonificación cortaba acá y el peso de la columna se perdía: el jamón
     //     entraba como 6 unidades. Misma evidencia que la regla 3, con la
     //     bonificación del papel.
-    if (l.puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
+    if (puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
       const esperado = kg * precio * (1 - bonif / 100);
       if (importe == null || esperado <= 0 || Math.abs(importe - esperado) / esperado < 0.05) {
         return { ...base, decision: 'peso_columna', cantidad: kg, porPeso: true, unidadesPorBulto: null, bonificacionPct: bonif };
@@ -886,7 +901,7 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
 
   // 3 — peso con columna: evidencia escrita, y tiene que cerrar con el importe.
   //     Si la columna de kilos repite la cantidad (3,06 y 3,06) también es peso.
-  if (l.puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
+  if (puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
     const esperado = kg * precio;
     const cierra = importe == null || esperado <= 0 || Math.abs(importe - esperado) / esperado < 0.05;
     if (cierra) {

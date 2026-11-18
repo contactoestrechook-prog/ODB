@@ -190,9 +190,32 @@ describe('lectura inicial y reapertura', () => {
       expect(mockPedidos).toHaveLength(1);
       mockPedidos = [];
       process.env.ODB_RELEER_CON_REGLAS = '0';
+      mockDatos = leido(['una duda que la regla podría contestar']);
       const apagado: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
       expect(mockPedidos).toHaveLength(1);
       expect(apagado.releidaConReglas).toBe(false);
+    });
+
+    // 18/11/2026: los 54 renglones de Distribuidora City se leyeron dos veces (75,8 s
+    // en vez de 38) y la segunda no cambió nada: la primera no había dejado dudas.
+    it('si la primera lectura no dejó dudas, no se vuelve a leer aunque el proveedor tenga reglas', async () => {
+      mockDatos = leido([]);
+      const r: any = await lector({ proveedores: [FARINA], proveedor_reglas_lectura: [{ regla: REGLA }] }).analizarComprobanteFoto(archivo);
+      expect(mockPedidos).toHaveLength(1);
+      expect(r.releidaConReglas).toBe(false);
+      expect(r.reglasAplicadas).toBe(0);
+      expect(r.proveedor.match.id).toBe('p-farina');
+    });
+
+    // 18/11/2026, Suma del Plata: reconocido por el nombre, con el CUIT en la ficha,
+    // y el lector preguntaba igual «¿cuál es el CUIT completo?».
+    it('con el proveedor reconocido y su CUIT en la ficha, la duda del CUIT ilegible no llega a la pantalla', async () => {
+      mockDatos = { ...leido(['El precio del renglón 1 se lee borroso. ¿Es correcto?']), dudas: [
+        { referencia: 'proveedor CUIT', pregunta: 'El CUIT del emisor está parcialmente ilegible (30 56... 59). ¿Cuál es el CUIT completo?' },
+        { referencia: 'renglón 1', pregunta: 'El precio del renglón 1 se lee borroso. ¿Es correcto?' },
+      ] };
+      const r: any = await lector({ proveedores: [FARINA] }).analizarComprobanteFoto(archivo);
+      expect((r.dudas as any[]).map((d) => d.referencia)).toEqual(['renglón 1']);
     });
   });
 });
