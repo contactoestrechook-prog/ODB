@@ -198,3 +198,57 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel, onCambiarDato }: Props
     </div>
   );
 }
+
+// ============================================================
+// EL RESUMEN DE LA ENTRADA (18/11/2026). Juan Pablo (dueño de ODB), con una
+// factura de vinos abierta: «acá creé un producto nuevo, o sea el que está en
+// verde, pero arriba me sigue apareciendo con el nombre de la etiqueta. ¿Cuál va
+// a utilizar? Esto es lo que nos va a solucionar lo que yo te pido de resumen de
+// entrada». En cada renglón se ve primero lo que dice el papel; con qué nombre y
+// en qué cantidad entra al sistema había que deducirlo renglón por renglón.
+//
+// Va al final de la lista, antes de registrar: lo que va a entrar al stock,
+// producto por producto, con el nombre del SISTEMA, la cantidad ya en unidades de
+// stock y de qué renglones del papel sale; y aparte lo que no entra y por qué. Es
+// exactamente lo que se manda al registrar (los mismos datos), no otra cuenta.
+// ============================================================
+
+export type ProductoQueEntra = { sku: string; nombre: string; cantidad: number; costo: number | null; renglones: number[]; porPeso?: boolean; sinCargo?: number };
+export type RenglonQueNoEntra = { renglon: number; descripcion: string; porque: string };
+
+export function ResumenEntrada({ entran, noEntran }: { entran: ProductoQueEntra[]; noEntran: RenglonQueNoEntra[] }) {
+  if (!entran.length && !noEntran.length) return null;
+  const unidades = entran.filter((p) => !p.porPeso).reduce((s, p) => s + p.cantidad, 0);
+  const kilos = entran.filter((p) => p.porPeso).reduce((s, p) => s + p.cantidad, 0);
+  return (
+    <section aria-label="Resumen de la entrada" className="rounded-2xl border border-black/[0.06] bg-white p-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <h3 className="text-sm font-semibold text-tinta">Resumen de la entrada</h3>
+        <span className="text-xs text-tinta/60">
+          Lo que va a entrar al stock al registrar, con el nombre de cada producto en el sistema
+          {entran.length ? ` · ${entran.length} ${entran.length === 1 ? 'producto' : 'productos'}${unidades ? ` · ${cifra(unidades, 3)} unidades` : ''}${kilos ? ` · ${cifra(kilos, 3)} kg` : ''}` : ''}
+        </span>
+      </div>
+      {entran.length > 0 && (
+        <ul className="mt-1.5 divide-y divide-black/[0.06]">
+          {entran.map((p) => (
+            <li key={p.sku} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5 text-sm">
+              <span className="min-w-0 flex-1 basis-56 break-words text-tinta">{p.nombre}</span>
+              <span className="text-xs text-tinta/60">{p.renglones.length === 1 ? `renglón ${p.renglones[0]}` : `renglones ${p.renglones.join(', ')}`}{p.sinCargo ? ` · ${cifra(p.sinCargo, 3)} sin cargo` : ''}</span>
+              {p.costo != null && <span className="importe text-xs text-tinta/60">{pesos(p.costo)} c/u con IVA</span>}
+              <span className="importe w-24 text-right font-semibold text-tinta">{cifra(p.cantidad, 3)} {p.porPeso ? 'kg' : p.cantidad === 1 ? 'unidad' : 'unid.'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {noEntran.length > 0 && (
+        <div className="mt-2 rounded-xl bg-atencion-suave px-2.5 py-1.5 text-xs text-atencion">
+          <p className="font-semibold">No {noEntran.length === 1 ? 'entra' : 'entran'} al stock:</p>
+          <ul className="space-y-0.5">
+            {noEntran.map((r) => <li key={r.renglon}>Renglón {r.renglon} · {r.descripcion}: {r.porque}</li>)}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}

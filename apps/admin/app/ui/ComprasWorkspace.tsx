@@ -17,7 +17,7 @@ import {
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
 import { CamaraCodigo } from './CamaraCodigo';
-import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
+import { CabeceraFactura, PapelDelRenglon, ResumenEntrada } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
@@ -1992,6 +1992,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   const hayRegalos = inclItems.some((i: any) => esSinCargo(i));
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
+  // EL RESUMEN DE LA ENTRADA (18/11/2026, Juan Pablo: «¿cuál va a utilizar?»): lo que
+  // se manda al registrar, dicho con el nombre del producto en el sistema, y lo que queda afuera
+  const resumenEntran = itemsFusionados.map((i: any) => ({
+    sku: String(i.sku), nombre: conCodigo(String(i.nombre ?? i.descripcion ?? ''), i), cantidad: Number(i.cantidad) || 0,
+    costo: Number(i.costoUnitario) > 0 ? Number(i.costoUnitario) : null, porPeso: !!i.porPeso, sinCargo: Number(i._gratis) || 0,
+    renglones: itemsCalc.map((x: any, k: number) => (x.sku === i.sku && x.incluir && !x._esDescuento && !x._esDevolucion ? k + 1 : 0)).filter(Boolean),
+  }));
+  const resumenNoEntran = itemsCalc
+    .map((i: any, k: number) => ({ i, k }))
+    .filter(({ i }) => !i._esDescuento && !i._esDevolucion && !i.juntadoEn && !(i.incluir && i.sku))
+    .map(({ i, k }) => ({
+      renglon: k + 1, descripcion: String(i.descripcion ?? ''),
+      porque: !i.sku ? 'falta elegir el producto' : i.sugerido ? 'falta confirmar el producto que sugirió la IA' : i.devueltoAMano ? 'volvió en la entrega' : 'está destildado',
+    }));
   // entradas a $0 que esta factura valoriza, una por producto (10/10/2026)
   const esFacturaFoto = !!foto?.comprobante?.tipo?.startsWith('factura');
   const cruceRemito = esFacturaFoto && remitosEsperando.remitos.length
@@ -3091,6 +3105,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                     <div className="@container min-w-0 flex-1 space-y-1.5">
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        {/* qué es cada línea, sin tener que preguntarlo (18/11/2026, Juan Pablo: «¿cuál va a utilizar?») */}
+                        <span className="text-xs text-tinta/60">Dice el papel:</span>
                         <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
                         {esRenglonAgregado(i) && (
                           <>
@@ -3188,7 +3204,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                               {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
                                   para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
-                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{conCodigo(i.nombre, i)}</b></span>
+                              <span className="min-w-0 break-words text-ok" title={i.nombre}>Entra al stock como <b>{conCodigo(i.nombre, i)}</b></span>
                               {(() => {
                                 // con lo que el renglón dice AHORA: cambia con cada botón (6/10/2026)
                                 const v = variacionCosto(i, idx);
@@ -3632,6 +3648,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 </div>
               ))}
               <AgregarRenglon onAgregar={(d) => agregarRenglones([d], 'persona')} />
+              {!esNotaCredito && <ResumenEntrada entran={resumenEntran} noEntran={resumenNoEntran} />}
               {fotoItems.some((i) => i.incluir && !i.sku) && (
                 <p className="text-xs text-marca-hondo">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}

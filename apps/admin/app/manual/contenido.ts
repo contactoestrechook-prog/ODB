@@ -572,6 +572,8 @@ export const SECCIONES: Seccion[] = [
           'La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
           'Cuando la factura cuenta cajas y el precio impreso es el de la caja (vinos, bebidas), el renglón lo muestra como dice el papel: las cajas en "Bultos", lo que trae cada una en "U×B" y "Precio bulto". Al stock entran las unidades de adentro, cada una al precio de la caja dividido.',
           'Si un renglón quedó con las cajas en "Sueltas", debajo de los números elegí "El precio impreso es de: cada bulto de 6". O decíselo a la IA como te salga: "son bultos", "el precio es por caja". La plata del renglón no cambia.',
+          'En cada renglón, "Dice el papel" es el texto de la factura y "Entra al stock como" es el producto del sistema: ese es el nombre que se usa. Si el nombre del catálogo quedó viejo, se cambia en la ficha del producto.',
+          'Al final de la lista, antes de registrar, está el "Resumen de la entrada": cada producto con su nombre en el sistema, cuántas unidades entran (ya abiertas las cajas), de qué renglones del papel salen y el costo. Abajo, lo que no entra y por qué. Es exactamente lo que se registra.',
         ],
       },
       {
