@@ -1,12 +1,12 @@
 'use client';
 
-import { camposDeLecturaIncompletos } from '../lib/lectura-compras';
+import { camposDeLecturaIncompletos, separarRenglonesSinNada } from '../lib/lectura-compras';
 import { Dictado } from './Dictado';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
-import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
+import { atribuirDescuentos, esRenglonDescuento, netoDeRebajaNoAplicada } from '../lib/descuentos-compras';
 import { cambiosDeFichas } from '../lib/ficha-articulo';
 import { fichasConForma } from '../lib/forma-proveedor';
 import { proveedorPorNombre } from '../lib/proveedor-por-nombre';
@@ -521,6 +521,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   const [fotoRot, setFotoRot] = useState(0); // rotación del visor: 0/90/180/270
   const [fotoZoom, setFotoZoom] = useState(1); // zoom del visor
   const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
+  // renglones del papel que no entregan ni cobran nada y no se cargan (18/11/2026, lib/lectura-compras.ts)
+  const [renglonesSinNada, setRenglonesSinNada] = useState<string[]>([]);
   const [fotoImp, setFotoImp] = useState<any>({});
   // la factura editable (8/10/2026): cada cambio en la tabla, de la persona o
   // de la IA, con su hora; se puede deshacer y al registrar queda la constancia
@@ -692,7 +694,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const ivaSospechoso = alicEf != null && (alicEf < 0.18 || alicEf > 0.23) && !(alicEf >= 0.095 && alicEf <= 0.115);
       setSumarIva(d.comprobante?.tipo === 'factura_a' && dNeto <= 0.01 && !ivaSospechoso && !d.regimenEspecial);
       setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
-      const filas = (d.items ?? []).map((i: any) => {
+      // lo que el papel no entrega ni cobra no es un renglón (18/11/2026, Nini: «Promocion 0145993» en cero)
+      const { renglones: leidos, sinNada } = separarRenglonesSinNada(d.items ?? []);
+      setRenglonesSinNada(sinNada.map((i: any) => String(i.descripcion ?? '')));
+      const filas = leidos.map((i: any) => {
         const sugerido = i.match?.sugerido === true;
         // La interpretación del renglón —bulto, bonificación, peso, corrección
         // de cantidad, descuento— la decide el servidor en UNA función con la
@@ -1239,16 +1244,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // (no con las unidades: cambiar cuántas salen del stock no cambia la plata).
   // Si la devolución trae su propia rebaja en otro renglón («Desc. 10% s/ DEV»),
   // se devuelve por menos: la rebaja la achica, y nunca da vuelta el signo.
-  const netoDelRenglon = (i: any) => i._esDevolucion
+  //
+  // La REBAJA QUE NO SE APLICA (18/11/2026, Nini) también resta, como la
+  // devolución: es un renglón del papel en negativo que no baja el costo de
+  // ningún producto. Así los renglones dan el subtotal impreso, el factor del
+  // pie queda en 1 (la mercadería, a precio de lista) y la cuenta la resta una
+  // sola vez. Antes no estaba en la suma: el pie la repartía entre todos los
+  // costos y la cuenta la restaba otra vez (ver netoDeRebajaNoAplicada). Las
+  // demás rebajas valen 0 acá: ya están adentro del precio del renglón que rebajan.
+  const netoDelRenglon = (i: any) => i._esDescuento
+    ? netoDeRebajaNoAplicada(i)
+    : i._esDevolucion
     ? Math.min(0, -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio))) + Math.abs(numImp(i._descuento)))
     : numImp(i.cantidad) > 0
     // cigarrillos: el precio del papel ya trae IVA e interno; el neto es su parte
     ? numImp(i.cantidad) * precioEfectivo(i) * (i.fraccionNeta ?? 1)
     : Math.max(0, numImp(i.papel?.importe ?? i.importe));
-  const sumaRenglones = itemsCalc.reduce(
-    (s: number, i: any) => (i._esDescuento ? s : s + netoDelRenglon(i)),
-    0,
-  );
+  const sumaRenglones = itemsCalc.reduce((s: number, i: any) => s + netoDelRenglon(i), 0);
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
   const ivaDoc = fotoImp?.iva != null && fotoImp.iva !== '' ? numImp(fotoImp.iva) : null;
   const percIvaDoc = numImp(fotoImp?.percepcionIva);
@@ -1323,9 +1335,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     const a = numImp(i.alicuotaIva);
     return a > 0 && a <= 27 ? a : null;
   };
+  // la rebaja que no se aplica lleva su IVA en negativo, como la devolución (18/11/2026)
   const renglonesIva = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
-    .filter(({ i }) => !i._esDescuento && (i._esDevolucion || netoDelRenglon(i) > 0));
+    .filter(({ i }) => (i._esDescuento ? netoDelRenglon(i) < 0 : i._esDevolucion || netoDelRenglon(i) > 0));
   const ivaFactura = discriminaIva
     ? repartirIva(
         renglonesIva.map(({ i }) => ({
@@ -1916,13 +1929,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // común de "el costo no me da".
   // Lo que los renglones TENDRÍAN que sumar: el neto más lo que se descontó en
   // el pie (el descuento se aplica después de sumar los renglones).
-  // Rebajas que el operador eligió no aplicar: para el control del pie cuentan
-  // igual que el descuento global (los renglones van a sumar de más por eso).
-  const descuentosNoAplicados = fotoItems.reduce(
-    (s: number, d: any) => (esRenglonDescuento(d) && d.noAplicar ? s + Math.abs(numImp(d.cantidad) * numImp(d.precio)) : s),
-    0,
-  );
-  const netoEsperado = netoDoc != null ? netoDoc + descuentoGlobalDoc + descuentosNoAplicados : null;
+  // Las rebajas que el operador eligió no aplicar ya están en la suma de los
+  // renglones, en negativo (18/11/2026): no se suman acá.
+  const netoEsperado = netoDoc != null ? netoDoc + descuentoGlobalDoc : null;
   const desvioRenglones = netoEsperado != null && netoEsperado > 0 && sumaRenglones > 0
     ? sumaRenglones / netoEsperado - 1
     : null;
@@ -2056,11 +2065,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     partesCuenta.push({ renglon, descripcion, tipo: 'entra', valor: entra * unidad, unidades: entra });
     if (cant - entra > 0) partesCuenta.push({ renglon, descripcion, tipo: 'falto', valor: (cant - entra) * unidad, unidades: Math.round((cant - entra) * 1000) / 1000 });
   });
-  // un descuento que no se aplicó: el renglón cuesta lo de lista y el pie cobra con la rebaja
+  // un descuento que no se aplicó: el renglón cuesta lo de lista y el pie cobra
+  // con la rebaja. Vale lo que valdría como renglón, con el MISMO factor de
+  // costo que la mercadería (su IVA y sus percepciones): así lo que los costos
+  // dan de más es justo lo que se resta, una sola vez (18/11/2026, Nini).
   const descuentosSinAplicar = itemsCalc.reduce((s: number, i: any, idx: number) => {
-    if (i._esDescuento || i._esDevolucion || !descuentoDesmedido(i)) return s;
+    if (i._esDescuento) return s + Math.abs(netoDelRenglon(i)) * factorDe(i, idx);
+    if (i._esDevolucion || !descuentoDesmedido(i)) return s;
     return s + Math.abs(numImp(i._descuento)) * factorDe(i, idx);
-  }, 0) + descuentosNoAplicados * (baseCosto != null && netoDoc ? baseCosto / netoDoc : factorRecon);
+  }, 0);
   // las mismas partes viajan al servidor al registrar: rehace la cuenta con el
   // mismo código y no registra si no cierra (11/11/2026, cuenta-servidor.ts)
   const entradaCuenta = {
@@ -2853,6 +2866,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
               {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
               {lecturaIncompleta && <p role="alert" className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
+              {renglonesSinNada.length > 0 && (
+                <p className="rounded-xl bg-info-suave p-3 text-sm text-tinta">
+                  No se cargan {renglonesSinNada.length === 1 ? 'un renglón' : `${renglonesSinNada.length} renglones`} del papel con cantidad 0 y sin importe: no entregan ni cobran nada
+                  ({[...new Set(renglonesSinNada.map((t) => t.length > 48 ? `${t.slice(0, 48)}…` : t))].slice(0, 3).map((t) => `«${t}»`).join(', ')}{renglonesSinNada.length > 3 ? '…' : ''}).
+                  Si alguno era mercadería, la cuenta de la factura no va a cerrar.
+                </p>
+              )}
               {renglonesSinCierre.length > 0 && (
                 <div id="registro-sin-cierre" role="alert" className="space-y-2 rounded-xl bg-atencion-suave p-3 text-sm text-atencion">
                   <p>
@@ -3085,10 +3105,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (
-                            <>La mercadería queda a precio de lista; lo pagado de menos se reparte en el costo general.
+                            <>No baja ningún costo: la mercadería queda a precio de lista y la rebaja queda como bonificación de la factura (la cuenta la resta una vez).
                               <button onClick={() => noAplicarDescuento(idx, false)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
                           ) : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? (
-                            <span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
+                            <><span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: por ahora baja el costo de todos los renglones, en proporción.</span>
+                              <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar — dejar a precio de lista</button></>
                           ) : grupoDeDescuento.has(idx) ? (
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
                               <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
@@ -3868,8 +3889,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 {sinAtribuir.length > 0 && (
                   <p className="mt-1.5 rounded-xl bg-marca-suave px-2.5 py-2 font-medium text-marca-hondo">
                     <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />Hay <b>{sinAtribuir.length}</b> rebaja(s) por <b>{pesos(sinAtribuir.reduce((a, x) => a + x.importe, 0))}</b> que no se pudo saber
-                    a qué renglón corresponden, así que no se aplicaron a ningún costo. Si son promociones de toda la factura, cargalas en
-                    “Desc. del pie” y se reparten entre todos los renglones.
+                    a qué renglón corresponden: por ahora bajan el costo de todos los renglones, en proporción. Si no tienen que bajar
+                    ningún costo, tocá «No aplicar» en cada una y la mercadería queda a precio de lista.
                   </p>
                 )}
                 {descuentosDesmedidos > 0 && (

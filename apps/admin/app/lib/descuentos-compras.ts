@@ -90,7 +90,8 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
     if (!esRenglonDescuento(d)) return;
     const cerrarVentana = () => { ventanaInicio = j + 1; };
     // El operador decidió no aplicar esta rebaja: la mercadería queda a precio
-    // de lista y lo pagado de menos se reparte solo en la reconciliación.
+    // de lista y la rebaja queda como bonificación de la factura (ver
+    // netoDeRebajaNoAplicada, abajo).
     if (d.noAplicar) return cerrarVentana();
     const importe = d.importe != null && d.importe !== '' && num(d.importe) !== 0 ? num(d.importe) : num(d.cantidad) * num(d.precio);
     if (!importe) return cerrarVentana();
@@ -166,4 +167,31 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
   });
 
   return { porIdx, destinos, grupos, sinAtribuir };
+}
+
+// ============================================================
+// «NO APLICAR» QUIERE DECIR UNA SOLA COSA (18/11/2026). Nini 1200-00049128:
+// tres bonificaciones al final (−$25.323,72) que Anabella no quería en el
+// costo («no vamos a bajar los precios, que quede como bonificación en la
+// cuenta total»). Las marcó «no aplicar» y la cuenta dejó de cerrar por
+// $32.596: la rebaja se restaba DOS veces. Estuvo 40 minutos y 15 mensajes con
+// el chat, le aceptó la diferencia tres veces y terminó descartando la factura.
+//
+// La raíz: «no aplicar» tenía dos significados vivos a la vez. El del 28/8
+// («lo pagado de menos se reparte en el costo general»: como el neto del pie
+// es menor que los renglones, el factor del pie bajaba un 3,92 % el costo de
+// TODOS los productos) y el de la cuenta del 9/11 («el renglón cuesta lo de
+// lista y el pie cobra con la rebaja»: la resta aparte). Cada parte hacía su
+// cuenta con su propia idea.
+//
+// Ahora es una sola, la del botón («dejar a precio de lista»): la rebaja sin
+// aplicar es un renglón más del papel, en negativo, como una devolución. Suma
+// en el neto y en el IVA (los renglones vuelven a dar el subtotal impreso y
+// el factor del pie queda en 1), no baja el costo de ningún producto, y la
+// cuenta la resta una vez, con sus impuestos, con el mismo factor de costo que
+// cualquier renglón. Se prueba en apps/api/src/compras/rebaja-no-aplicada.spec.ts.
+// ============================================================
+export function netoDeRebajaNoAplicada(d: RenglonConDescuento): number {
+  if (!esRenglonDescuento(d) || !d.noAplicar) return 0;
+  return -(Math.abs(num(d.cantidad) * num(d.precio)) || Math.abs(num(d.importe)));
 }
