@@ -14,7 +14,7 @@ export const TARIFAS: Record<string, [number, number, number, number]> = {
   'claude-opus-5-5': [4, 0.2, 5, 20],
   'claude-opus-5': [5, 0.5, 6.25, 25],
   'claude-opus-4-8': [5, 0.5, 6.25, 25],
-  'claude-sonnet-5-5': [2, 0.2, 2.5, 10],
+  'claude-sonnet-5-5': [2, 0.1, 2.5, 10], // caché leída 0,10 (18/11/2026: la tabla decía 0,20)
   'claude-sonnet-5': [2, 0.2, 2.5, 10],
   'claude-haiku-4-5': [1, 0.1, 1.25, 5],
 };

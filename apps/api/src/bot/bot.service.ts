@@ -64,7 +64,7 @@ function bonitoTelefono(t: string): string {
   return d ? `+${d}` : '';
 }
 import { costoUSD, usoDeRespuesta } from './tarifas';
-import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
+import { esfuerzo, ESFUERZO_BOT, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
@@ -2181,9 +2181,9 @@ export class BotService {
       model: MODELO_BOT,
       max_tokens: MAX_TOKENS_BOT,
       thinking: RAZONAMIENTO,
-      // medium, el valor de Opus 5.5 (antes xhigh): según la guía de Anthropic,
-      // 5.5 en medium rinde igual o más que Opus 5 en high, y a igual nivel piensa
-      // más que 5. Se sube con ODB_BOT_ESFUERZO sin tocar código.
+      // ESFUERZO_BOT: high con Sonnet 5.5 (el modelo del bot desde el 18/11/2026;
+      // en medium no creó un pedido confirmado en el banco), medium si se vuelve a
+      // Opus 5.5 (antes xhigh). Se cambia con ODB_BOT_ESFUERZO sin tocar código.
       // NO BAJARLO A LOW POR PLATA (medido el 18/11/2026, Leandro: «baja el
       // razonamiento del bot»): en las respuestas reales el razonamiento y la
       // salida son ~11 % del costo; el 86 % es volver a escribir la caché (prompt
@@ -2191,7 +2191,7 @@ export class BotService {
       // minutos entre sí. En el banco (12 casos, clave de desarrollo) low costó lo
       // mismo que medium (USD 0,75 contra 0,74), bajó el puntaje de 4,5 a 4,1 y en
       // pedido-02 no creó el pedido confirmado.
-      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO') },
+      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO', ESFUERZO_BOT) },
       system,
       ...(tools.length ? { tools, ...(o.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}) } : {}),
       messages: this.conCache(messages),

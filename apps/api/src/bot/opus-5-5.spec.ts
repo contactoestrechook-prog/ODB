@@ -13,6 +13,7 @@
 // para pasarlas por prefix_diff.py (la verificación offline de la guía).
 import { appendFileSync } from 'fs';
 import { BotService } from './bot.service';
+import { ESFUERZO_BOT, MODELO_BOT } from '../comun/modelos';
 import { HERRAMIENTAS_PEDIDOS, SYSTEM_PEDIDOS } from './agente-bot';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
@@ -100,9 +101,9 @@ function revisarTurno(llamadas: any[]) {
   const opus = llamadas.filter((p) => p.model !== 'claude-haiku-4-5' && !p.output_config?.format);
   expect(opus.length).toBeGreaterThan(0);
   for (const p of opus) {
-    expect(p.model).toBe('claude-opus-5-5');
+    expect(p.model).toBe(MODELO_BOT);
     expect(p.thinking).toEqual({ type: 'adaptive' });
-    expect(p.output_config).toEqual({ effort: 'medium' });
+    expect(p.output_config).toEqual({ effort: ESFUERZO_BOT });
     expect(p.max_tokens).toBeGreaterThanOrEqual(16000);
     // nada de tool_choice forzado: en 5.5 any/tool son un 400
     expect(p.tool_choice === undefined || p.tool_choice?.type === 'none').toBe(true);
@@ -260,7 +261,7 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Qué levadura uso para fermentar en casa?' });
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
     expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion' });
   });
@@ -269,7 +270,7 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', 'Recibido, gracias. Queda registrada y el equipo la revisa.'));
     await s.charla({ linea: 'proveedores', telefono: TEL, mensaje: 'Te paso la lista de precios nueva' });
-    const p = llamadas.find((x) => x.model === 'claude-opus-5-5');
+    const p = llamadas.find((x) => x.model === MODELO_BOT);
     expect(p.tools).toBeUndefined();
     expect(p.tool_choice).toBeUndefined();
   });
@@ -325,7 +326,7 @@ describe('revisión del 6/10/2026 (hallazgos sobre el cambio a Opus 5.5)', () =>
     expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
     expect(r.respuesta).toMatch(/Te paso con una persona de la casa\./);
     // una sola llamada (la rechazada): nada de regenerar con un borrador vacío (400)
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
     expect(vaciosDelAsistente(llamadas)).toHaveLength(0);
     // ya está en manos de una persona: no se consulta además a administración
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
@@ -398,7 +399,7 @@ describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
     const { s, llamadas } = servicio(db, final('a', 'Anotado.'), final('b', 'Anotado.'));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'quiero 2 fernet' });
     await s.charla({ linea: 'pedidos', telefono: '5491155509999', mensaje: '¿Abren hoy? ¿Hacen envíos a Canning?' });
-    const [uno, dos] = llamadas.filter((p) => p.model === 'claude-opus-5-5');
+    const [uno, dos] = llamadas.filter((p) => p.model === MODELO_BOT);
     expect(uno.system).toEqual(dos.system);
     expect(uno.system[1].text).not.toMatch(/\d{1,2}:\d{2}/);
     // lo que vale para este mensaje (dos preguntas) va en sus metadatos, al final del mensaje del cliente

@@ -3,6 +3,7 @@
 // el bot entero para que eso no vuelva a pasar.
 import { appendFileSync } from 'fs';
 import { BotService } from './bot.service';
+import { ESFUERZO_BOT, MODELO_BOT } from '../comun/modelos';
 import * as TEXTO from './textos-fijos';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
@@ -115,7 +116,7 @@ describe('candados conectados al bot', () => {
     expect(r.respuesta).not.toContain('Saco la sal y sumo');
     // sin reescrituras (10/10/2026: el control de oraciones repetidas que le pedía «decí solo lo
     // nuevo» se sacó): la vuelta con la herramienta y la respuesta, nada más
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(2);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(2);
     expect(r.respuesta.split('\n').filter((l: string) => l.startsWith('• '))).toHaveLength(3);
   });
 });
@@ -133,7 +134,7 @@ describe('un texto largo no se reescribe y la lista queda en renglones (21:15 de
     // y los renglones siguen siendo renglones (antes «E, ronda 9» los pegaba en un párrafo)
     expect(r.respuesta.split('\n').filter((l: string) => l.startsWith('• '))).toHaveLength(3);
     expect(r.respuesta).toContain(PARRAFO);
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
   });
 });
 
@@ -160,7 +161,7 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
     const renglones = r.respuesta.split('\n').filter((l: string) => l.startsWith('• '));
     expect(renglones).toHaveLength(6);
     expect(renglones.at(-1)).toBe('• 2 × Gatorade Frutas Tropicales 500 cc');
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
     expect(s.derivarAHumano).not.toHaveBeenCalled();
     expect(r.respuesta).not.toContain(TEXTO.PASA_A_UNA_PERSONA);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
@@ -174,7 +175,7 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
     // el reintento sin herramientas se queda; no hay una tercera vuelta
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(2);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(2);
     const consultas = insertsDe(db, 'bot_consultas_internas');
     expect(consultas).toHaveLength(1);
     expect(consultas[0].fila).toMatchObject({ area: 'administracion' });
@@ -189,7 +190,7 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿y el de litro?' });
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
     const consultas = insertsDe(db, 'bot_consultas_internas');
     expect(consultas).toHaveLength(1);
     expect(consultas[0].fila).toMatchObject({ area: 'administracion', consulta: '¿y el de litro?' });
@@ -289,7 +290,7 @@ describe('disputa de precio: las notas no piden achicar', () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '18 aguas' }, { role: 'assistant', content: LISTA_AGUA }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
     const { s, llamadas } = servicio(db, final('a', 'Está correcto, corresponde al pack de 6.'), final('b', LISTA_AGUA));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Está mal la cuenta, son 18 botellas' });
-    const nota = JSON.stringify(llamadas.filter((p) => p.model === 'claude-opus-5-5')[1].messages.at(-1).content);
+    const nota = JSON.stringify(llamadas.filter((p) => p.model === MODELO_BOT)[1].messages.at(-1).content);
     expect(nota).toMatch(/la lista completa con precios y «Total:»/);
     expect(nota).not.toMatch(/dos l[ií]neas|una l[ií]nea/);
   });
@@ -298,7 +299,7 @@ describe('disputa de precio: las notas no piden achicar', () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '18 aguas' }, { role: 'assistant', content: LISTA_AGUA }, { role: 'user', content: 'Está mal la cuenta' }, { role: 'assistant', content: 'Está correcto, es el precio por unidad.' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
     const { s, llamadas } = servicio(db, final('a', 'Está correcto, corresponde al pack de 6.'), final('b', ''));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Está mal la cuenta, son 18 botellas' });
-    const nota = JSON.stringify(llamadas.filter((p) => p.model === 'claude-opus-5-5')[1].messages.at(-1).content);
+    const nota = JSON.stringify(llamadas.filter((p) => p.model === MODELO_BOT)[1].messages.at(-1).content);
     expect(nota).toMatch(/Contestá solo lo demás que haya preguntado/);
     expect(nota).not.toMatch(/una l[ií]nea/);
   });
@@ -347,7 +348,7 @@ describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
     s.buscarProductos = jest.fn(async () => ({ items: [{ sku: 'F1L', nombre: 'Fernet Branca 1 L', precio: 26900, disponible: true }] }));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto sale el fernet de litro?' });
     expect(r.respuesta).toBe('El Fernet Branca 1 L sale $26.900.');
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(3);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(3);
   });
 
   it('un «Total: $70.000» inventado no sale; el envío desde $70.000 en la misma respuesta sí', async () => {
@@ -422,7 +423,7 @@ describe('lo que el modelo piensa no le llega al cliente', () => {
     expect(r.silencio).toBe(true);
     // 21/10/2026: es para la casa (le habla a Shaky, y lo último lo mandó una persona desde el
     // teléfono): ni otra vuelta al modelo ni consulta a administración
-    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(llamadas.filter((p) => p.model === MODELO_BOT)).toHaveLength(1);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 
@@ -433,7 +434,7 @@ describe('lo que el modelo piensa no le llega al cliente', () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', ''));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola Shaky, ahora lo veo en una hora y lo corrijo.' });
-    const system = JSON.stringify(llamadas.find((p) => p.model === 'claude-opus-5-5')?.system ?? '');
+    const system = JSON.stringify(llamadas.find((p) => p.model === MODELO_BOT)?.system ?? '');
     expect(system).toContain('Todo lo que escribís le llega al cliente tal cual');
     expect(system).toContain('Quien nombra a alguien de la casa sigue siendo un cliente');
     expect(system).toMatch(/llamá no_contestar/);

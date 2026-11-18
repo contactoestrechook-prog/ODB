@@ -11,7 +11,16 @@ import { BadRequestException } from '@nestjs/common';
 // Se vuelve atrás sin deploy de código: ODB_MODELO para todas las funciones,
 // ODB_BOT_MODELO solo para el bot de WhatsApp (la de siempre).
 export const MODELO_PRINCIPAL = process.env.ODB_MODELO ?? 'claude-opus-5-5';
-export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5-5';
+// EL BOT EN SONNET 5.5 (18/11/2026, Leandro: «baja el modelo… sonnet 5.5», por
+// el gasto de Anthropic). Cuesta la mitad que Opus 5.5 (2/10 por millón, caché
+// escrita 2,5). Banco del 18/11, las mismas 12 charlas con la clave de desarrollo:
+//   Opus 5.5 medium     7 de 12 · puntaje 4,5 · USD 0,74
+//   Sonnet 5.5 high     8 de 12 · puntaje 4,4 · USD 0,30
+//   Sonnet 5.5 medium   6 de 12 · puntaje 3,9 · y no creó un pedido confirmado
+// Por eso high, que además es el valor de fábrica de Sonnet 5.5. El razonamiento
+// sigue encendido (adaptive). Vuelta atrás sin tocar código:
+// ODB_BOT_MODELO=claude-opus-5-5 (el esfuerzo vuelve solo a medium).
+export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-sonnet-5-5';
 
 // ESFUERZO (cuánto piensa el modelo). En Opus 5.5 el razonamiento no se puede
 // apagar (un 400 si se intenta): el esfuerzo es la perilla de costo y demora.
@@ -48,6 +57,8 @@ export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5-5';
 export type Esfuerzo = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const ESFUERZOS: readonly Esfuerzo[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const ESFUERZO_POR_DEFECTO: Esfuerzo = 'medium';
+/** El esfuerzo del bot sin ODB_BOT_ESFUERZO: high en Sonnet (medido el 18/11/2026), medium en Opus 5.5. */
+export const ESFUERZO_BOT: Esfuerzo = /sonnet/i.test(MODELO_BOT) ? 'high' : 'medium';
 
 /**
  * El esfuerzo de una función: su variable, después ODB_ESFUERZO (salvo

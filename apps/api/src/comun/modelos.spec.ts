@@ -4,9 +4,9 @@ import { esfuerzo, esfuerzoAlto, jsonDe, MODELO_BOT, MODELO_PRINCIPAL, RAZONAMIE
 import { razonamientoPara as desdePagoConfirma } from '../bot/pago-confirma';
 
 describe('los modelos de Claude', () => {
-  it('por defecto, Opus 5.5 para todo (sin variables cargadas)', () => {
+  it('por defecto, Opus 5.5 para todo y Sonnet 5.5 para el bot (sin variables cargadas)', () => {
     expect(MODELO_PRINCIPAL).toBe('claude-opus-5-5');
-    expect(MODELO_BOT).toBe('claude-opus-5-5');
+    expect(MODELO_BOT).toBe('claude-sonnet-5-5');
   });
 
   it('el razonamiento va siempre encendido y adaptativo', () => {

@@ -15,7 +15,7 @@
 
 import { pesos } from './comercio';
 import { casiIgual, SUCURSAL_CENTRAL } from './prolijo';
-import { esfuerzo, razonamientoPara } from '../comun/modelos';
+import { esfuerzo, ESFUERZO_BOT, razonamientoPara } from '../comun/modelos';
 
 export type ArchivoDelTurno = { base64: string; mime: string };
 export type MensajeDeCharla = { role: string; content: unknown };
@@ -217,8 +217,9 @@ export async function leerImporteDelComprobante(claude: ClienteClaude, modelo: s
     output_config: {
       // esfuerzo explícito (6/10/2026, Opus 5.5): su valor por defecto bajó de high
       // a medium y se fija a la vista; en los modelos viejos (budget_tokens) no va.
-      // Es parte del bot: ODB_BOT_ESFUERZO lo sube junto con él (revisión del 6/10)
-      ...(razonamiento.type === 'adaptive' ? { effort: esfuerzo('ODB_BOT_ESFUERZO') } : {}),
+      // Es parte del bot: ODB_BOT_ESFUERZO lo sube junto con él (revisión del 6/10),
+      // y sin la variable usa el mismo que el bot (high en Sonnet 5.5, 18/11/2026)
+      ...(razonamiento.type === 'adaptive' ? { effort: esfuerzo('ODB_BOT_ESFUERZO', ESFUERZO_BOT) } : {}),
       format: {
         type: 'json_schema',
         schema: { type: 'object', properties: { importe: { anyOf: [{ type: 'number' }, { type: 'null' }] } }, required: ['importe'], additionalProperties: false },
