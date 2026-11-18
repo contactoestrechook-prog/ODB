@@ -116,6 +116,7 @@ export class ContableService {
     const { data: comprasRaw, error: ec } = await this.db
       .from('facturas_proveedor')
       .select('numero, monto, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, creado_en, proveedor:proveedores(razon_social, cuit)')
+      .neq('estado', 'anulada') // una factura anulada no va al libro IVA (18/11/2026)
       .gte('creado_en', `${desde}T00:00:00`)
       .lt('creado_en', `${hasta}T00:00:00`)
       .order('creado_en')

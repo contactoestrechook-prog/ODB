@@ -570,6 +570,41 @@ export const SECCIONES: Seccion[] = [
           'Si la IA te contesta que algo no se pudo aplicar, es que la pantalla lo rechazó: te dice qué y por qué, y no lo da por hecho. La carne y los fiambres con columna de kilos ya entran por peso sin que lo escribas.',
         ],
       },
+      {
+        tipo: 'pasos',
+        titulo: 'Compra eventual: comprar una vez, sin cambiar costo ni precio',
+        pasos: [
+          'Cuando es la primera factura de un proveedor, debajo de "Pagada (contado)" aparece el recuadro "Compra eventual".',
+          'Tildalo cuando es una compra de una sola vez: por ejemplo, faltó Coca-Cola, se salió a buscar y se pagó más cara que siempre.',
+          'La mercadería entra al stock y la factura queda para pagar (y en el libro IVA) por lo que se pagó de verdad.',
+          'Lo que NO hace: no cambia el costo ni el precio de venta de esos productos, y ese proveedor no queda como el de ellos (no aparece al armar pedidos).',
+          'En la factura queda un recuadro "Compra eventual" que lo explica. Si ese proveedor vuelve a aparecer y pasa a ser de los de siempre, cargá la factura sin tildar.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Corregir los renglones de una factura ya cargada',
+        pasos: [
+          'Abrí la factura en Facturas de compra. En "Lo que entró con esta factura" están los productos, la cantidad que entró y el costo por unidad.',
+          'Tocá "Corregir renglones" (gerencia y dueños; el resto ve "Pedir corrección de renglones" y lo aprueba un dueño).',
+          'En cada renglón podés cambiar la cantidad o el costo, "Cambiar producto" si se vinculó con otro, o "Sacar". Con "+ Agregar un renglón que faltó" sumás uno.',
+          'Escribí el motivo y guardá. El stock, el costo y el precio de venta se acomodan solos; lo que sacás o cambiás de producto vuelve a como estaba antes de la factura.',
+          'El total de la factura no cambia: es el del papel. Si el total se leyó mal, se corrige arriba, en el desglose.',
+          'Si algo ya se vendió y no alcanza el stock para sacarlo, el sistema saca lo que hay (queda en cero) y te dice cuánto faltó.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        titulo: 'Anular una factura: qué vuelve atrás',
+        puntos: [
+          'Abajo de todo en la factura: "Anular factura" (gerencia y dueños) o "Anular factura (la aprueba un dueño)". El motivo es obligatorio. No se borra: queda anulada, con quién y por qué.',
+          'Sale del stock lo que entró con esa factura. Si ya se vendió parte, se saca lo que hay (queda en cero) y se dice cuánto faltó.',
+          'El costo y el precio de venta que puso esa factura vuelven a los de antes. Si después otra compra o alguien los cambió, esos no se tocan y se avisa.',
+          'Sale de cuentas a pagar, de la deuda con el proveedor y del libro IVA.',
+          'Si la factura tiene un pago cargado, primero hay que anular el pago. Si está en una orden de pago, primero hay que sacarla de la orden.',
+          'Si la mercadería entró con el remito de la pistola, el stock no se toca (lo contó el depósito) y el remito vuelve a esperar la factura correcta.',
+        ],
+      },
     ],
   },
   {

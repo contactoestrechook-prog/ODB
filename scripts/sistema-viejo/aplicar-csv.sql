@@ -85,6 +85,12 @@ begin
     insert into codigos_barras (codigo, producto_id) values (e->>'ean', (e->>'producto_id')::uuid) on conflict do nothing;
     if found then n_bar := n_bar + 1; end if;
   end loop;
+  -- las barras de las altas (18/11/2026): por código, porque el producto se creó recién en el paso 1
+  for e in select * from jsonb_array_elements(coalesce(a->'barras_altas', '[]'::jsonb)) loop
+    insert into codigos_barras (codigo, producto_id)
+    select e->>'ean', id from productos where codigo_legacy = e->>'codigo' on conflict do nothing;
+    if found then n_bar := n_bar + 1; end if;
+  end loop;
   for e in select * from jsonb_array_elements(a->'barras_quitar_caja') loop
     delete from codigos_barras where codigo = e->>'ean' and producto_id = (e->>'producto_id')::uuid;
     if found then n_barq := n_barq + 1; end if;

@@ -591,6 +591,7 @@ export class FacturacionService {
     const { data: comprasRaw, error: ec } = await this.db
       .from('facturas_proveedor')
       .select('numero, monto, neto, iva, creado_en, proveedor:proveedores(razon_social, cuit)')
+      .neq('estado', 'anulada') // una factura anulada no va al libro IVA (18/11/2026)
       .gte('creado_en', desde)
       .lt('creado_en', hasta);
     if (ec) throw new BadRequestException(ec.message);

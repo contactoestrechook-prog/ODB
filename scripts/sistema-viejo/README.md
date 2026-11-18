@@ -141,3 +141,17 @@ Trampas del día:
   ORIGINALES (cp1252); con los ya pasados a UTF-8 no encuentra las columnas.
 - Desde la Mac, en el sandbox: el `fetch` de Node necesita `NODE_USE_ENV_PROXY=1`, y las
   lecturas largas a veces llegan cortadas (los scripts reintentan).
+
+## Carga del 18/11/2026 (auditorías 1240 puesta al día, 1242/1244 carga, 1245 espejo, 1246 barras)
+
+- **Las altas traen sus barras.** Antes, la carga solo agregaba barras a productos que ya
+  existían: el producto nuevo quedaba sin poder escanearse hasta la carga siguiente (el
+  18/11, 7 de las 9 altas; se pusieron a mano, auditoría 1246). Ahora el plan trae
+  `barras_altas` (barra de la unidad + código del Crack) y `aplicar-csv.sql` las pone
+  después de crear el producto. Una barra que en NÚCLEO es de otro producto va a revisión,
+  igual que siempre. Probado con un export inventado y el SQL en ensayo (fila 1249, borrada).
+- **El espejo de proveedores saltea los códigos repetidos del Crack** (10610, 12252,
+  8139): cada fila le sacaba al producto el proveedor de la otra, y el 18/11 iba a dejar sin
+  proveedor a Domain Bousquet y a Gin Bombay Sunset.
+- Desde la Mac, si `simular-csv.py` corta con `IncompleteRead` aunque reintente, es el
+  proxy del sandbox: correrlo fuera del sandbox.

@@ -31,6 +31,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'remarcacion') {
     // qué % de remarcación usar para estos productos con este proveedor
     ruta = `/compras/remarcacion?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&skus=${encodeURIComponent(url.searchParams.get('skus') ?? '')}`;
+  } else if (recurso === 'primera-compra' && url.searchParams.get('proveedorId')) {
+    // ¿primera factura de este proveedor? → se ofrece «Compra eventual» (18/11/2026)
+    ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/primera-compra`;
   } else if (recurso === 'remitos-esperando') {
     // los remitos de este proveedor que esperan su factura (10/11/2026)
     ruta = `/compras/remitos-esperando?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}`;
@@ -139,6 +142,7 @@ export async function POST(req: Request) {
     case 'aprobarCambioFactura': ruta = `/compras/facturas/cambios/${d.id}/aprobar`; body = { respuesta: d.respuesta }; break;
     case 'rechazarCambioFactura': ruta = `/compras/facturas/cambios/${d.id}/rechazar`; body = { respuesta: d.respuesta }; break;
     case 'anularFactura': ruta = `/compras/facturas/${d.id}/anular`; break;
+    case 'corregirRenglonesFactura': ruta = `/compras/facturas/${d.id}/renglones`; body = { renglones: d.renglones, motivo: d.motivo }; break;
     case 'pagoFactura': ruta = `/compras/facturas/${d.id}/pagos`; break;
     case 'crearOP': ruta = '/compras/ordenes-pago'; body = { ...d, usuarioId }; break;
     case 'aprobarOP': ruta = `/compras/ordenes-pago/${d.id}/aprobar`; body = { usuarioId }; break;

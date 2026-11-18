@@ -569,6 +569,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       .catch(() => { /* sin el dato, la factura entra como siempre */ });
     return () => { vigente = false; };
   }, [modal?.tipo, f.proveedorId]);
+  // COMPRA EVENTUAL (18/11/2026, Leandro: «no tenemos Coca-Cola, no la conseguimos por ningún
+  // lado, salimos a buscarla, la compramos desesperados a un precio más caro […] un recuadrito
+  // que diga compra eventual, cuando es por primera vez ese proveedor»). Si se tilda, la
+  // mercadería entra y la factura se paga, pero no cambia el costo ni el precio de venta.
+  const [primeraVezProveedor, setPrimeraVezProveedor] = useState(false);
+  const [compraEventual, setCompraEventual] = useState(false);
+  useEffect(() => {
+    setPrimeraVezProveedor(false); setCompraEventual(false);
+    if (modal?.tipo !== 'entradaFoto' || !f.proveedorId) return;
+    let vigente = true;
+    fetch(`/api/compras?recurso=primera-compra&proveedorId=${encodeURIComponent(f.proveedorId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (vigente) setPrimeraVezProveedor(!!d?.primeraVez); })
+      .catch(() => { /* sin el dato, no se ofrece: la factura entra como siempre */ });
+    return () => { vigente = false; };
+  }, [modal?.tipo, f.proveedorId]);
   // LOS REMITOS DE ESTE PROVEEDOR QUE ESPERAN SU FACTURA (10/11/2026): si esta
   // factura es la de uno de ellos, la mercadería ya entró con el remito y se
   // carga solo la factura, conciliada (lib/remito-factura.ts).
@@ -2505,6 +2521,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 condicionVenta: foto.comprobante?.condicionVenta || undefined,
                 archivoUrl: foto.archivoUrl || undefined,
                 pagada,
+                ...(primeraVezProveedor && compraEventual ? { compraEventual: true } : {}),
                 ...(devueltosAMano.length ? { devueltos: devueltosAMano } : {}),
               },
             } : {}),
@@ -3613,8 +3630,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   </label>
                 )}
                 <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="size-4 shrink-0 accent-marca" /> Pagada (contado)</label>
-                <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
+                {!compraEventual && (
+                  <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
+                )}
               </div>
+
+              {/* COMPRA EVENTUAL: solo con un proveedor que nunca tuvo una factura de las de siempre */}
+              {primeraVezProveedor && foto.comprobante?.tipo?.startsWith('factura') && (
+                <label className={unir('flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-sm', compraEventual ? 'border-marca/40 bg-marca/5' : 'border-black/10 bg-white')}>
+                  <input type="checkbox" checked={compraEventual} onChange={(e) => setCompraEventual(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-marca" />
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-tinta">Compra eventual</span>
+                    <span className="block text-xs text-tinta/70">
+                      Es la primera factura de este proveedor. Tildalo si es una compra de una sola vez (por ejemplo, se salió a buscar algo que faltaba y se pagó más caro):
+                      la mercadería entra al stock y la factura se paga, pero <b>no cambia el costo ni el precio de venta</b> de los productos, y este proveedor no queda como el de ellos.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               {revisionPendiente.length > 0 && (
                 <div id="registro-antes-de-registrar" className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
