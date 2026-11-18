@@ -1,6 +1,6 @@
 // LA FORMA DEL PROVEEDOR (17/11/2026). Los renglones son reales: La Farina
 // (remitos 0001-00000109 y 0001-00000116) y Tronador (Franui, 10/11).
-import { decidir, fichaDeForma, fichasConForma, firmaDe, formaDe, salidaDe, filaLeida, type Antecedente } from '../../../admin/app/lib/forma-proveedor';
+import { decidir, fichaDeForma, fichasConForma, firmaDe, formaDe, salidaDe, filaLeida, cuentaParecida, type Antecedente } from '../../../admin/app/lib/forma-proveedor';
 import { cambiosDeFicha, cambiosDeFichas } from '../../../admin/app/lib/ficha-articulo';
 import { aplicarCambiosIA, papelDeLectura } from '../../../admin/app/lib/tabla-factura';
 import { esRenglonDescuento } from '../../../admin/app/lib/descuentos-compras';
@@ -128,5 +128,59 @@ describe('la forma del proveedor', () => {
     expect(c.aplicadas).toEqual([1, 2]);
     // sin antecedentes queda todo como antes
     expect(fichasConForma(filas, [null, null, null], [], 'La Farina').porForma).toEqual([]);
+  });
+});
+
+// 18/11/2026, La Farina 0001-00000133, 11:03. La forma (4 de 4 «x N» tal cual) dejó
+// «Medialunas de manteca cruda congelada x 144 unidades», 1 × $64.690, entrando
+// como UNA unidad. Ana la pasó a 144 a mano. El control de publicar lo marcó.
+describe('la costumbre vale para lo que se parece a lo que el proveedor ya mostró', () => {
+  const chips = sinDecidir('Chips clasicos x 9 unidades', 24, 2480, 9);
+  const medialunas = sinDecidir('Medialunas de manteca cruda congelada x 144 unidades', 1, 64690, 144);
+  const forma = formaDe([talCual(panArabe), talCual(figacitasQueso), talCual(chips), talCual(figaza)]);
+
+  it('la caja de 144 a $64.690 no es «otro paquete de los suyos»: no se decide', () => {
+    expect(decidir(forma, 'sueltas')).toEqual({ salida: 'tal_cual', casos: 4, total: 4 });
+    expect(fichaDeForma(enPantalla(medialunas), forma, 'La Farina')).toBeNull();
+    expect(fichasConForma([enPantalla(medialunas)], [null], [talCual(panArabe), talCual(figacitasQueso), talCual(chips), talCual(figaza)], 'La Farina').porForma).toEqual([]);
+  });
+  it('un paquete nuevo parecido («x 9» a $3.230) sigue entrando solo', () => {
+    const chipsQueso = sinDecidir('Chips con queso x 9 unidades', 15, 3230, 9);
+    expect(fichaDeForma(enPantalla(chipsQueso), forma, 'La Farina')?.entraComo).toBe('unidades');
+  });
+  it('mira las dos cosas: cuántas trae y lo que sale la unidad', () => {
+    const cuenta = (uxb: number, precio: number) => cuentaParecida(enPantalla(sinDecidir('Artículo nuevo', 1, precio, uxb)), 'sueltas', forma);
+    expect(cuenta(12, 5000)).toEqual({ talCual: 4, abre: 0, otra: 0 });
+    expect(cuenta(144, 3000)).toBeNull(); // trae 16 veces más que el más grande
+    expect(cuenta(9, 64690)).toBeNull(); // sale 17 veces más que el más caro
+    expect(cuenta(9, 300)).toBeNull(); // sale 7 veces menos que el más barato
+  });
+  it('la caja de 144, ya registrada abierta, no le saca la costumbre a los paquetes: cada cosa aprende de las suyas', () => {
+    const conLaCaja = formaDe([talCual(panArabe), talCual(figacitasQueso), talCual(chips), talCual(figaza), abierto(medialunas)]);
+    // mirada entera, la forma quedó de las dos maneras…
+    expect(decidir(conLaCaja, 'sueltas')).toBeNull();
+    // …pero un paquete nuevo «x 9» se compara con los paquetes
+    const chipsQueso = sinDecidir('Chips con queso x 9 unidades', 15, 3230, 9);
+    expect(fichaDeForma(enPantalla(chipsQueso), conLaCaja, 'La Farina')).toMatchObject({ entraComo: 'unidades', veces: 4 });
+    // y otra caja de 144 todavía tiene un solo antecedente: la mira una persona
+    const otraCaja = sinDecidir('Medialunas de grasa cruda congelada x 144 unidades', 1, 61000, 144);
+    expect(fichaDeForma(enPantalla(otraCaja), conLaCaja, 'La Farina')).toBeNull();
+    // con dos cajas registradas abiertas, la tercera se abre sola
+    const dosCajas = formaDe([talCual(panArabe), talCual(figacitasQueso), abierto(medialunas), abierto(otraCaja)]);
+    const tercera = sinDecidir('Medialunas saladas crudas congeladas x 144 unidades', 2, 63000, 144);
+    expect(fichaDeForma(enPantalla(tercera), dosCajas, 'La Farina')).toMatchObject({ entraComo: 'abiertas', entraDe: 144 });
+    // y los paquetes siguen entrando tal cual
+    expect(fichaDeForma(enPantalla(chipsQueso), dosCajas, 'La Farina')).toMatchObject({ entraComo: 'unidades' });
+  });
+  it('si con artículos parecidos contestó de las dos maneras, sigue sin decidir', () => {
+    const mezclado = formaDe([talCual(panArabe), talCual(figacitasQueso), abierto(sinDecidir('Budín x 6 unidades', 4, 14000, 6)), abierto(sinDecidir('Pan dulce x 6 unidades', 3, 15000, 6))]);
+    expect(fichaDeForma(enPantalla(sinDecidir('Rosca x 6 unidades', 5, 3000, 6)), mezclado, 'La Farina')).toBeNull();
+  });
+  it('en los que se abren, lo que se compara es el precio de la unidad de adentro', () => {
+    const formaAbre = formaDe([abierto(franuiAmargo), abierto(franuiFree)]);
+    // otra caja x 24 al mismo precio: se abre igual
+    expect(fichaDeForma(enPantalla(sinDecidir('FRANUI PISTACHO CAJA X 24', 3, 115024, 24)), formaAbre, 'TRONADOR')?.entraComo).toBe('abiertas');
+    // una «caja x 24» de $3.000: cada unidad saldría $125 contra $4.793 de las otras
+    expect(fichaDeForma(enPantalla(sinDecidir('SERVILLETAS X 24', 3, 3000, 24)), formaAbre, 'TRONADOR')).toBeNull();
   });
 });

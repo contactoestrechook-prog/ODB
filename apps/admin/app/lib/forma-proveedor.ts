@@ -53,7 +53,9 @@ export type Antecedente = {
 };
 
 export type Cuenta = { talCual: number; abre: number; otra: number };
-export type Forma = Record<Firma, Cuenta>;
+/** Un artículo que votó: cuántas trae su «x N» y cuánto sale cada unidad de las que entraron al stock. */
+export type Caso = { salida: Salida | 'otra'; n: number; precioUnidad: number | null };
+export type Forma = Record<Firma, Cuenta> & { casos?: Record<Firma, Caso[]> };
 export type Decision = { salida: Salida; casos: number; total: number };
 
 const num = (v: unknown): number | null => {
@@ -110,9 +112,67 @@ export function salidaDe(fila: any, reg: Antecedente['registrado']): Salida | 'o
   return 'otra';
 }
 
+/** Lo que sale la unidad que entra al stock: el precio del papel, o el de la caja repartido si se abre. */
+function precioDeLaUnidad(firma: Firma, salida: Salida, papel: Papel | null | undefined): number | null {
+  const precio = num(papel?.precio);
+  const n = num(papel?.uxb);
+  if (precio == null || !(precio > 0)) return null;
+  return salida === 'abre' && firma === 'sueltas' && n != null && n > 1 ? precio / n : precio;
+}
+
+/**
+ * SE PARECE A LO QUE EL PROVEEDOR YA MOSTRÓ (18/11/2026). La Farina trae
+ * paquetes «x 4», «x 6» y «x 9» de $2.154 a $3.770 que entran tal cual: 4 de 4.
+ * Ese día vino por primera vez «Medialunas de manteca cruda congelada x 144
+ * unidades», 1 × $64.690, y la forma la dejó entrando como UNA unidad de
+ * $64.690. Ana la tuvo que pasar a 144. Una caja de 144 a veinte veces el
+ * precio no es «otro paquete de los suyos».
+ *
+ * Una costumbre es un GRUPO de artículos que entraron igual («tal cual» o «se
+ * abren»), y tiene su franja: cuántas trae el «x N» y lo que sale cada unidad
+ * que entra al stock, hasta cuatro veces más o cuatro veces menos que lo visto.
+ *  · Un artículo nuevo la sigue solo si cae adentro de esa franja.
+ *  · Los artículos que hicieron otra cosa la desmienten solo si también caen
+ *    adentro: la caja de 144, ya registrada abierta, no le saca la costumbre a
+ *    los paquetes de 9; un proveedor que con artículos parecidos contestó de las
+ *    dos maneras sigue sin decidir.
+ * Si el renglón entra en las dos costumbres, o en ninguna, lo mira una persona.
+ */
+const HOLGURA = 4;
+const enFranja = (x: number | null, vistos: (number | null)[]) => {
+  const v = vistos.filter((y): y is number => y != null && y > 0);
+  return x == null || !(x > 0) || !v.length || (x <= Math.max(...v) * HOLGURA && x >= Math.min(...v) / HOLGURA);
+};
+
+/**
+ * La cuenta de la costumbre que le toca a este renglón: los artículos del grupo
+ * y los que, pareciéndose, hicieron otra cosa. null si no le toca ninguna (o le
+ * tocan las dos).
+ */
+export function cuentaParecida(fila: any, firma: Firma, forma: Forma | null | undefined): Cuenta | null {
+  if (!forma) return null;
+  const casos = forma.casos?.[firma];
+  if (!casos) return forma[firma];
+  const cuentas: Cuenta[] = [];
+  for (const salida of ['tal_cual', 'abre'] as const) {
+    const grupo = casos.filter((c) => c.salida === salida);
+    if (grupo.length < 2) continue;
+    const adentro = (n: number | null, precio: number | null) => enFranja(n, grupo.map((c) => c.n)) && enFranja(precio, grupo.map((c) => c.precioUnidad));
+    if (!adentro(num(fila?.papel?.uxb), precioDeLaUnidad(firma, salida, fila?.papel))) continue;
+    const cuenta: Cuenta = { talCual: 0, abre: 0, otra: 0 };
+    for (const c of casos) {
+      if (c.salida !== salida && !adentro(c.n, c.precioUnidad)) continue;
+      cuenta[c.salida === 'tal_cual' ? 'talCual' : c.salida === 'abre' ? 'abre' : 'otra']++;
+    }
+    cuentas.push(cuenta);
+  }
+  return cuentas.length === 1 ? cuentas[0] : null;
+}
+
 /** Junta los antecedentes de un proveedor: un voto por artículo (el más nuevo manda). */
 export function formaDe(antecedentes: Antecedente[] | null | undefined): Forma {
   const forma: Forma = { sueltas: { talCual: 0, abre: 0, otra: 0 }, bultos: { talCual: 0, abre: 0, otra: 0 } };
+  const casos: Record<Firma, Caso[]> = { sueltas: [], bultos: [] };
   const vistos = new Set<string>();
   for (const a of antecedentes ?? []) {
     const fila = filaLeida(a?.leido);
@@ -124,7 +184,10 @@ export function formaDe(antecedentes: Antecedente[] | null | undefined): Forma {
     if (vistos.has(k)) continue;
     vistos.add(k);
     forma[firma][salida === 'tal_cual' ? 'talCual' : salida === 'abre' ? 'abre' : 'otra']++;
+    casos[firma].push({ salida, n: num(fila.papel?.uxb) ?? 0, precioUnidad: salida === 'otra' ? null : precioDeLaUnidad(firma, salida, fila.papel) });
   }
+  // aparte de la cuenta, para saber si un artículo nuevo se parece a los que votaron
+  Object.defineProperty(forma, 'casos', { value: casos, enumerable: false });
   return forma;
 }
 
@@ -134,7 +197,10 @@ export function formaDe(antecedentes: Antecedente[] | null | undefined): Forma {
  */
 export function decidir(forma: Forma | null | undefined, firma: Firma | null): Decision | null {
   if (!forma || !firma) return null;
-  const c = forma[firma];
+  return decidirCuenta(forma[firma]);
+}
+export function decidirCuenta(c: Cuenta | null | undefined): Decision | null {
+  if (!c) return null;
   const total = c.talCual + c.abre + c.otra;
   if (total < 2) return null;
   const [salida, casos]: [Salida, number] = c.talCual >= c.abre ? ['tal_cual', c.talCual] : ['abre', c.abre];
@@ -149,8 +215,10 @@ export function decidir(forma: Forma | null | undefined, firma: Firma | null): D
  */
 export function fichaDeForma(fila: any, forma: Forma | null | undefined, proveedor?: string | null): FichaArticulo | null {
   const firma = firmaDe(fila);
-  const d = decidir(forma, firma);
-  if (!firma || !d) return null;
+  if (!firma) return null;
+  // con los artículos de este proveedor que se parecen a este renglón (ver cuentaParecida)
+  const d = decidirCuenta(cuentaParecida(fila, firma, forma));
+  if (!d) return null;
   // Lo que el propio renglón ya muestra manda sobre la costumbre del proveedor: si
   // el lector sugiere lo contrario (por el costo del catálogo o por una columna
   // del papel), no se decide y lo mira una persona, como hasta ahora.
