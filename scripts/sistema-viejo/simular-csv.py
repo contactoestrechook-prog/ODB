@@ -227,10 +227,20 @@ agregar, quitar_caja = [], []
 # el Crack a veces pone la MISMA barra como unidad x1 y como caja x6 del mismo artículo (17/11:
 # Levite 1367, Alambrado 2101, Fond de Cave 6680): esa no se saca, va a revisión
 como_unidad = {(r[0].strip(), re.sub(r'\D', '', r[1])) for r in bar if len(r) > 3 and (num(r[3]) or 0) in (0, 1)}
+# LAS ALTAS TRAEN SUS BARRAS (18/11/2026): antes solo se agregaban barras de productos que ya
+# existían, y el producto nuevo quedaba sin poder escanearse hasta la carga siguiente (el 18/11,
+# 7 de las 9 altas). Se atan por código: aplicar-csv.sql las pone después de crear el producto.
+alta_cod = {x['codigo'] for x in altas}
+barras_altas, _vistas_altas = [], set()
 for r in bar:
     cod, ean, desc, cuanto = r[0].strip(), re.sub(r'\D', '', r[1]), r[2], num(r[3]) or 0
     p = existentes.get(cod)
-    if not p or not (6 <= len(ean) <= 14): continue
+    if not (6 <= len(ean) <= 14): continue
+    if not p:
+        if cod in alta_cod and cuanto in (0, 1):
+            if barras.get(ean) is not None: rev['barra_de_otro_producto'].append([ean, cod, r[1]])
+            elif ean not in _vistas_altas: barras_altas.append({'ean': ean, 'codigo': cod}); _vistas_altas.add(ean)
+        continue
     dueno = barras.get(ean)
     if cuanto == 1 or cuanto == 0:
         if dueno is None: agregar.append({'ean': ean, 'producto_id': p['id']})
@@ -239,8 +249,8 @@ for r in bar:
         rev['barra_unidad_y_caja'].append([ean, cod, r[2], cuanto])
     elif dueno == p['id']:
         quitar_caja.append({'ean': ean, 'producto_id': p['id'], 'unidades': cuanto})  # el de la caja no es la unidad
-plan['barras_agregar'] = agregar; plan['barras_quitar_caja'] = quitar_caja
-res.append(f'5. CÓDIGOS DE BARRAS: {len(agregar)} nuevos (de la unidad); {len(quitar_caja)} de CAJA que estaban puestos en la unidad, se sacan (escanear la caja no puede sumar 1); {len(rev["barra_de_otro_producto"])} que en NÚCLEO son de otro producto, a revisión.')
+plan['barras_agregar'] = agregar; plan['barras_quitar_caja'] = quitar_caja; plan['barras_altas'] = barras_altas
+res.append(f'5. CÓDIGOS DE BARRAS: {len(agregar)} nuevos (de la unidad) y {len(barras_altas)} de los productos que se dan de alta; {len(quitar_caja)} de CAJA que estaban puestos en la unidad, se sacan (escanear la caja no puede sumar 1); {len(rev["barra_de_otro_producto"])} que en NÚCLEO son de otro producto, a revisión.')
 
 # ---------- 6. clientes ----------
 IVA = {'CONSUMIDOR FINAL': 'consumidor_final', 'RESPONSABLE INSCRIPTO': 'responsable_inscripto', 'MONOTRIBUTO': 'monotributo', 'EXENTO': 'exento'}
