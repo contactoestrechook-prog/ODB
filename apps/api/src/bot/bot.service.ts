@@ -2181,10 +2181,14 @@ export class BotService {
       model: MODELO_BOT,
       max_tokens: MAX_TOKENS_BOT,
       thinking: RAZONAMIENTO,
-      // medium, el valor de Opus 5.5 (antes xhigh): según la guía de Anthropic,
-      // 5.5 en medium rinde igual o más que Opus 5 en high, y a igual nivel piensa
-      // más que 5. Se sube con ODB_BOT_ESFUERZO sin tocar código.
-      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO') },
+      // low (18/11/2026, Leandro: «baja el razonamiento del bot», por el gasto de
+      // Anthropic). Antes medium, y antes de eso xhigh. El razonamiento sigue
+      // ENCENDIDO (adaptive; en Opus 5.5 no se puede apagar): low piensa menos y
+      // hace menos vueltas, no contesta «sin cabeza». Probado con el banco contra
+      // medium antes de publicar. Se sube con ODB_BOT_ESFUERZO sin tocar código.
+      // La lectura del comprobante de pago (pago-confirma.ts) NO baja: es plata y
+      // queda en medium.
+      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO', 'low') },
       system,
       ...(tools.length ? { tools, ...(o.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}) } : {}),
       messages: this.conCache(messages),
