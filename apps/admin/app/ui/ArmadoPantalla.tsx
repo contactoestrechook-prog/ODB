@@ -89,6 +89,10 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const [terminando, setTerminando] = useState(false);
   const [camara, setCamara] = useState(true);
   const [codigo, setCodigo] = useState('');
+  // el último que se escaneó: si son varios (12 latas), se escanea UNO y se
+  // completa con «Poner x 12» (Leandro, 19/11/2026: «cuando son 12 latas tiene
+  // que poder poner x 12 armando el pedido y no escanear 12»)
+  const [ultimo, setUltimo] = useState<string | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const lector = useRef<HTMLInputElement>(null);
   const ocupado = useRef(false);
@@ -125,6 +129,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
           return;
         }
         setItems((xs) => xs.map((x) => (x.productoId === r.productoId ? { ...x, enCarro: x.enCarro + r.cantidad } : x)));
+        setUltimo(r.productoId);
       }
       setCargas((cs) => [...cs, { id: r.id, productoId: r.productoId, cantidad: r.cantidad, creadoEn: r.creadoEn ?? new Date().toISOString() }]);
       const resto = item ? Math.max(item.cantidad - item.enCarro - r.cantidad, 0) : 0;
@@ -179,6 +184,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }, [manual]);
 
   const cerrado = !!manual || terminando;
+  const porCompletar = ultimo ? items.find((i) => i.productoId === ultimo && i.enCarro < i.cantidad) ?? null : null;
   // dónde queda: lo que se retira va a la mesa de retiro; un envío, a la salida
   const destino = p.canal === 'domicilio' ? 'Dejalo listo para salir con el envío' : 'Dejalo en la mesa de retiro';
   return (
@@ -216,6 +222,18 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
           <p key={msg.vez} role="status" className={unir('mt-2 rounded-lg px-3 py-2 text-sm font-semibold', msg.tono === 'ok' ? 'bg-ok text-white' : 'bg-marca text-white')}>
             {msg.texto}
           </p>
+        )}
+        {porCompletar && (
+          <div className="mt-2 flex items-center gap-2 rounded-xl border border-ok/25 bg-ok-suave px-3 py-2">
+            <p className="min-w-0 flex-1 text-sm leading-snug text-tinta">
+              <b className="block truncate font-semibold">{porCompletar.nombre}</b>
+              llevás {numero(porCompletar.enCarro, 2)} de {numero(porCompletar.cantidad, 2)}
+            </p>
+            <Boton tamano="chico" variante="ok" onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: porCompletar.cantidad - porCompletar.enCarro })}>
+              Poner x {numero(porCompletar.cantidad, 2)}
+            </Boton>
+            <Boton tamano="chico" variante="secundario" onClick={() => setManual(porCompletar)}>Otra</Boton>
+          </div>
         )}
       </div>
 
