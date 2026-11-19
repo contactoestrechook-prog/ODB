@@ -280,8 +280,8 @@ export function fichaPorCuenta(fila: any): FichaArticulo | null {
   const razon = fila.razonBulto;
   if (razon?.sugerencia !== 'convertir') return null;
   // la prueba del costo era con el producto que vinculó el lector: si después se
-  // eligió otro, ya no vale (la de la columna de bultos es del papel y sigue)
-  if (razon.evidencia !== 'columna' && fila.skuLeido !== undefined && String(fila.sku ?? '') !== String(fila.skuLeido ?? '')) return null;
+  // eligió otro, ya no vale (la de la columna de bultos y la del importe son del papel y siguen)
+  if (razon.evidencia !== 'columna' && razon.evidencia !== 'importe' && fila.skuLeido !== undefined && String(fila.sku ?? '') !== String(fila.skuLeido ?? '')) return null;
   const n = num(fila.papel.uxb) as number;
   const prueba = String(razon.motivo ?? '').trim();
   const porque = `Son cajas de ${n} y se abren${prueba ? `: ${prueba}` : ''}`.slice(0, 300);

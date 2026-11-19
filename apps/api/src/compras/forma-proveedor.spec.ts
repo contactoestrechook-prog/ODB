@@ -232,6 +232,12 @@ describe('lo que la cuenta ya prueba: son cajas, en cualquier proveedor', () => 
     expect(fichaPorCuenta(fila)?.entraComo).toBe('abiertas');
     // aunque después se cambie el producto: la columna es del papel, no del catálogo
     expect(fichaPorCuenta({ ...fila, sku: 'otro' })?.entraComo).toBe('abiertas');
+    // y el importe que solo cierra contando las de adentro (Distri-Sur, «Alfajor Jorgito X 24U», 19/11)
+    const jorgito = sinDecidir('Alfajor Jorgito X 24U Choco Negro', 1, 737.91, 24);
+    const porImporte = { ...enPantalla({ ...jorgito, importe: 1 * 24 * 737.91, interpretado: { ...jorgito.interpretado, razonBulto: { sugerencia: 'convertir', evidencia: 'importe', motivo: 'el importe solo cierra contando las 24 de cada caja' } } }), sku: 'a', skuLeido: 'a' };
+    expect(fichaPorCuenta({ ...porImporte, sku: 'b' })).not.toBeNull();
+    const final = aplicarCambiosIA([porImporte], cambiosDeFicha(porImporte, fichaPorCuenta(porImporte), 1, esRenglonDescuento as any).cambios, esRenglonDescuento as any).items[0];
+    expect(final.cantidad).toBe(24);
   });
 
   it('si el producto cambió después de leer, la prueba del costo ya no vale', () => {
