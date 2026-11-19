@@ -18,6 +18,16 @@ const lista = (r: Roles): string[] => (Array.isArray(r) ? (r as string[]) : r ? 
 /** Roles que solo ven su pantalla de celular (op salón y fiambrería). */
 export const ROLES_ENCERRADOS = ['op_salon', 'fiambreria'];
 /** Encerrado solo si TODOS sus roles lo son: el cajero que también arma, no. */
+// Quién ve el armado de TODOS (19/11/2026, «todos pueden ver el pedido que
+// prepara el resto, está pésimo»): dueños, gerentes y la caja que no arma. El
+// que arma (salón, depósito, fiambrería), aunque también sea caja, ve lo suyo.
+// La misma regla está en la API (salon.service › veTodoElArmado).
+const ROLES_ARMAN = ['op_salon', 'deposito', 'fiambreria'];
+export function veTodoElArmado(roles: string[]): boolean {
+  if (roles.some((r) => r === 'dueno' || r === 'gerente')) return true;
+  return roles.includes('cajero') && !roles.some((r) => ROLES_ARMAN.includes(r));
+}
+
 export function esEncerrado(roles: Roles): boolean {
   const l = lista(roles);
   return l.length > 0 && l.every((r) => ROLES_ENCERRADOS.includes(r));

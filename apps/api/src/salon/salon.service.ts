@@ -66,10 +66,19 @@ export function parteDeFiambreria(p: any) {
   };
 }
 /** Los que manejan cualquier pedido (no solo los suyos). */
-const ROLES_ENCARGADOS = ['dueno', 'gerente', 'cajero', 'deposito'];
+// Quién ve el armado de TODOS (19/11/2026, Leandro: «todos pueden ver el pedido
+// que prepara el resto, está pésimo»): dueños, gerentes y la caja que no arma.
+// El que arma (salón, depósito, fiambrería), aunque también sea caja, ve y toca
+// solo lo que le asignaron a él.
+const ROLES_ARMAN = ['op_salon', 'deposito', 'fiambreria'];
+export function veTodoElArmado(u: { rol?: string; roles?: unknown }): boolean {
+  const roles = Array.isArray(u.roles) && u.roles.length ? u.roles.map(String) : [String(u.rol ?? '')];
+  if (roles.some((r) => r === 'dueno' || r === 'gerente')) return true;
+  return roles.includes('cajero') && !roles.some((r) => ROLES_ARMAN.includes(r));
+}
 const ESTADOS_ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
 
-type Usuario = { sub?: string; rol?: string };
+type Usuario = { sub?: string; rol?: string; roles?: unknown };
 
 /** El op salón y fiambrería arman solo en su sucursal; depósito sin sucursal fija sirve en todas. */
 export function sirveEnSucursal(u: { rol: string; roles?: unknown; sucursal_id?: string | null }, sucursalId: string) {
@@ -527,7 +536,7 @@ export class SalonService {
       .in('estado', ESTADOS_ABIERTOS)
       .not('asignado_a', 'is', null)
       .order('asignado_en');
-    if (!todos || !ROLES_ENCARGADOS.includes(String(quien.rol))) q = q.eq('asignado_a', quien.sub ?? '');
+    if (!todos || !veTodoElArmado(quien)) q = q.eq('asignado_a', quien.sub ?? '');
     const { data, error } = await q;
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     const pedidos = (data ?? []) as any[];
@@ -585,7 +594,7 @@ export class SalonService {
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     if (!data) throw new BadRequestException('No existe el pedido');
     const p = data as any;
-    if (p.asignado_a !== quien.sub && !ROLES_ENCARGADOS.includes(String(quien.rol))) {
+    if (p.asignado_a !== quien.sub && !veTodoElArmado(quien)) {
       throw new ForbiddenException('Ese pedido no te lo asignaron a vos');
     }
     if (!ESTADOS_ABIERTOS.includes(p.estado)) throw new BadRequestException('Ese pedido ya no se está armando');

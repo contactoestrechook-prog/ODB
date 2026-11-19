@@ -37,7 +37,7 @@ const COLUMNAS = [
   },
 ];
 
-export function ColaDeposito({ puedeCargarRepartidor = false, miId = null }: { puedeCargarRepartidor?: boolean; miId?: string | null }) {
+export function ColaDeposito({ puedeCargarRepartidor = false, miId = null, veTodo = true }: { puedeCargarRepartidor?: boolean; miId?: string | null; veTodo?: boolean }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -58,9 +58,14 @@ export function ColaDeposito({ puedeCargarRepartidor = false, miId = null }: { p
   const cargar = useCallback(async () => {
     try {
       const res = await fetch('/api/pedidos');
-      if (res.ok) setPedidos(await res.json());
+      if (res.ok) {
+        const todos: Pedido[] = await res.json();
+        // el que arma no ve lo que está armando otro (19/11/2026, «todos pueden ver
+        // el pedido que prepara el resto»): lo asignado a otra persona y abierto, afuera
+        setPedidos(veTodo ? todos : todos.filter((p) => !(p.asignado_a && p.asignado_a !== miId && ['recibido', 'pagado', 'en_preparacion'].includes(p.estado))));
+      }
     } catch {}
-  }, []);
+  }, [veTodo, miId]);
 
   useEffect(() => {
     cargar();

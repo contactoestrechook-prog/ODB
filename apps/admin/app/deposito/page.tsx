@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { Pantalla } from '../ui/kit/Pantalla';
 import { ColaDeposito } from './ColaDeposito';
-import { datosDesdeToken, puedeCargarRepartidores, rolDesdeToken } from '../lib/permisos';
+import { datosDesdeToken, puedeCargarRepartidores, rolDesdeToken, rolesDesdeToken, veTodoElArmado } from '../lib/permisos';
 
 export default async function Deposito() {
   // el link «cargá un repartidor» de la ventana de despachar es solo para quien
@@ -12,7 +12,7 @@ export default async function Deposito() {
   const { sub: miId } = datosDesdeToken(token);
   return (
     <Pantalla activo="/deposito" ancho="completo">
-      <ColaDeposito puedeCargarRepartidor={puedeCargarRepartidores(rol)} miId={miId} />
+      <ColaDeposito puedeCargarRepartidor={puedeCargarRepartidores(rol)} miId={miId} veTodo={veTodoElArmado(rolesDesdeToken(token))} />
     </Pantalla>
   );
 }

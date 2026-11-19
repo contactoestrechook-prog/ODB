@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { apiFetch } from '../../lib/api';
 import { Pantalla } from '../ui/kit/Pantalla';
 import { SalonWorkspace } from '../ui/SalonWorkspace';
-import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from '../lib/permisos';
+import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken, veTodoElArmado } from '../lib/permisos';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,11 @@ export default async function Salon() {
   const token = (await cookies()).get('odb_token')?.value;
   const { nombre, sub: miId } = datosDesdeToken(token);
   // op salón y fiambrería (sin otro rol): la pantalla de celular, solo lo suyo
-  const esOp = esEncerrado(rolesDesdeToken(token));
+  const roles = rolesDesdeToken(token);
+  const esOp = esEncerrado(roles);
+  // la sala de control (los pedidos de todos) solo para dueños, gerentes y la
+  // caja que no arma; el que arma ve lo suyo (19/11/2026)
+  const verTodos = veTodoElArmado(roles);
   let proveedores: any[] = [];
   let sucursales: any[] = [];
   try {
@@ -30,12 +34,14 @@ export default async function Salon() {
       // el op salón trabaja en SU sucursal
       sucursales={(sucursales ?? []).filter((s: any) => !esOp || s.id === propia).map((s: any) => ({ id: s.id, nombre: s.nombre }))}
       sucursalPropia={propia}
-      verTodos={!esOp}
+      verTodos={verTodos}
       miId={miId}
     />
   );
   // los que mandan: la sala de control a lo ancho (rediseño del 17/11/2026)
-  if (!esOp) return <Pantalla activo="/salon" ancho="ancho" bajada="Quién arma cada pedido y por dónde va, dónde está cada producto y lo que entra por la puerta de depósito">{trabajo}</Pantalla>;
+  if (!esOp && verTodos) return <Pantalla activo="/salon" ancho="ancho" bajada="Quién arma cada pedido y por dónde va, dónde está cada producto y lo que entra por la puerta de depósito">{trabajo}</Pantalla>;
+  // el que arma y tiene más pantallas (depósito, caja que arma): con su menú, pero solo lo suyo
+  if (!esOp) return <Pantalla activo="/salon" bajada="Los pedidos que te asignaron para armar">{trabajo}</Pantalla>;
 
   const sucursal = (sucursales ?? []).find((s: any) => s.id === propia)?.nombre ?? null;
   return (
