@@ -59,7 +59,8 @@ const destino = (link: string) =>
           : link.startsWith('/reportes') ? 'Ver el reporte'
             : link.startsWith('/cierres') ? 'Ver el cierre'
               : link.startsWith('/stock') ? 'Ver en Stock'
-                : 'Abrir';
+                : link.startsWith('/usuarios') ? 'Completar los usuarios'
+                  : 'Abrir';
 const hace = (v: string) => {
   const m = Math.round((Date.now() - new Date(v).getTime()) / 60000);
   if (m < 1) return 'recién';

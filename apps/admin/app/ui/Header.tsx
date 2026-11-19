@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { datosDesdeToken, puedeVer, recibeAvisosCelular } from '../lib/permisos';
+import { datosDesdeToken, puedeVer, recibeAvisosCelular, rolesDesdeToken } from '../lib/permisos';
 import { fecha } from '../lib/formato';
 import { apiFetch } from '../../lib/api';
 import { BuscadorGlobal } from './BuscadorGlobal';
@@ -274,10 +274,13 @@ export async function Header({
   const seccion = { titulo: titulo ?? base.titulo, bajada: bajada ?? base.bajada };
   // el menú muestra solo lo que el rol puede abrir (backoffice ve Abastecimiento);
   // los roles sin restricción ven todo, como siempre
-  const sesion = datosDesdeToken((await cookies()).get('odb_token')?.value);
+  const tokenSesion = (await cookies()).get('odb_token')?.value;
+  const sesion = datosDesdeToken(tokenSesion);
   const rol = sesion.rol;
+  // varios roles por persona (19/11/2026): el menú es la suma de todos
+  const roles = rolesDesdeToken(tokenSesion);
   const nombre = sesion.nombre?.trim().split(/\s+/)[0] ?? null;
-  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.includes(String(rol)))) })).filter((g) => g.items.length > 0);
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(roles, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.some((r) => roles.includes(r)))) })).filter((g) => g.items.length > 0);
 
   // Lo que espera firma va con NÚMERO en el menú, no como alerta. Hay 124
   // alertas sin leer en el panel: un aviso que nadie mira no protege nada, y de
@@ -304,7 +307,7 @@ export async function Header({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
           {/* avisos internos: proveedores que escribieron, pagos, derivaciones */}
-          <CampanaAlertas esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(rol)} />
+          <CampanaAlertas esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(roles)} />
         </div>
 
         <nav aria-label="Secciones del sistema" className="flex-1 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
@@ -312,12 +315,12 @@ export async function Header({
         </nav>
 
         <div className="border-t border-white/10 px-3 py-3">
-          <PieMenu iconos={ICONOS} activo={activo} nombre={nombre} avisosCelular={recibeAvisosCelular(rol)} />
+          <PieMenu iconos={ICONOS} activo={activo} nombre={nombre} avisosCelular={recibeAvisosCelular(roles)} />
         </div>
       </aside>
 
       {/* ---- navegación móvil: barra negra + cajón ---- */}
-      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(rol)} nombre={nombre} />
+      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(roles)} nombre={nombre} />
 
       {/* ---- cabecera de sección ----
           celular: solo el buscador, a lo ancho (el título ya está en la barra negra)

@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { rolesDe } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { traspasoPDF } from '../comun/documentos';
@@ -55,9 +56,10 @@ export class TraspasosService {
     const [{ data: sucursales }, { data: personas }] = await Promise.all([
       this.db.from('sucursales').select('id, nombre').order('nombre'),
       // quién lo puede llevar: los repartidores primero, después el resto del equipo
-      this.db.from('usuarios').select('id, nombre, rol, sucursal_id').eq('activo', true).in('rol', ['repartidor', 'cajero', 'deposito', 'gerente', 'administrativo', 'dueno']).order('nombre'),
+      this.db.from('usuarios').select('id, nombre, rol, roles, sucursal_id').eq('activo', true).overlaps('roles', ['repartidor', 'cajero', 'deposito', 'gerente', 'administrativo', 'dueno']).order('nombre'),
     ]);
-    const llevan = ((personas ?? []) as any[]).sort((a, b) => Number(b.rol === 'repartidor') - Number(a.rol === 'repartidor')).map((p) => ({ id: p.id, nombre: p.nombre, rol: p.rol }));
+    const reparte = (p: any) => rolesDe(p).includes('repartidor');
+    const llevan = ((personas ?? []) as any[]).sort((a, b) => Number(reparte(b)) - Number(reparte(a))).map((p) => ({ id: p.id, nombre: p.nombre, rol: reparte(p) ? 'repartidor' : p.rol }));
     // de cuándo es el stock de cada local (11/11/2026): la sugerencia de qué pedir
     // vale lo que valga ese dato, y la pantalla lo dice
     const stockViejo = await leerFrescura(this.db)
@@ -290,7 +292,7 @@ export class TraspasosService {
   private async avisar(sucursalId: string | undefined, roles: string[], excepto: string | undefined, a: { titulo: string; detalle: string; traspasoId: string }) {
     try {
       const { data: gente } = sucursalId
-        ? await this.db.from('usuarios').select('id').eq('activo', true).eq('sucursal_id', sucursalId).in('rol', roles)
+        ? await this.db.from('usuarios').select('id').eq('activo', true).eq('sucursal_id', sucursalId).overlaps('roles', roles)
         : { data: [] as any[] };
       const para = ((gente ?? []) as any[]).map((x) => x.id as string).filter((x) => x !== excepto);
       const base = { tipo: 'traspaso', titulo: a.titulo, detalle: a.detalle, referencia: { traspasoId: a.traspasoId, link: '/traspasos' } };

@@ -7,7 +7,7 @@ import { ReportarProblema } from "./ui/ReportarProblema";
 import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
 import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
 import { cookies } from "next/headers";
-import { rolDesdeToken, sucursalDesdeToken } from "./lib/permisos";
+import { esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
 // Quién ve la ventana de "Llegó un pedido" (6/10/2026): los que pueden tomarlo
 // y prepararlo. Administración lo recibe por WhatsApp, con el link para tomarlo.
@@ -54,17 +54,19 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const token = (await cookies()).get("odb_token")?.value;
-  const rol = rolDesdeToken(token);
+  // todos sus roles (19/11/2026)
+  const roles = rolesDesdeToken(token);
+  const encerrado = esEncerrado(roles);
   return (
     <html lang="es" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        {/* op salón: solo su pantalla, sin avisos ni botones del resto del sistema (5/11/2026) */}
-        {rol !== "op_salon" && <AvisoPedidosSinAviso />}
+        {/* op salón y fiambrería: solo su pantalla, sin avisos ni botones del resto del sistema (5/11/2026) */}
+        {!encerrado && <AvisoPedidosSinAviso />}
         {children}
-        {rol && ATIENDEN_PEDIDOS.includes(rol) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
+        {roles.some((r) => ATIENDEN_PEDIDOS.includes(r)) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
         <AvisoActualizacion />
         <BannerInstalarApp />
-        {rol !== "op_salon" && <ReportarProblema />}
+        {!encerrado && <ReportarProblema />}
       </body>
     </html>
   );

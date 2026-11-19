@@ -20,7 +20,10 @@ import {
 // Colores de etapa, los mismos que en Pedidos: rojo = espera armador,
 // ciruela = se está armando, verde = en la mesa de retiro.
 
-type Preparador = { id: string; nombre: string; rol: string; sucursal_id?: string | null };
+type Preparador = { id: string; nombre: string; rol: string; area?: 'salon' | 'fiambreria' | 'deposito'; sucursal_id?: string | null };
+// el área con que arma (19/11/2026: fiambrería y quien es de caja y también arma)
+const AREA = { salon: 'Salón', fiambreria: 'Fiambrería', deposito: 'Depósito' } as const;
+const areaDe = (g: Preparador) => AREA[g.area ?? (g.rol === 'op_salon' ? 'salon' : g.rol === 'fiambreria' ? 'fiambreria' : 'deposito')];
 type Tiempo = { usuarioId: string; nombre: string; pedidos: number; minTotal: number | null; minArranque: number | null; segPorProducto: number | null; productos: number };
 
 const ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
@@ -389,7 +392,7 @@ function Gente({ gente, armando, tiempos, ahora, nombreSuc, onVer }: {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-tinta">{nombrePropio(g.nombre)}</p>
             <p className="truncate text-xs text-tinta/60">
-              {g.rol === 'op_salon' ? 'Salón' : 'Depósito'}{variasSucursales && g.sucursal_id ? ` · ${sucursalCorta(nombreSuc.get(g.sucursal_id))}` : ''}
+              {areaDe(g)}{variasSucursales && g.sucursal_id ? ` · ${sucursalCorta(nombreSuc.get(g.sucursal_id))}` : ''}
               {t ? ` · ${numero(t.pedidos)} ${t.pedidos === 1 ? 'pedido' : 'pedidos'}` : ''}
             </p>
           </div>

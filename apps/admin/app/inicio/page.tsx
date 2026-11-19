@@ -5,7 +5,7 @@ import { Pantalla } from '../ui/kit/Pantalla';
 import { Aviso, Etiqueta, FOCO, Kpi, ROTULO, unir } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { fecha, numero, pesos } from '../lib/formato';
-import { puedeVer, rolDesdeToken } from '../lib/permisos';
+import { puedeVer, rolesDesdeToken } from '../lib/permisos';
 
 const miles = (n: any) => numero(Number(n) || 0, 3);
 
@@ -39,7 +39,8 @@ function Ico({ d }: { d: string }) {
 const TARJETA = 'flex min-h-28 min-w-0 flex-col justify-between rounded-2xl border p-4';
 
 export default async function Inicio() {
-  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
+  // todos sus roles (19/11/2026): los accesos son la suma
+  const rol = rolesDesdeToken((await cookies()).get('odb_token')?.value);
   const errs: string[] = [];
   const [ventas, stock, compras, fact, caja, pedidos] = await Promise.all([
     json('/ventas/resumen', {}, errs),

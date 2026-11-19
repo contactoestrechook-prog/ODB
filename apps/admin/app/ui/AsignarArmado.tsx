@@ -9,7 +9,7 @@ import { haceCuanto, type PedidoCola } from '../lib/pedidos';
 // recién impresa: se elige quién lo arma, se le da la comanda en la mano y le
 // aparece el pedido en el celular. Desde ahí corre el reloj.
 
-type Preparador = { id: string; nombre: string; rol: string };
+type Preparador = { id: string; nombre: string; rol: string; area?: 'salon' | 'fiambreria' | 'deposito' };
 
 export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: () => void }) {
   const [gente, setGente] = useState<Preparador[] | null>(null);
@@ -51,7 +51,7 @@ export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: ()
           value={elegido}
           onChange={(e) => setElegido(e.target.value)}
           vacio={gente === null ? 'Cargando…' : gente.length ? 'Elegí a quién' : 'No hay nadie de salón en esta sucursal'}
-          opciones={(gente ?? []).map((g) => ({ valor: g.id, etiqueta: `${g.nombre}${g.rol === 'deposito' ? ' (depósito)' : ''}` }))}
+          opciones={(gente ?? []).map((g) => ({ valor: g.id, etiqueta: `${g.nombre}${(g.area ?? (g.rol === 'deposito' ? 'deposito' : 'salon')) === 'deposito' ? ' (depósito)' : g.area === 'fiambreria' ? ' (fiambrería)' : ''}` }))}
         />
         <Boton onClick={asignar} disabled={!elegido || elegido === (p.asignado_a ?? '') || ocupado} cargando={ocupado}>
           {p.asignado_a ? 'Cambiar' : 'Asignar'}

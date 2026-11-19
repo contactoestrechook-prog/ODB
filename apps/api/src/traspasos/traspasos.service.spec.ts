@@ -9,7 +9,7 @@ function dbFalsa(o: { rpcError?: string; traspaso?: any } = {}) {
   const db: any = {
     from: jest.fn((tabla: string) => {
       const q: any = {
-        select: () => q, eq: () => q, in: () => q, is: () => q, gte: () => q, gt: () => q, order: () => q, limit: () => q, range: () => q, filter: () => q,
+        select: () => q, eq: () => q, in: () => q, overlaps: () => q, is: () => q, gte: () => q, gt: () => q, order: () => q, limit: () => q, range: () => q, filter: () => q,
         update: () => q,
         insert: (v: any) => { if (tabla === 'alertas_internas') alertas.push(...(Array.isArray(v) ? v : [v])); return q; },
         maybeSingle: () => Promise.resolve({ data: tabla === 'transferencias' ? t : null, error: null }),

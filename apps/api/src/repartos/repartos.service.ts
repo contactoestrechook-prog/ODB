@@ -192,7 +192,7 @@ export class RepartosService {
   }
 
   async choferes() {
-    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol').in('rol', ['repartidor', 'cajero', 'deposito']).order('nombre');
+    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol').overlaps('roles', ['repartidor', 'cajero', 'deposito']).order('nombre');
     if (error) throw new BadRequestException(error.message);
     return data ?? [];
   }

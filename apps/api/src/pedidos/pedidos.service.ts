@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { rolesDe } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
@@ -472,12 +473,16 @@ export class PedidosService {
   // y depósito): un administrativo elegido salía sin la dirección ni el
   // teléfono y no podía marcarlo entregado (revisión del 21/10/2026).
   async quienLleva(): Promise<{ repartidores: { id: string; nombre: string; telefono: string | null }[]; delLocal: { id: string; nombre: string; rol: string }[] }> {
-    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, telefono, activo').order('nombre');
+    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, roles, telefono, activo').order('nombre');
     if (error) throw new BadRequestException(error.message);
     const activos = ((data ?? []) as any[]).filter((u) => u.activo !== false && u.rol && u.rol !== 'cliente');
+    // por cualquiera de sus roles (19/11/2026): quien es de caja y también hace
+    // reparto figura como repartidor, una sola vez
+    const reparten = activos.filter((u) => rolesDe(u).includes('repartidor'));
+    const yaEsta = new Set(reparten.map((u) => String(u.id)));
     return {
-      repartidores: activos.filter((u) => u.rol === 'repartidor').map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Repartidor'), telefono: u.telefono ?? null })),
-      delLocal: activos.filter((u) => ROLES_DEL_LOCAL_QUE_LLEVAN.includes(u.rol)).map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Alguien del equipo'), rol: String(u.rol) })),
+      repartidores: reparten.map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Repartidor'), telefono: u.telefono ?? null })),
+      delLocal: activos.filter((u) => !yaEsta.has(String(u.id)) && rolesDe(u).some((r) => ROLES_DEL_LOCAL_QUE_LLEVAN.includes(r))).map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Alguien del equipo'), rol: String(u.rol) })),
     };
   }
 
@@ -565,7 +570,7 @@ export class PedidosService {
   }
 
   async repartidores() {
-    const { data } = await this.db.from('usuarios').select('id, nombre, email').eq('rol', 'repartidor').order('nombre');
+    const { data } = await this.db.from('usuarios').select('id, nombre, email').overlaps('roles', ['repartidor']).order('nombre');
     return data ?? [];
   }
 

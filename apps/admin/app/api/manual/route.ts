@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { SECCIONES } from '../../manual/contenido';
 import { GRUPOS, TITULOS } from '../../ui/Header';
-import { puedeVer, recibeAvisosCelular, rolDesdeToken } from '../../lib/permisos';
+import { puedeVer, recibeAvisosCelular, rolesDesdeToken } from '../../lib/permisos';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -23,7 +23,7 @@ function manualEnTexto(): string {
   }).join('\n\n');
 }
 
-function pantallasPara(rol: string | null) {
+function pantallasPara(rol: string[]) {
   const delMenu = GRUPOS.flatMap((g) => g.items.map((i) => {
     const ruta = i.href.split('?')[0];
     return {
@@ -31,7 +31,7 @@ function pantallasPara(rol: string | null) {
       nombre: i.nombre ?? i.label,
       grupo: [g.titulo, i.familia].filter(Boolean).join(' › '),
       bajada: TITULOS[ruta]?.bajada ?? '',
-      puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.includes(String(rol))),
+      puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.some((r: string) => rol.includes(r))),
     };
   }));
   // las de abajo del menú, las de cada persona (12/11/2026: «Avisos en el celular»)
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     return api('/manual/pedir', { method: 'POST', body: JSON.stringify({ pregunta: b.pregunta, respuesta: b.respuesta }) });
   }
   if (b?.accion !== 'preguntar') return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
-  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
+  const rol = rolesDesdeToken((await cookies()).get('odb_token')?.value);
   return api('/manual/preguntar', {
     method: 'POST',
     body: JSON.stringify({

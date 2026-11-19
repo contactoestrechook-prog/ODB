@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { landingDe, puedeVer, rolDesdeToken } from './app/lib/permisos';
+import { landingDe, puedeVer, rolesDesdeToken } from './app/lib/permisos';
 
 export function middleware(req: NextRequest) {
   const token = req.cookies.get('odb_token');
@@ -25,9 +25,10 @@ export function middleware(req: NextRequest) {
   }
   // roles restringidos (backoffice): fuera de sus pantallas, a su inicio
   if (token) {
-    const rol = rolDesdeToken(token.value);
-    if (!puedeVer(rol, pathname)) {
-      return NextResponse.redirect(new URL(landingDe(rol), req.url));
+    // todos sus roles (19/11/2026): ve la suma, entra por el principal
+    const roles = rolesDesdeToken(token.value);
+    if (!puedeVer(roles, pathname)) {
+      return NextResponse.redirect(new URL(landingDe(roles), req.url));
     }
   }
   return NextResponse.next();

@@ -325,7 +325,7 @@ export class StockService {
     const skus = [...porSku.keys()];
     const [{ data: sucs }, { data: gente }, { data: prods }, { data: quien }] = await Promise.all([
       this.db.from('sucursales').select('id, nombre').in('id', [dto.origenId, dto.destinoId]),
-      this.db.from('usuarios').select('id').eq('activo', true).eq('sucursal_id', dto.destinoId).in('rol', ['deposito', 'gerente']),
+      this.db.from('usuarios').select('id').eq('activo', true).eq('sucursal_id', dto.destinoId).overlaps('roles', ['deposito', 'gerente']),
       skus.length ? this.db.from('productos').select('sku, nombre').in('sku', skus) : Promise.resolve({ data: [] as any[] }),
       usuarioId ? this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle() : Promise.resolve({ data: null as any }),
     ]);

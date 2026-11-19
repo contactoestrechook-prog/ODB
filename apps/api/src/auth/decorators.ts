@@ -20,4 +20,5 @@ export const SinHerencia = () => SetMetadata(SIN_HERENCIA, true);
 // lleve @ParaCualquierRol (cambiar su propia clave).
 export const PARA_CUALQUIER_ROL = 'para_cualquier_rol';
 export const ParaCualquierRol = () => SetMetadata(PARA_CUALQUIER_ROL, true);
-export const ROLES_ENCERRADOS = ['op_salon'];
+// La lista vive en roles.ts (op salón y fiambrería, 19/11/2026).
+export { ROLES_ENCERRADOS } from './roles';

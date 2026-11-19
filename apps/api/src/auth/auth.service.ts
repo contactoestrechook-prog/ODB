@@ -6,6 +6,7 @@ import { hashClave, verificarClave } from '../comun/passwords';
 import { enviarMail, mailDeReseteo, hayMailConfigurado } from '../comun/mail';
 import { enviarTextoWhatsapp } from '../comun/whatsapp';
 import { createHash, randomBytes } from 'node:crypto';
+import { rolesDe } from './roles';
 
 @Injectable()
 export class AuthService {
@@ -30,11 +31,14 @@ export class AuthService {
     if (!data) throw new UnauthorizedException('Email o clave incorrectos');
 
     const usuario = data as any;
+    // todos sus roles (19/11/2026): verificar_login devuelve solo el principal
+    const { data: fila } = await this.db.from('usuarios').select('roles').eq('id', usuario.id).maybeSingle();
+    usuario.roles = (fila as any)?.roles ?? [usuario.rol];
     const debeCambiarClave = usuario.debe_cambiar_clave === true;
     const token = await this.firmar(usuario);
     return {
       token,
-      usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol, debeCambiarClave },
+      usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol, roles: rolesDe(usuario), debeCambiarClave },
     };
   }
 
@@ -169,7 +173,7 @@ export class AuthService {
     }
     const { data: u } = await this.db
       .from('usuarios')
-      .select('id, nombre, rol, sucursal_id, clave_hash, activo')
+      .select('id, nombre, rol, roles, sucursal_id, clave_hash, activo')
       .eq('id', usuarioId)
       .maybeSingle();
     if (!u || u.activo === false) throw new UnauthorizedException('Usuario inexistente o inactivo');
@@ -192,7 +196,7 @@ export class AuthService {
     });
 
     const token = await this.firmar(u);
-    return { ok: true, token, usuario: { id: u.id, nombre: u.nombre, rol: u.rol, debeCambiarClave: false } };
+    return { ok: true, token, usuario: { id: u.id, nombre: u.nombre, rol: u.rol, roles: rolesDe(u), debeCambiarClave: false } };
   }
 
   private firmar(u: any) {
@@ -200,6 +204,8 @@ export class AuthService {
       sub: u.id,
       nombre: u.nombre,
       rol: u.rol,
+      // todos sus roles, con el principal primero (19/11/2026)
+      roles: rolesDe(u),
       sucursalId: u.sucursal_id,
     });
   }

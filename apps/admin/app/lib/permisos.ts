@@ -7,7 +7,21 @@
 // siguen viendo todo el menú como hasta ahora: restringirlos es una decisión
 // del dueño, no un efecto colateral.
 
-export type Rol = 'dueno' | 'gerente' | 'comprador' | 'cajero' | 'deposito' | 'administrativo' | 'repartidor' | 'op_salon' | string;
+export type Rol = 'dueno' | 'gerente' | 'comprador' | 'cajero' | 'deposito' | 'administrativo' | 'repartidor' | 'op_salon' | 'fiambreria' | string;
+
+// Varios roles por persona (19/11/2026, planilla de St Thomas y Santa Inés):
+// el menú es la SUMA de lo que ve cada uno de sus roles. Donde se pasa un solo
+// rol (el principal), todo sigue como antes.
+type Roles = string | null | undefined | readonly string[];
+const lista = (r: Roles): string[] => (Array.isArray(r) ? (r as string[]) : r ? [r as string] : []).filter(Boolean);
+
+/** Roles que solo ven su pantalla de celular (op salón y fiambrería). */
+export const ROLES_ENCERRADOS = ['op_salon', 'fiambreria'];
+/** Encerrado solo si TODOS sus roles lo son: el cajero que también arma, no. */
+export function esEncerrado(roles: Roles): boolean {
+  const l = lista(roles);
+  return l.length > 0 && l.every((r) => ROLES_ENCERRADOS.includes(r));
+}
 
 const RUTAS_POR_ROL: Record<string, string[]> = {
   administrativo: [
@@ -37,6 +51,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/salon', // armado en el salón
     '/traspasos', // traspasos entre locales: ve y opera todo (10/11/2026)
     '/avisos', // avisos al celular: «Completá el proveedor» (6/11/2026)
+    '/usuarios', // completar las altas: email, WhatsApp y clave (19/11/2026); roles y bajas siguen siendo del dueño
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -45,6 +60,8 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
   // accedan ni a cajas ni a administración ni a nada, solo a esto»). La API
   // también lo encierra (ROLES_ENCERRADOS en auth/decorators.ts).
   op_salon: ['/salon', '/cambiar-clave'],
+  // Fiambrería (19/11/2026): arma como el op salón, en su sucursal y en el celular
+  fiambreria: ['/salon', '/cambiar-clave'],
   // El menú tiene que ofrecer solo lo que el rol puede ABRIR de verdad. Antes,
   // un cajero veía Contable, Libro IVA, Estadísticas y Mercado Pago en el menú
   // y al entrar recibía "No pude consultar la API": el API ya lo bloqueaba
@@ -123,15 +140,21 @@ const LANDING_POR_ROL: Record<string, string> = {
   cajero: '/caja',
   deposito: '/deposito',
   op_salon: '/salon',
+  fiambreria: '/salon',
 };
 
-export function rutasPermitidas(rol?: string | null): string[] | null {
-  if (!rol) return null;
-  return RUTAS_POR_ROL[rol] ?? null; // null = todas
+export function rutasPermitidas(rol?: Roles): string[] | null {
+  const l = lista(rol);
+  if (!l.length) return null;
+  // con un rol sin restricción (dueño, gerente) ve todo; si no, la suma
+  if (l.some((r) => !RUTAS_POR_ROL[r])) return null; // null = todas
+  return [...new Set(l.flatMap((r) => RUTAS_POR_ROL[r]))];
 }
 
-export function landingDe(rol?: string | null): string {
-  return (rol && LANDING_POR_ROL[rol]) || '/inicio';
+/** Entra por su rol principal (el primero). */
+export function landingDe(rol?: Roles): string {
+  const principal = lista(rol)[0];
+  return (principal && LANDING_POR_ROL[principal]) || '/inicio';
 }
 
 // Rutas reservadas a un rol puntual, se tenga o no menú restringido.
@@ -161,16 +184,17 @@ export function puedeCargarRepartidores(rol: string | null | undefined): boolean
  * proveedor para completar). Al resto no se le ofrece: activaría algo que no le
  * llega nunca. Si cambia configuracion.avisos_celular.tipos, revisar esto.
  */
-export function recibeAvisosCelular(rol: string | null | undefined): boolean {
-  return rol === 'dueno' || rol === 'gerente' || rol === 'administrativo';
+export function recibeAvisosCelular(rol: Roles): boolean {
+  return lista(rol).some((r) => r === 'dueno' || r === 'gerente' || r === 'administrativo');
 }
 
-export function puedeVer(rol: string | null | undefined, pathname: string): boolean {
+export function puedeVer(rol: Roles, pathname: string): boolean {
+  const l = lista(rol);
   if (RUTAS_SOLO_DUENO.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
-    return rol === 'dueno';
+    return l.includes('dueno');
   }
   if (RUTAS_DIRECCION.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
-    return rol === 'dueno' || rol === 'gerente';
+    return l.includes('dueno') || l.includes('gerente');
   }
   const permitidas = rutasPermitidas(rol);
   if (!permitidas) return true;
@@ -209,4 +233,12 @@ export function sucursalDesdeToken(token?: string | null): string | null {
 
 export function rolDesdeToken(token?: string | null): string | null {
   return datosDesdeToken(token).rol;
+}
+
+/** Todos sus roles, con el principal primero (los tokens viejos traen solo `rol`). */
+export function rolesDesdeToken(token?: string | null): string[] {
+  const datos = payloadDe(token);
+  const principal = typeof datos?.rol === 'string' ? datos.rol : null;
+  const otros = Array.isArray(datos?.roles) ? (datos!.roles as unknown[]).filter((r): r is string => typeof r === 'string') : [];
+  return [...new Set([...(principal ? [principal] : []), ...otros])];
 }

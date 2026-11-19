@@ -28,6 +28,7 @@ function dbFalsa(opts: { tablas?: Record<string, Resp>; rpc?: Record<string, Res
         update: (v: any) => { op.accion = 'update'; op.valores = v; return q; },
         eq: (c: string, v: any) => { op.filtros.push(['eq', c, v]); return q; },
         in: (c: string, v: any) => { op.filtros.push(['in', c, v]); return q; },
+        overlaps: (c: string, v: any) => { op.filtros.push(['overlaps', c, v]); return q; },
         is: (c: string, v: any) => { op.filtros.push(['is', c, v]); return q; },
         filter: (c: string, o: string, v: any) => { op.filtros.push(['filter', c, o, v]); return q; },
         gte: () => q, order: () => q, limit: () => q,
@@ -72,7 +73,7 @@ describe('transferencias entre sucursales', () => {
     });
     await new StockService(db, caja).crearTransferencia(dto, 'u-lucas');
     const busqueda = ops.find((o) => o.tabla === 'usuarios' && o.filtros.some((f: any) => f[1] === 'sucursal_id'));
-    expect(busqueda.filtros).toEqual(expect.arrayContaining([['eq', 'activo', true], ['eq', 'sucursal_id', 's-thomas'], ['in', 'rol', ['deposito', 'gerente']]]));
+    expect(busqueda.filtros).toEqual(expect.arrayContaining([['eq', 'activo', true], ['eq', 'sucursal_id', 's-thomas'], ['overlaps', 'roles', ['deposito', 'gerente']]]));
     expect(avisos().map((a: any) => a.para_usuario)).toEqual(['u-dep', 'u-ger']);
     expect(avisos()[0]).toMatchObject({
       tipo: 'transferencia',

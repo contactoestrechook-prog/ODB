@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { rolesDe } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { terminosDeBusqueda } from '../comun/busqueda';
@@ -15,16 +16,28 @@ import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
 //     (cada carga queda con la hora: así se mide).
 
 /** Quiénes pueden recibir un pedido para armar (en el selector de la caja). */
-const ROLES_PREPARAN = ['op_salon', 'deposito'];
+const ROLES_PREPARAN = ['op_salon', 'fiambreria', 'deposito'];
+/** Los que arman solo en SU sucursal (op salón y fiambrería, 19/11/2026). */
+const ROLES_DE_SU_SUCURSAL = ['op_salon', 'fiambreria'];
+const deSuSucursal = (rol?: string | null) => ROLES_DE_SU_SUCURSAL.includes(String(rol ?? ''));
+/** Todos los roles de una fila de usuarios (con la columna vieja, solo el rol). */
+const rolesFila = (u: { rol?: string | null; roles?: unknown }) => rolesDe(u);
+/** Qué se muestra al lado del nombre en «Quién lo arma». */
+export function areaDeArmado(u: { rol?: string | null; roles?: unknown }): 'salon' | 'fiambreria' | 'deposito' {
+  const r = rolesFila(u);
+  if (r.includes('fiambreria')) return 'fiambreria';
+  if (r.includes('op_salon')) return 'salon';
+  return 'deposito';
+}
 /** Los que manejan cualquier pedido (no solo los suyos). */
 const ROLES_ENCARGADOS = ['dueno', 'gerente', 'cajero', 'deposito'];
 const ESTADOS_ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
 
 type Usuario = { sub?: string; rol?: string };
 
-/** El op salón arma solo en su sucursal; depósito sin sucursal fija sirve en todas. */
-export function sirveEnSucursal(u: { rol: string; sucursal_id?: string | null }, sucursalId: string) {
-  if (u.rol === 'op_salon') return u.sucursal_id === sucursalId;
+/** El op salón y fiambrería arman solo en su sucursal; depósito sin sucursal fija sirve en todas. */
+export function sirveEnSucursal(u: { rol: string; roles?: unknown; sucursal_id?: string | null }, sucursalId: string) {
+  if (!u.sucursal_id && rolesFila(u).some(deSuSucursal)) return false;
   return !u.sucursal_id || u.sucursal_id === sucursalId;
 }
 
@@ -59,7 +72,7 @@ export class SalonService {
   /** Busca por nombre, SKU o código de barras: stock y lugar en cada sucursal. */
   async buscarStock(q: string, quien: Usuario = {}) {
     // op salón: solo su sucursal (Leandro, 5/11/2026: «separarlos por sucursal»)
-    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
+    const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
     const texto = String(q ?? '').trim();
     if (texto.length < 2) return [];
     const exacto = await this.productoPorSkuOCodigo(texto);
@@ -99,7 +112,7 @@ export class SalonService {
   async guardarUbicacion(dto: { productoId: string; sucursalId: string; ubicacion?: string }, quien: Usuario = {}) {
     const usuarioId = quien.sub;
     if (!dto.productoId || !dto.sucursalId) throw new BadRequestException('Faltan el producto o la sucursal');
-    if (quien.rol === 'op_salon' && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+    if (deSuSucursal(quien.rol) && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
       throw new ForbiddenException('Solo cargás lugares de tu sucursal');
     }
     const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80) || null;
@@ -126,7 +139,7 @@ export class SalonService {
    * la sucursal elegida y los lugares ya usados. El op salón ve solo la suya.
    */
   async lugares(sucursalId: string | undefined, quien: Usuario = {}) {
-    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
+    const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
     const [{ data: sucs }, { data: cats }] = await Promise.all([
       this.db.from('sucursales').select('id, nombre'),
       this.db.from('categorias').select('id, nombre'),
@@ -175,7 +188,7 @@ export class SalonService {
 
   /** Lo que tiene stock y no tiene lugar, de una categoría (o de todas, los primeros 200). */
   async sinLugar(sucursalId: string, categoriaId: string | undefined, quien: Usuario = {}) {
-    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
+    const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
     const suc = propia ?? sucursalId;
     if (!suc) throw new BadRequestException('Falta la sucursal');
     let q = this.db
@@ -203,7 +216,7 @@ export class SalonService {
   async lugarDeCategoria(dto: { sucursalId: string; categoriaId: string; ubicacion?: string }, quien: Usuario = {}) {
     const usuarioId = quien.sub;
     if (!dto.sucursalId || !dto.categoriaId) throw new BadRequestException('Faltan la sucursal o la categoría');
-    if (quien.rol === 'op_salon' && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+    if (deSuSucursal(quien.rol) && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
       throw new ForbiddenException('Solo cargás lugares de tu sucursal');
     }
     const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80);
@@ -237,7 +250,7 @@ export class SalonService {
     const remito = String(dto.numeroRemito ?? '').trim();
     if (!remito) throw new BadRequestException('Falta el número de remito');
     // op salón: siempre a su sucursal, diga lo que diga el pedido
-    const sucursalId = quien.rol === 'op_salon' ? await this.sucursalDe(usuarioId) : dto.sucursalId || (await this.sucursalDe(usuarioId));
+    const sucursalId = deSuSucursal(quien.rol) ? await this.sucursalDe(usuarioId) : dto.sucursalId || (await this.sucursalDe(usuarioId));
     if (!sucursalId) throw new BadRequestException('Elegí la sucursal');
     if (!dto.items?.length) throw new BadRequestException('Escaneá al menos un producto');
 
@@ -368,24 +381,25 @@ export class SalonService {
 
   /** Con el pedido: solo la gente de SU sucursal (o de depósito sin sucursal fija). */
   async preparadores(pedidoId?: string) {
-    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, sucursal_id').in('rol', ROLES_PREPARAN).eq('activo', true).order('nombre');
+    // por CUALQUIERA de sus roles: el cajero que también arma figura (19/11/2026)
+    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, roles, sucursal_id').overlaps('roles', ROLES_PREPARAN).eq('activo', true).order('nombre');
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
-    let gente = (data ?? []) as any[];
+    let gente = ((data ?? []) as any[]).map((u) => ({ ...u, area: areaDeArmado(u) }));
     if (pedidoId) {
       const { data: ped } = await this.db.from('pedidos').select('sucursal_id').eq('id', pedidoId).maybeSingle();
       const suc = (ped as any)?.sucursal_id;
       if (suc) gente = gente.filter((u) => sirveEnSucursal(u, suc));
     }
-    // op salón primero: es el que arma
-    return gente.sort((a, b) => Number(a.rol !== 'op_salon') - Number(b.rol !== 'op_salon'));
+    // salón y fiambrería primero: son los que arman
+    return gente.sort((a, b) => Number(a.area === 'deposito') - Number(b.area === 'deposito'));
   }
 
   /** La caja (o quien tenga el pedido) le asigna el armado a alguien. */
   async asignar(pedidoId: string, usuarioId: string, quien: Usuario) {
     if (!usuarioId) throw new BadRequestException('Elegí a quién se lo asignás');
-    const { data: elegido } = await this.db.from('usuarios').select('id, nombre, rol, activo, sucursal_id').eq('id', usuarioId).maybeSingle();
+    const { data: elegido } = await this.db.from('usuarios').select('id, nombre, rol, roles, activo, sucursal_id').eq('id', usuarioId).maybeSingle();
     if (!elegido || (elegido as any).activo === false) throw new BadRequestException('Esa persona no está activa');
-    if (!ROLES_PREPARAN.includes((elegido as any).rol)) throw new BadRequestException('Solo se asigna a alguien de salón o depósito');
+    if (!rolesFila(elegido as any).some((r) => ROLES_PREPARAN.includes(r))) throw new BadRequestException('Solo se asigna a alguien de salón, fiambrería o depósito');
     const { data: pedido, error } = await this.db.from('pedidos').select('id, estado, asignado_a, sucursal_id').eq('id', pedidoId).maybeSingle();
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     if (!pedido) throw new BadRequestException('No existe el pedido');

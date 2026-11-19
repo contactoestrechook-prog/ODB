@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { apiFetch } from '../../lib/api';
 import { Pantalla } from '../ui/kit/Pantalla';
 import { SalonWorkspace } from '../ui/SalonWorkspace';
-import { datosDesdeToken, sucursalDesdeToken } from '../lib/permisos';
+import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from '../lib/permisos';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 // (Leandro: «100 mobile… que no accedan ni a cajas ni a administración ni a nada»).
 export default async function Salon() {
   const token = (await cookies()).get('odb_token')?.value;
-  const { rol, nombre } = datosDesdeToken(token);
-  const esOp = rol === 'op_salon';
+  const { nombre } = datosDesdeToken(token);
+  // op salón y fiambrería (sin otro rol): la pantalla de celular, solo lo suyo
+  const esOp = esEncerrado(rolesDesdeToken(token));
   let proveedores: any[] = [];
   let sucursales: any[] = [];
   try {
