@@ -6,6 +6,7 @@ import { AvisoActualizacion } from "./ui/AvisoActualizacion";
 import { ReportarProblema } from "./ui/ReportarProblema";
 import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
 import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
+import { AvisoFiambreria } from "./ui/AvisoFiambreria";
 import { cookies } from "next/headers";
 import { esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
@@ -64,6 +65,8 @@ export default async function RootLayout({
         {!encerrado && <AvisoPedidosSinAviso />}
         {children}
         {roles.some((r) => ATIENDEN_PEDIDOS.includes(r)) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
+        {/* fiambrería: la ventana de lo que tiene que preparar de cada pedido (19/11/2026) */}
+        {roles.includes("fiambreria") && <AvisoFiambreria />}
         <AvisoActualizacion />
         <BannerInstalarApp />
         {!encerrado && <ReportarProblema />}

@@ -28,6 +28,8 @@ export async function GET(req: Request) {
     case 'preparadores': return reenviar(`/salon/preparadores${q.get('pedidoId') ? `?pedidoId=${id(q.get('pedidoId'))}` : ''}`);
     case 'tiempos': return reenviar(`/salon/tiempos?dias=${id(q.get('dias') ?? '7')}`);
     case 'pedidos': return reenviar(`/salon/pedidos${q.get('todos') === '1' ? '?todos=1' : ''}`);
+    // fiambrería (19/11/2026): los pedidos con algo para preparar
+    case 'fiambreria': return reenviar('/salon/fiambreria');
     default: return NextResponse.json({ message: 'Recurso desconocido' }, { status: 400 });
   }
 }
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
     case 'carro': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro`, cuerpo({ codigo: b.codigo, productoId: b.productoId, cantidad: b.cantidad }));
     case 'sacar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro/${id(b.cargaId)}`, { method: 'DELETE' });
     case 'terminar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/terminar`, cuerpo({}));
+    case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     default: return NextResponse.json({ message: 'Acción desconocida' }, { status: 400 });
   }
 }

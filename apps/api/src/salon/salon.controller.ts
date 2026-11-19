@@ -109,6 +109,19 @@ export class SalonController {
     return this.salon.terminar(id, req.usuario ?? {});
   }
 
+  // --- fiambrería (19/11/2026): lo que tiene que preparar de cada pedido ---
+  @Roles('fiambreria', 'gerente', 'dueno')
+  @Get('fiambreria')
+  fiambreria(@Req() req: any) {
+    return this.salon.fiambreriaPendientes(req.usuario ?? {});
+  }
+
+  @Roles('fiambreria', 'gerente', 'dueno')
+  @Post('fiambreria/:id/preparo')
+  fiambreriaPreparo(@Param('id') id: string, @Req() req: any) {
+    return this.salon.fiambreriaPreparo(id, req.usuario ?? {});
+  }
+
   @Roles('gerente', 'dueno')
   @Get('tiempos')
   tiempos(@Query('dias') dias?: string) {

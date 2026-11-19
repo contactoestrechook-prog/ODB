@@ -29,6 +29,42 @@ export function areaDeArmado(u: { rol?: string | null; roles?: unknown }): 'salo
   if (r.includes('op_salon')) return 'salon';
   return 'deposito';
 }
+
+// ---------- Fiambrería (19/11/2026) ----------
+// Leandro: «que a las cajas les salga el pop up cada vez que hay un pedido,
+// también a fiambrería si es que hay algo de fiambrería, así lo preparan».
+/** Las categorías que prepara fiambrería (lo que se corta, se pesa o se arma en el mostrador). */
+export const CATEGORIAS_FIAMBRERIA = ['fiambres', 'quesos', 'chacinados'];
+const normalizar = (t?: string | null) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+export const esDeFiambreria = (categoria?: string | null) => CATEGORIAS_FIAMBRERIA.includes(normalizar(categoria));
+/** La ventana de fiambrería: lo de las últimas 12 h (lo de ayer ya no es un pedido que entra). */
+const FIAMBRERIA_HASTA_MS = 12 * 3600_000;
+
+/** De un pedido, lo que le toca a fiambrería (null si no trae nada). */
+export function parteDeFiambreria(p: any) {
+  const items = ((p?.items ?? []) as any[]);
+  const suyos = items.filter((it) => esDeFiambreria(it?.producto?.categoria?.nombre));
+  if (!suyos.length) return null;
+  return {
+    id: String(p.id),
+    codigo: p.qr_retiro || String(p.id).slice(0, 8).toUpperCase(),
+    creadoEn: p.creado_en,
+    estado: p.estado,
+    canal: p.canal,
+    origen: p.origen ?? null,
+    cliente: p.cliente?.nombre || p.contacto_nombre || null,
+    envio: p.canal === 'domicilio' ? (p.destino_direccion || 'dirección sin cargar') : null,
+    notas: p.notas ?? null,
+    sucursalId: p.sucursal_id ?? null,
+    items: suyos.map((it) => ({
+      cantidad: Number(it.cantidad) || 0,
+      nombre: String(it.producto?.nombre ?? 'Producto'),
+      sku: it.producto?.sku ?? null,
+      porPeso: it.producto?.vendido_por_peso === true,
+    })),
+    otros: items.length - suyos.length,
+  };
+}
 /** Los que manejan cualquier pedido (no solo los suyos). */
 const ROLES_ENCARGADOS = ['dueno', 'gerente', 'cajero', 'deposito'];
 const ESTADOS_ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
@@ -377,6 +413,42 @@ export class SalonService {
     return { ok: true };
   }
 
+  // ---------- Fiambrería: la ventana de lo que tiene que preparar ----------
+
+  /** Pedidos abiertos con algo de fiambrería que nadie de fiambrería tomó todavía (de SU sucursal). */
+  async fiambreriaPendientes(quien: Usuario) {
+    const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
+    let q = this.db
+      .from('pedidos')
+      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, sucursal_id, contacto_nombre, destino_direccion,
+        cliente:clientes(nombre),
+        items:pedidos_items(cantidad, producto:productos(sku, nombre, vendido_por_peso, categoria:categorias(nombre)))`)
+      .in('estado', ESTADOS_ABIERTOS)
+      .is('fiambreria_en', null)
+      .gte('creado_en', new Date(Date.now() - FIAMBRERIA_HASTA_MS).toISOString())
+      .order('creado_en', { ascending: false });
+    // el pedido sin sucursal le llega a todos (igual que la ventana de la caja)
+    if (propia) q = q.or(`sucursal_id.eq.${propia},sucursal_id.is.null`);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    return ((data ?? []) as any[]).map(parteDeFiambreria).filter(Boolean);
+  }
+
+  /** «Lo preparo»: el primero de fiambrería que lo toca queda a cargo y la ventana se va para todos. */
+  async fiambreriaPreparo(pedidoId: string, quien: Usuario) {
+    if (!pedidoId) throw new BadRequestException('Falta el pedido');
+    const { data, error } = await this.db
+      .from('pedidos')
+      .update({ fiambreria_por: quien.sub, fiambreria_en: new Date().toISOString() })
+      .eq('id', pedidoId)
+      .is('fiambreria_en', null)
+      .select('id');
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    if (data?.length) return { tomado: true };
+    const { data: ya } = await this.db.from('pedidos').select('fiambreria_por, usuario:usuarios!pedidos_fiambreria_por_fkey(nombre)').eq('id', pedidoId).maybeSingle();
+    return { tomado: false, nombre: (ya as any)?.usuario?.nombre ?? null };
+  }
+
   // ---------- 3. Armado de pedidos ----------
 
   /** Con el pedido: solo la gente de SU sucursal (o de depósito sin sucursal fija). */
@@ -584,7 +656,7 @@ export class SalonService {
   }
 
   private faltaMigracion(mensaje: string) {
-    return /ingresos_puerta|pedidos_carro|asignado_a|ubicacion|op_salon/.test(mensaje)
+    return /ingresos_puerta|pedidos_carro|asignado_a|ubicacion|op_salon|fiambreria_/.test(mensaje)
       ? 'Falta aplicar la migración de op salón (db/migracion-op-salon.sql)'
       : mensaje;
   }
