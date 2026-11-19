@@ -381,7 +381,9 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
       if (!vivo) return;
       if (!det) { setEstado('sin-lector'); return; }
       try {
-        flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
+        // 1920: el iPhone no enfoca de cerca y hay que alejarlo; con 1280 un código
+        // chico no se lee y con 1920 sí (medido el 19/11/2026: 0/4 contra 4/4)
+        flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
         if (!vivo || !video.current) { flujo.getTracks().forEach((x) => x.stop()); return; }
         // el iPhone pegado a la lata no enfoca: con 2x se lo tiene a un palmo y
         // el código se ve grande. Donde no se puede, no pasa nada.
@@ -397,11 +399,27 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
         // si el lector falla en cada cuadro (no arrancó su motor), se avisa en vez
         // de quedar «Apuntá al código» para siempre
         let fallas = 0;
+        // se lee SOLO lo que se ve en el recuadro (el video va con object-cover):
+        // en el celular vertical es un tercio del cuadro, y lee el doble de rápido
+        const lienzo = document.createElement('canvas');
+        const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+        const loVisible = (v: HTMLVideoElement): HTMLCanvasElement | HTMLVideoElement => {
+          const vw = v.videoWidth, vh = v.videoHeight;
+          const caja = v.getBoundingClientRect();
+          if (!ctx || !vw || !vh || !caja.width || !caja.height) return v;
+          const e = Math.max(caja.width / vw, caja.height / vh);
+          const sw = Math.min(vw, caja.width / e), sh = Math.min(vh, caja.height / e);
+          const k = Math.min(1, 1280 / Math.max(sw, sh));
+          const w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k));
+          if (lienzo.width !== w || lienzo.height !== h) { lienzo.width = w; lienzo.height = h; }
+          ctx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, w, h);
+          return lienzo;
+        };
         const mirar = async () => {
           if (!vivo || !video.current) return;
           if (!pausadaRef.current && video.current.readyState >= 2) {
             try {
-              const r = await det.detect(video.current);
+              const r = await det.detect(loVisible(video.current));
               const c = r?.[0]?.rawValue ? String(r[0].rawValue) : '';
               const ahora = Date.now();
               if (c && (c !== ultimo.codigo || ahora - ultimo.cuando > ESPERA_MISMO_CODIGO_MS)) {
@@ -414,7 +432,7 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
               if (++fallas >= 25) { setEstado('sin-lector'); return; }
             }
           }
-          t = setTimeout(mirar, 160);
+          t = setTimeout(mirar, 90);
         };
         mirar();
       } catch {
@@ -439,6 +457,7 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
   return (
     <div className="relative h-[24dvh] min-h-36 overflow-hidden rounded-xl bg-tinta">
       <video ref={video} playsInline muted className="size-full object-cover" />
+      <div className="pointer-events-none absolute inset-x-5 inset-y-3 rounded-lg border-2 border-white/60" />
       <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-marca shadow-[0_0_12px_rgba(184,45,37,0.9)]" />
       <p className="pointer-events-none absolute inset-x-0 bottom-1.5 text-center text-xs font-medium text-white/80">
         {estado === 'abriendo' ? 'Abriendo la cámara…' : pausada ? 'En pausa' : 'Apuntá al código a un palmo'}
