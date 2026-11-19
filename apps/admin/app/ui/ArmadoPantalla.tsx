@@ -24,7 +24,9 @@ type Mensaje = { tono: 'ok' | 'error'; texto: string; vez: number };
 
 const FORMATOS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
 // el mismo código no se vuelve a contar hasta que pasa esto (la cámara lo ve muchas veces por segundo)
-const ESPERA_MISMO_CODIGO_MS = 1600;
+// (19/11/2026, «no lo deja poner 2 queso adler»: con 1,6 s el segundo paquete
+// igual no entraba nunca, porque al cambiarlo el código casi no desaparece)
+const ESPERA_MISMO_CODIGO_MS = 900;
 // iPhone no trae lector de códigos en el navegador: se carga uno (44 KB) solo ahí
 const RESPALDO_LECTOR = 'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/iife/polyfill.js';
 
@@ -93,6 +95,8 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   // completa con «Poner x 12» (Leandro, 19/11/2026: «cuando son 12 latas tiene
   // que poder poner x 12 armando el pedido y no escanear 12»)
   const [ultimo, setUltimo] = useState<string | null>(null);
+  // la cámara volvió a ver el mismo código y no lo contó (puede ser otro igual)
+  const [repetidoEn, setRepetidoEn] = useState(0);
   const { confirmar, dialogo } = useConfirmar();
   const lector = useRef<HTMLInputElement>(null);
   const campoFoto = useRef<HTMLInputElement>(null);
@@ -232,7 +236,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
       {/* la cámara (y el campo para el lector de mano) */}
       <div className="bg-white px-4 pb-3">
-        {camara && <Camara key={vueltaCamara} pausada={cerrado} onCodigo={(c) => sumarRef.current({ codigo: c, cantidad: 1 })} onError={() => setCamara(false)} onFoto={() => campoFoto.current?.click()} />}
+        {camara && <Camara key={vueltaCamara} pausada={cerrado} onCodigo={(c) => sumarRef.current({ codigo: c, cantidad: 1 })} onError={() => setCamara(false)} onFoto={() => campoFoto.current?.click()} onRepetido={() => setRepetidoEn(Date.now())} />}
         <input ref={campoFoto} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1}
           onChange={(e) => leerFoto(e.target.files?.[0])} />
         {leyendoFoto && <p role="status" className="mt-2 rounded-lg bg-crema px-3 py-2 text-sm font-semibold text-tinta">Leyendo la foto…</p>}
@@ -246,18 +250,31 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
             {msg.texto}
           </p>
         )}
-        {porCompletar && (
-          <div className="mt-2 flex items-center gap-2 rounded-xl border border-ok/25 bg-ok-suave px-3 py-2">
-            <p className="min-w-0 flex-1 text-sm leading-snug text-tinta">
-              <b className="block truncate font-semibold">{porCompletar.nombre}</b>
-              llevás {numero(porCompletar.enCarro, 2)} de {numero(porCompletar.cantidad, 2)}
-            </p>
-            <Boton tamano="chico" variante="ok" onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: porCompletar.cantidad - porCompletar.enCarro })}>
-              Poner x {numero(porCompletar.cantidad, 2)}
-            </Boton>
-            <Boton tamano="chico" variante="secundario" onClick={() => setManual(porCompletar)}>Otra</Boton>
-          </div>
-        )}
+        {porCompletar && (() => {
+          const resto = porCompletar.cantidad - porCompletar.enCarro;
+          const repetido = ahora - repetidoEn < 3500;
+          return (
+            <div className={unir('mt-2 rounded-xl border bg-ok-suave px-3 py-2', repetido ? 'border-ok ring-2 ring-ok/30' : 'border-ok/25')}>
+              <p className="text-sm leading-snug text-tinta">
+                <b className="font-semibold">{porCompletar.nombre}</b> · llevás {numero(porCompletar.enCarro, 2)} de {numero(porCompletar.cantidad, 2)}
+              </p>
+              {repetido && <p className="mt-0.5 text-xs font-semibold text-ok">Ese código ya lo conté. Si es otro igual, tocá +1.</p>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {resto >= 1 && (
+                  <Boton tamano="chico" variante={repetido ? 'ok' : 'secundario'} onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: 1 })} aria-label={`Sumar uno más de ${porCompletar.nombre}`}>
+                    +1
+                  </Boton>
+                )}
+                {resto > 1 && (
+                  <Boton tamano="chico" variante={repetido ? 'secundario' : 'ok'} onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: resto })}>
+                    Poner x {numero(porCompletar.cantidad, 2)}
+                  </Boton>
+                )}
+                <Boton tamano="chico" variante="secundario" onClick={() => setManual(porCompletar)}>Otra cantidad</Boton>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* lo que falta (tocar = carga manual) y lo que ya está */}
@@ -363,19 +380,21 @@ async function codigoDeFoto(archivo: File): Promise<string | null> {
   return r?.[0]?.rawValue ? String(r[0].rawValue) : null;
 }
 
-function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void }) {
+function Camara({ pausada, onCodigo, onError, onFoto, onRepetido }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void; onRepetido?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [estado, setEstado] = useState<'abriendo' | 'leyendo' | 'sin-lector' | 'sin-permiso'>('abriendo');
   const pausadaRef = useRef(pausada);
   pausadaRef.current = pausada;
   const onCodigoRef = useRef(onCodigo);
   onCodigoRef.current = onCodigo;
+  const onRepetidoRef = useRef(onRepetido);
+  onRepetidoRef.current = onRepetido;
 
   useEffect(() => {
     let flujo: MediaStream | null = null;
     let vivo = true;
     let t: any;
-    const ultimo = { codigo: '', cuando: 0 };
+    const ultimo = { codigo: '', cuando: 0, avisado: 0 };
     (async () => {
       const det = await lectorDeCodigos();
       if (!vivo) return;
@@ -426,7 +445,11 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
                 ultimo.codigo = c;
                 ultimo.cuando = ahora;
                 onCodigoRef.current(c);
-              } else if (c) ultimo.cuando = ahora; // sigue apuntando al mismo: no cuenta de nuevo
+              } else if (c) {
+                // sigue apuntando al mismo: no cuenta de nuevo, pero avisa que ya lo contó
+                ultimo.cuando = ahora;
+                if (ahora - ultimo.avisado > 2500) { ultimo.avisado = ahora; onRepetidoRef.current?.(); }
+              }
               fallas = 0;
             } catch {
               if (++fallas >= 25) { setEstado('sin-lector'); return; }
