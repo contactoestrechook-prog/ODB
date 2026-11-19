@@ -121,16 +121,23 @@ export function AvisoFiambreria() {
   if (!llevaFlotantes(ruta) || (!visibles.length && !mensaje)) return null;
   const [primero] = visibles;
 
+  // 19/11/2026, Leandro: «en fiambrería se buguea y no pueden salir de esa
+  // pantalla». En el celular la ventana es fija: con muchos renglones y una
+  // nota larga quedaba más alta que la pantalla, «Lo preparo» y la cruz
+  // caían abajo del borde y no había cómo llegar (lo fijo no se desplaza), y
+  // arriba la tapaba la barra del iPhone. Ahora mide como mucho la pantalla:
+  // la lista y la nota se desplazan adentro, los botones quedan siempre a la
+  // vista y la cruz también está arriba.
   return (
-    <div aria-live="polite" className="fixed inset-x-0 top-0 z-aviso flex flex-col gap-2 px-3 pt-3 lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[22rem] lg:px-0 lg:pt-0">
+    <div aria-live="polite" className="fixed inset-x-0 top-0 z-aviso flex max-h-[100dvh] flex-col gap-2 px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:max-h-[calc(100dvh-2rem)] lg:w-[22rem] lg:px-0 lg:pb-0 lg:pt-0">
       {mensaje && (
-        <div role="status" className={unir('animate-entra-aviso rounded-2xl px-4 py-3 text-sm shadow-flotante motion-reduce:animate-none', mensaje.ok ? 'bg-ok text-white' : 'bg-tinta text-white')}>
+        <div role="status" className={unir('animate-entra-aviso shrink-0 rounded-2xl px-4 py-3 text-sm shadow-flotante motion-reduce:animate-none', mensaje.ok ? 'bg-ok text-white' : 'bg-tinta text-white')}>
           {mensaje.texto}
         </div>
       )}
       {primero && (
-        <section aria-label={`Pedido con fiambrería ${primero.codigo}`} className="animate-entra-aviso overflow-hidden rounded-2xl bg-white shadow-flotante ring-1 ring-black/[0.06] motion-reduce:animate-none">
-          <div className="flex items-center justify-between gap-2 bg-marca px-4 py-2 text-white">
+        <section aria-label={`Pedido con fiambrería ${primero.codigo}`} className="animate-entra-aviso flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-flotante ring-1 ring-black/[0.06] motion-reduce:animate-none">
+          <div className="flex shrink-0 items-center justify-between gap-2 bg-marca py-1 pl-4 pr-1 text-white">
             <p className="flex min-w-0 items-center gap-2 text-xs font-bold uppercase tracking-[0.12em]">
               <span className="relative flex size-2.5 shrink-0" aria-hidden="true">
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-white/70 motion-reduce:animate-none" />
@@ -138,10 +145,21 @@ export function AvisoFiambreria() {
               </span>
               <span className="truncate">Pedido con fiambrería</span>
             </p>
-            <span className="importe shrink-0 text-xs text-white/80">{haceCuanto(primero.creadoEn)}</span>
+            <span className="flex shrink-0 items-center gap-1">
+              <span className="importe text-xs text-white/80">{haceCuanto(primero.creadoEn)}</span>
+              <button
+                type="button"
+                onClick={() => posponer(primero)}
+                aria-label={`Esconder y callar el pedido ${primero.codigo} 10 minutos`}
+                title="Esconder y callar 10 minutos"
+                className={unir('flex size-10 items-center justify-center rounded-full text-white/90 hover:bg-white/15 hover:text-white', FOCO)}
+              >
+                <IconoCerrar className="size-5" />
+              </button>
+            </span>
           </div>
 
-          <div className="space-y-2 px-4 py-3">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-3">
             <p className="min-w-0 break-words text-sm text-tinta">
               <span className="importe font-bold">{primero.codigo}</span>
               {primero.cliente && <span> · {primero.cliente}</span>}
@@ -161,7 +179,7 @@ export function AvisoFiambreria() {
             {primero.notas && <p className="break-words rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta">{primero.notas}</p>}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-black/[0.06] px-4 py-3">
+          <div className="flex shrink-0 items-center gap-2 border-t border-black/[0.06] px-4 py-3">
             <Boton onClick={() => preparo(primero)} cargando={tomando === primero.id} className="flex-1">Lo preparo</Boton>
             <button
               type="button"
@@ -174,12 +192,12 @@ export function AvisoFiambreria() {
             </button>
           </div>
           {sinSonido && (
-            <p role="alert" className="bg-marca-suave px-4 py-2 text-xs font-semibold text-marca-hondo">
+            <p role="alert" className="shrink-0 bg-marca-suave px-4 py-2 text-xs font-semibold text-marca-hondo">
               No está sonando: tocá cualquier parte de la pantalla una vez para activar la alarma.
             </p>
           )}
           {visibles.length > 1 && (
-            <p className="bg-tinta px-4 py-2 text-center text-xs font-semibold text-white">
+            <p className="shrink-0 bg-tinta px-4 py-2 text-center text-xs font-semibold text-white">
               {visibles.length === 2 ? 'Y 1 pedido más con fiambrería' : `Y ${visibles.length - 1} pedidos más con fiambrería`}
             </p>
           )}
