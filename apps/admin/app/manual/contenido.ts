@@ -537,6 +537,20 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Cuando la IA no reconoce los renglones: cargala a mano',
+        pasos: [
+          'En Compras → Entrada por foto, abajo, tocá "Cargar a mano". Si querés que quede el original, tocá "con la foto o el PDF guardado": el archivo se guarda pero la IA no lo lee.',
+          'Si la factura ya está abierta y lo que no sirve son los renglones, tocá arriba "¿No reconoce los renglones? Cargarlos a mano". Se quedan el proveedor, el número, los impuestos y el original; los renglones de la IA quedan afuera y los escribís vos. Si la IA no pudo leer el comprobante, en el aviso del error está el mismo botón.',
+          'Arriba escribí el tipo de comprobante (factura A, B, C o remito), el número y la fecha. Elegí el proveedor y la sucursal.',
+          'En "Impuestos de la factura" escribí lo que dice el pie: el neto, el IVA, las percepciones y el total. La cuenta te dice si cierra.',
+          'Agregá un renglón por cada renglón del papel: buscá el producto (por nombre, código o con la pistola), poné las unidades y el precio de cada unidad como dice el papel (en la factura A, sin IVA). Después de cada renglón el cursor vuelve al buscador para el siguiente.',
+          'Si un renglón viene en bultos o con bonificación, se ajusta en el renglón, como en una factura leída.',
+          'Registrá como siempre: entra al stock, se recalcula el costo y el precio de venta, y la factura queda con su desglose de impuestos. Lo que escribiste a mano no le enseña a la memoria del proveedor cómo viene el papel.',
+          'Si te vas a mitad de camino, la carga queda en la bandeja de lectura como "A mano · …" con todo lo que escribiste.',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'El sistema se acuerda de cómo entra cada producto',
         pasos: [
           'Cuando registrás una factura, queda guardado cómo vino y cómo entró cada artículo de ese proveedor: si la cantidad eran cajas o unidades, cuántas trae cada caja, si se arma en paquetes, si va por kilo.',

@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const b = await req.json().catch(() => ({}) as any);
     // la factura editable (8/10/2026): chat con IA, constancia de cambios y
     // reglas del proveedor; llevan el cuerpo entero
-    const conCuerpo = ['chat', 'revision', 'regla', 'historial', 'borrador', 'fichas'].includes(b?.accion);
+    const conCuerpo = ['chat', 'revision', 'regla', 'historial', 'borrador', 'fichas', 'aMano'].includes(b?.accion);
     const id = encodeURIComponent(String(b?.id ?? 'sin-lectura'));
     const ruta =
       b?.accion === 'releer' ? `/compras/entrada-foto/${id}/releer`
@@ -32,6 +32,8 @@ export async function POST(req: Request) {
       // la ficha de cada artículo del proveedor: cómo vino y cómo entró la última vez (11/11/2026)
       : b?.accion === 'fichas' ? `/compras/proveedores/${encodeURIComponent(String(b?.proveedorId ?? ''))}/fichas-articulo/buscar`
       : b?.accion === 'quitarRegla' ? `/compras/reglas-lectura/${id}/desactivar`
+      // la factura cargada a mano, sin que la IA lea (19/11/2026)
+      : b?.accion === 'aMano' ? '/compras/entrada-foto/a-mano'
       : null;
     if (!ruta) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
     const res = await fetch(`${API}${ruta}`, {
@@ -42,7 +44,10 @@ export async function POST(req: Request) {
     return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
   }
   const form = await req.formData();
-  const res = await fetch(`${API}/compras/entrada-foto`, { method: 'POST', headers: auth, body: form });
+  // a mano con el original adjunto: el archivo se guarda, no se lee (19/11/2026)
+  const aMano = form.get('aMano') != null;
+  if (aMano) form.delete('aMano');
+  const res = await fetch(`${API}/compras/entrada-foto${aMano ? '/a-mano' : ''}`, { method: 'POST', headers: auth, body: form });
   return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
 }
 

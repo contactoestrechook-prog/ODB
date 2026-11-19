@@ -24,7 +24,7 @@ import { AsistenteFactura, describirCambio, type CambioHecho } from './Asistente
 import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
-import { revisarAntesDeRegistrar } from '../lib/revision-factura';
+import { revisarAntesDeRegistrar, YA_REGISTRADO_ASI } from '../lib/revision-factura';
 import { faltaParaConciliar, faltaParaEntrada, type Falta } from '../lib/motivo-registro';
 import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucursal-habitual';
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
@@ -673,6 +673,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
 
   // Lo leído (de una foto recién subida o de la bandeja) pasa a la pantalla.
   function cargarLecturaEnPantalla(d: any) {
+      // a mano (19/11/2026): el tipo, el número y la fecha escritos en la pantalla vuelven con lo guardado
+      const comprobanteLeido = d.comprobante ?? null;
+      if (d.aMano && d.borrador?.form?.comprobante && typeof d.borrador.form.comprobante === 'object') {
+        d = { ...d, comprobante: { ...(d.comprobante ?? {}), ...d.borrador.form.comprobante } };
+      }
+      setConfirmarAMano(false);
       setFoto(d);
       setF((x: any) => ({
         ...x,
@@ -799,7 +805,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       // cambios (los guarda el efecto de abajo, solos, mientras se edita)
       const pieLeido = { ...(d.impuestos ?? {}) };
       // la sucursal con la que arrancó la pantalla no cuenta como cambio de la persona
-      fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: d.comprobante?.numero ?? '', sucursalId: f.sucursalId ?? '' } };
+      fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: comprobanteLeido?.numero ?? '', sucursalId: f.sucursalId ?? '' }, comprobante: comprobanteLeido };
       const b = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
       proveedorAlCargar.current = String((b?.form && typeof b.form === 'object' && 'proveedorId' in b.form ? b.form.proveedorId : d.proveedor?.match?.id) ?? '');
       if (b) {
@@ -807,7 +813,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         setFotoItems(r.filas);
         setFotoImp(r.pie);
         setCambiosFactura(Array.isArray(b.cambios) ? b.cambios : []);
-        if (b.form && typeof b.form === 'object') setF((x: any) => ({ ...x, ...b.form }));
+        if (b.form && typeof b.form === 'object') {
+          const { comprobante: _comprobante, ...form } = b.form as Record<string, unknown>;
+          setF((x: any) => ({ ...x, ...form }));
+        }
         setBorradorRecuperado({ aplicados: r.aplicados, descartados: r.descartados, en: b.en ?? null, por: b.por ?? null });
         ultimoBorrador.current = JSON.stringify(b.renglones ?? []) + JSON.stringify(b.pie ?? {}) + JSON.stringify(b.form ?? {}) + JSON.stringify(b.cambios ?? []) + JSON.stringify(b.agregados ?? []);
       } else {
@@ -819,7 +828,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
 
   // Lo que cambió la persona se guarda solo, 1,5 s después del último cambio
   // (3/11/2026): al recargar o abrir la factura desde la bandeja, se recupera.
-  const fotoOriginal = useRef<{ items: any[]; pie: any; form: any } | null>(null);
+  const fotoOriginal = useRef<{ items: any[]; pie: any; form: any; comprobante?: any } | null>(null);
   const ultimoBorrador = useRef('');
   const [borradorRecuperado, setBorradorRecuperado] = useState<{ aplicados: number; descartados: number; en: string | null; por: string | null } | null>(null);
   useEffect(() => {
@@ -832,6 +841,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       for (const k of ['proveedorId', 'numeroRemito', 'sucursalId', 'margenPct'] as const) {
         if ((f?.[k] ?? '') !== (o.form?.[k] ?? '')) form[k] = f?.[k] ?? '';
       }
+      // a mano: el tipo, el número y la fecha los escribe la persona (19/11/2026)
+      if (foto?.aMano && JSON.stringify(foto.comprobante ?? null) !== JSON.stringify(o.comprobante ?? null)) form.comprobante = foto.comprobante ?? null;
       const clave = JSON.stringify(b.renglones) + JSON.stringify(b.pie) + JSON.stringify(form) + JSON.stringify(b.cambios) + JSON.stringify(b.agregados ?? []);
       if (clave === ultimoBorrador.current) return;
       // nada cambiado y nada guardado antes: no hay qué mandar
@@ -844,7 +855,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       }).catch(() => { ultimoBorrador.current = ''; });
     }, 1500);
     return () => clearTimeout(t);
-  }, [fotoItems, fotoImp, cambiosFactura, f?.proveedorId, f?.numeroRemito, f?.sucursalId, f?.margenPct, foto?.lecturaId, foto?.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fotoItems, fotoImp, cambiosFactura, f?.proveedorId, f?.numeroRemito, f?.sucursalId, f?.margenPct, foto?.lecturaId, foto?.error, foto?.comprobante]); // eslint-disable-line react-hooks/exhaustive-deps
   // «Empezar de cero»: vuelve a lo que leyó el sistema (el guardado se borra solo)
   const descartarBorrador = () => {
     const o = fotoOriginal.current;
@@ -853,6 +864,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     setFotoImp(o.pie);
     setCambiosFactura([]);
     setF((x: any) => ({ ...x, ...o.form }));
+    if (foto?.aMano) setFoto((x: any) => (x ? { ...x, comprobante: o.comprobante ?? null } : x));
     setBorradorRecuperado(null);
   };
 
@@ -930,6 +942,63 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     }
     setLeyendoFoto(false);
   }
+
+  // LA FACTURA A MANO (19/11/2026, Leandro: «carga manual opcional de facturas
+  // para cuando no reconoce items»). Una lectura que no lee nadie: se abre en
+  // esta misma pantalla, sin renglones, y los renglones los escribe la persona.
+  // De cero (con o sin la foto/PDF como original) o desde la factura abierta,
+  // que conserva proveedor, número, fecha, impuestos y original.
+  const [aManoAbriendo, setAManoAbriendo] = useState(false);
+  const [aManoError, setAManoError] = useState('');
+  const [confirmarAMano, setConfirmarAMano] = useState(false);
+  async function empezarAMano(o: { archivo?: File | null; desdeLaAbierta?: boolean } = {}) {
+    setAManoAbriendo(true); setAManoError('');
+    try {
+      const desde = o.desdeLaAbierta ? foto?.lecturaId ?? null : null;
+      let r: Response;
+      // de cero y sin archivo: que no quede a la vista el original de otra factura
+      if (!o.archivo && !desde) { setFotoArchivo(null); setFotoUrl(null); }
+      if (o.archivo) {
+        // el de una lectura que falló ya está achicado: no se vuelve a comprimir
+        const listo = o.archivo === fotoArchivo ? o.archivo : await prepararComprobante(o.archivo);
+        const fd = new FormData();
+        fd.append('aMano', '1');
+        fd.append('archivo', listo, o.archivo.name);
+        if (desde) fd.append('desdeLecturaId', desde);
+        if (f.proveedorId) fd.append('proveedorId', f.proveedorId);
+        r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
+        if (r.ok) setFotoArchivo(listo);
+      } else {
+        r = await fetch('/api/entrada-foto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accion: 'aMano',
+            desdeLecturaId: desde || undefined,
+            proveedorId: f.proveedorId || undefined,
+            // desde la abierta: el pie con lo que la persona ya corrigió
+            ...(desde ? { impuestos: fotoImp ?? {} } : {}),
+          }),
+        });
+      }
+      const enc = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(enc.message ?? 'No se pudo empezar la carga a mano');
+      const p = await fetch(`/api/entrada-foto?id=${encodeURIComponent(enc.lecturaId)}`, { cache: 'no-store' });
+      const d = await p.json().catch(() => ({}));
+      if (!p.ok || d.estado !== 'listo') throw new Error(d.message ?? 'No se pudo abrir la carga a mano');
+      setConfirmarAMano(false);
+      cargarLecturaEnPantalla({ ...d, lecturaId: enc.lecturaId });
+      fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'abrir', id: enc.lecturaId }) }).catch(() => {});
+    } catch (e) {
+      setAManoError(e instanceof Error ? e.message : 'No se pudo empezar la carga a mano');
+    }
+    setAManoAbriendo(false);
+  }
+  // el número, el tipo y la fecha de una factura a mano se escriben acá (en una leída, los dice el papel)
+  const cambiarComprobante = (campo: 'tipo' | 'numero' | 'fecha', valor: string) => {
+    setFoto((x: any) => (x ? { ...x, comprobante: { ...(x.comprobante ?? {}), [campo]: valor || null } } : x));
+    if (campo === 'numero') set('numeroRemito', valor);
+  };
 
   // --- Costeo por PRORRATEO re-anclado a la mercadería (spec contable) ---
   // El costo unitario reparte el valor de la mercadería (neto + IVA + internos, SIN
@@ -1856,6 +1925,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       costoUnitario: !i._esDescuento && !i._esDevolucion && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
+      // lo escribió una persona (o el chat) en la pantalla: la ficha del artículo no aprende de él (19/11/2026)
+      aMano: !!i.agregado,
     };
   });
   const registrarConConstancia = async (body: any) => {
@@ -2116,7 +2187,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     precioNuevo: i._esDescuento || i._esDevolucion || i.margenPct === '' || i.margenPct == null ? null : redondearPrecio(costoFinal(i, idx) * (1 + Number(i.margenPct) / 100)),
     precioActual: numImp(i.precioActual) || null,
     // vale solo mientras el renglón siga vinculado al mismo producto con el que se registró antes
-    vecesRegistradoAsi: i.vinculoRegistrado && i.vinculoRegistrado.sku === i.sku ? i.vinculoRegistrado.veces : 0,
+    vecesRegistradoAsi: i.vinculoRegistrado && i.vinculoRegistrado.sku === i.sku ? i.vinculoRegistrado.veces
+      // el producto que eligió la persona al escribir el renglón a mano (19/11/2026)
+      : i.elegidoAMano && i.elegidoAMano === i.sku ? YA_REGISTRADO_ASI : 0,
     // la cantidad partida se mira por producto: así entra al stock (fusionarPorSku)
     sku: i.sku ? String(i.sku) : null,
   })));
@@ -2436,7 +2509,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     : t === 'rechazarOP' ? <>Rechazar OP #{modal.op.numero}</>
     : t === 'recibir' ? <>Recibir OC #{modal.oc.numero}</>
     : t === 'entradaDirecta' ? 'Entrada directa de mercadería'
-    : t === 'entradaFoto' ? 'Entrada por foto'
+    : t === 'entradaFoto' ? (foto?.aMano ? 'Factura cargada a mano' : 'Entrada por foto')
     : t === 'proveedor' ? (modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor')
     : t === 'factura' ? 'Registrar factura de proveedor'
     : t === 'pagar' ? <>Nueva orden de pago — {modal.prov.proveedor?.razon_social}</>
@@ -2803,10 +2876,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
               </label>
               <p className="text-xs text-tinta/60">Podés elegir hasta <b>5</b> fotos a la vez: se leen todas juntas y aparecen en la <b>bandeja de lectura</b> cuando están listas. Consejo: sacá la foto desde acá (cámara) o mandala por WhatsApp como <i>documento</i> — comprimida por WhatsApp se lee más lento y peor.</p>
               {avisoFoto && <Aviso tono="atencion">{avisoFoto}</Aviso>}
+              {/* LA FACTURA A MANO (19/11/2026): cuando la IA no reconoce los renglones */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-black/[0.06] pt-3">
+                <p className="min-w-0 flex-1 basis-64 text-xs text-tinta/60">
+                  <b className="font-semibold text-tinta">Cargar a mano.</b> Sin que la IA lea: escribís los renglones y el pie, y entra al stock con su factura igual que una leída.
+                </p>
+                <Boton variante="secundario" tamano="chico" onClick={() => empezarAMano()} disabled={aManoAbriendo || leyendoFoto}>
+                  {aManoAbriendo ? 'Abriendo…' : 'Cargar a mano'}
+                </Boton>
+                <label className={unir('inline-flex min-h-9 cursor-pointer items-center rounded-full px-1 text-xs text-tinta/70 underline hover:text-marca-hondo has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-marca', aManoAbriendo || leyendoFoto ? 'pointer-events-none opacity-50' : '')}>
+                  con la foto o el PDF guardado
+                  <input type="file" accept="image/*,.pdf" className="sr-only" disabled={aManoAbriendo || leyendoFoto}
+                    onChange={(e) => { const a = e.target.files?.[0]; if (a) empezarAMano({ archivo: a }); e.target.value = ''; }} />
+                </label>
+              </div>
+              {aManoError && <Aviso tono="error">{aManoError}</Aviso>}
             </>
           ) : foto.error ? (
             <>
               <Aviso tono="error">{foto.error}</Aviso>
+              {/* si la IA no pudo, se carga a mano con el mismo archivo (19/11/2026) */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <p className="min-w-0 flex-1 basis-64 text-sm text-tinta/70">O cargala a mano: escribís los renglones y el pie{fotoArchivo ? ', con este archivo guardado como original' : ''}.</p>
+                <Boton variante="secundario" tamano="chico" onClick={() => empezarAMano({ archivo: fotoArchivo })} disabled={aManoAbriendo}>
+                  {aManoAbriendo ? 'Abriendo…' : 'Cargar a mano'}
+                </Boton>
+              </div>
+              {aManoError && <Aviso tono="error">{aManoError}</Aviso>}
             </>
           ) : (
             <div className={verOriginal && fotoUrl ? 'grid items-start gap-4 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]' : ''}>
@@ -2848,11 +2944,62 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 </button>
               )}
               <div className="min-w-0 space-y-3">
-              {/* encabezado detectado */}
+              {/* encabezado: el que leyó la IA o, a mano, el que se escribe (19/11/2026) */}
+              {foto.aMano ? (
+                <div className="space-y-2 rounded-xl bg-crema-claro px-3 py-2.5">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
+                    <Sello tono="info">Carga a mano</Sello>
+                    <span className="min-w-0">
+                      {foto.aMano.desde
+                        ? `Los renglones se escriben a mano${Number(foto.aMano.renglonesDeLaIa) > 0 ? ` (${Number(foto.aMano.renglonesDeLaIa) === 1 ? 'el que había leído la IA quedó afuera' : `los ${foto.aMano.renglonesDeLaIa} que había leído la IA quedaron afuera`})` : ''}. Se quedaron el proveedor, el número, los impuestos y el original.`
+                        : 'Nadie leyó esta factura: escribí el número, el pie y los renglones como dice el papel.'}
+                    </span>
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,11rem)]">
+                    <label className="min-w-0"><span className={ROTULO_CAMPO}>Comprobante</span>
+                      <select aria-label="Tipo de comprobante" value={foto.comprobante?.tipo ?? 'factura_a'} onChange={(e) => cambiarComprobante('tipo', e.target.value)} className={input}>
+                        <option value="factura_a">Factura A</option>
+                        <option value="factura_b">Factura B</option>
+                        <option value="factura_c">Factura C</option>
+                        <option value="remito">Remito</option>
+                        {!['factura_a', 'factura_b', 'factura_c', 'remito'].includes(foto.comprobante?.tipo ?? 'factura_a') && (
+                          <option value={foto.comprobante.tipo}>{String(foto.comprobante.tipo).replace(/_/g, ' ')}</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="min-w-0"><span className={ROTULO_CAMPO}>Número</span>
+                      <input value={foto.comprobante?.numero ?? ''} onChange={(e) => cambiarComprobante('numero', e.target.value)} aria-label="Número del comprobante" className={unir(input, 'tabular-nums')} />
+                    </label>
+                    <label className="min-w-0"><span className={ROTULO_CAMPO}>Fecha</span>
+                      <input type="date" value={normFechaIso(foto.comprobante?.fecha) ?? ''} onChange={(e) => cambiarComprobante('fecha', e.target.value)} aria-label="Fecha del comprobante" className={input} />
+                    </label>
+                  </div>
+                </div>
+              ) : (
               <div className="break-words rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70">
                 <p><b>{foto.comprobante?.tipo?.replace('_', ' ').toUpperCase() ?? 'COMPROBANTE'}</b> {foto.comprobante?.numero ?? ''} · {foto.comprobante?.fecha ?? 's/f'} {foto.comprobante?.condicionVenta ? `· ${foto.comprobante.condicionVenta}` : ''}</p>
                 <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· en el sistema' : '· no está en el sistema'}</p>
+                {/* LOS RENGLONES A MANO (19/11/2026): si la IA no los reconoce, se escriben;
+                    lo demás de la factura (proveedor, número, impuestos, original) se queda */}
+                {!esNotaCredito && foto.lecturaId && (confirmarAMano ? (
+                  <div className="mt-2 space-y-2 border-t border-black/[0.06] pt-2">
+                    <p className="text-tinta">
+                      Se dejan de lado {fotoItems.length === 1 ? 'el renglón que leyó' : `los ${fotoItems.length} renglones que leyó`} la IA
+                      {cambiosFactura.some((c) => !c.deshecho) ? ' y lo que se cambió en ellos' : ''}. Se quedan el proveedor, el número, los impuestos y el original, y escribís los renglones vos.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Boton tamano="chico" onClick={() => empezarAMano({ desdeLaAbierta: true })} disabled={aManoAbriendo}>{aManoAbriendo ? 'Abriendo…' : 'Sí, cargarlos a mano'}</Boton>
+                      <Boton tamano="chico" variante="fantasma" onClick={() => setConfirmarAMano(false)} disabled={aManoAbriendo}>Cancelar</Boton>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => { setConfirmarAMano(true); setAManoError(''); }} className={unir(ENLACE, 'mt-1 text-tinta/70 hover:text-marca-hondo')}>
+                    ¿No reconoce los renglones? Cargarlos a mano
+                  </button>
+                ))}
+                {aManoError && <p role="alert" className="mt-1 text-marca-hondo">{aManoError}</p>}
               </div>
+              )}
 
               {/* IMPUESTOS DE LA FACTURA (17/9/2026). Leandro: "necesito que lea
                   bien los impuestos y que si los lee mal todo se pueda sacar o
@@ -2863,8 +3010,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   (app/lib/pie-factura.ts, con tests). Todo se deshace con ↺. */}
               <div id="registro-pie">
                 <PanelImpuestos
-                  key={foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
+                  key={foto.aMano ? foto.lecturaId : foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
                   fotoImp={fotoImp} setFotoImp={setFotoImp}
+                  aMano={!!foto.aMano}
                   habituales={foto.impuestosHabituales ?? null}
                   sumaRenglones={sumaRenglones}
                 />
@@ -2948,10 +3096,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 cambios={cambiosFactura}
                 onDeshacer={deshacerCambio}
                 sugerencias={sugerenciasChat}
-                onReleer={reLeerConAclaraciones}
+                // a mano (19/11/2026): no hay lectura que rehacer, ni renglones del papel para la memoria y las reglas de lectura
+                onReleer={foto.aMano ? undefined : reLeerConAclaraciones}
                 releyendo={leyendoFoto}
-                aplicarReglasSolo={!leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria')) || proveedorElegidoAca)}
-                recienLeida={!leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.length) || proveedorElegidoAca)}
+                aplicarReglasSolo={!foto.aMano && !leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.some((c) => c.quien !== 'Memoria')) || proveedorElegidoAca)}
+                recienLeida={!foto.aMano && !leyendoFoto && fotoItems.length > 0 && ((!borradorRecuperado && !cambiosFactura.length) || proveedorElegidoAca)}
                 onMemoria={aplicarFichas}
                 onProveedor={elegirProveedorDicho}
               />
@@ -3675,7 +3824,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   )}
                 </div>
               ))}
-              <AgregarRenglon onAgregar={(d) => agregarRenglones([d], 'persona')} />
+              {foto.aMano && !fotoItems.length && (
+                <p className="rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta/70">Todavía no hay renglones. Agregalos acá abajo, uno por cada renglón del papel.</p>
+              )}
+              <AgregarRenglon
+                aMano={!!foto.aMano}
+                onAgregar={(d, producto) => {
+                  const r = agregarRenglones([d], 'persona');
+                  // elegido en el formulario: entra vinculado, como si se lo hubiera buscado en el renglón
+                  if (producto?.sku) {
+                    vincularProducto(r.indices[0], producto);
+                    // lo eligió la persona al escribir el renglón: no se le pregunta si es la misma marca
+                    cambiarRenglon(r.indices[0], (x) => ({ ...x, elegidoAMano: producto.sku }));
+                  }
+                }}
+              />
               {!esNotaCredito && <ResumenEntrada entran={resumenEntran} noEntran={resumenNoEntran} />}
               {fotoItems.some((i) => i.incluir && !i.sku) && (
                 <p className="text-xs text-marca-hondo">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
@@ -3948,7 +4111,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   {foto.qrArca.correcciones?.length ? ` · se corrigió: ${foto.qrArca.correcciones.join(', ')}` : ''}
                   {foto.reglasAplicadas ? ` · se leyó con ${foto.reglasAplicadas === 1 ? 'la regla' : `las ${foto.reglasAplicadas} reglas`} del proveedor` : ''}
                 </p>
-              ) : foto.comprobante?.tipo?.startsWith('factura') ? (
+              ) : foto.comprobante?.tipo?.startsWith('factura') && !foto.aMano ? (
                 <p className="text-xs text-tinta/60">No se pudo leer el QR de ARCA: el CUIT, el número y el total salen solo de la foto.</p>
               ) : null}
 

@@ -19,6 +19,10 @@ type RenglonEntrante = {
   // lo facturado en unidades de stock, sin restar lo que faltó: para la ficha del artículo (11/11/2026)
   cantidadEntera?: number | null;
   incluido?: boolean; esDescuento?: boolean;
+  // lo escribió una persona en la pantalla, no salió del papel (19/11/2026): se
+  // guarda, pero la ficha del artículo no aprende de él (la cantidad que se
+  // tipeó no es la columna Cantidad del papel)
+  aMano?: boolean;
 };
 
 // Lo que nos vende cada proveedor (8/10/2026): ver historial-compras.ts.
@@ -61,7 +65,7 @@ export class HistorialComprasService {
         precio: num(r.precio), bonificacion_pct: num(r.bonificacionPct), alicuota_iva: num(r.alicuotaIva), importe: num(r.importe),
         entra_como: texto(r.entraComo, 20), cantidad_stock: num(r.cantidadStock), costo_unitario: num(r.costoUnitario),
         incluido: !!r.incluido, es_descuento: !!r.esDescuento,
-        origen: 'foto',
+        origen: r.aMano ? 'a_mano' : 'foto',
         usuario_id: usuarioId ?? null,
       };
     });
@@ -85,7 +89,7 @@ export class HistorialComprasService {
     }
     // LA FICHA DEL ARTÍCULO (11/11/2026): lo que se acaba de confirmar al
     // registrar es cómo viene y cómo entra cada artículo la próxima vez.
-    await this.fichas.aprender(b.proveedorId, renglones.map((r) => {
+    await this.fichas.aprender(b.proveedorId, renglones.filter((r) => !r.aMano).map((r) => {
       const sku = texto(r.sku, 40);
       return {
         descripcion: r.descripcion, codigoProveedor: r.codigoProveedor, productoId: sku ? idDe.get(sku) ?? null : null,

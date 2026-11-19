@@ -15,6 +15,7 @@ import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compr
 import { buscarQrArca } from '../compras/qr-arca.lector';
 import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
 import { renglonesDelPapel } from '../compras/internos-por-renglon';
+import { nombreAMano, resultadoAMano } from '../compras/lectura-manual';
 import { percepcionesDelPie } from '../compras/percepciones-impresas';
 import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, puedeVendersePorPesoConCatalogo, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
@@ -556,8 +557,19 @@ export class ListasService {
     const todas = !(rol === 'dueno' || rol === 'gerente') && usuarioId
       ? ((data ?? []) as any[]).filter((l) => l.usuario_id === usuarioId || !l.usuario_id)
       : ((data ?? []) as any[]);
-    return todas.slice(0, 30).map((l) => {
+    // A MANO (19/11/2026): el número, el pie y los renglones se escriben en la
+    // pantalla y viven en el borrador; la bandeja los muestra de ahí
+    const visibles = todas.slice(0, 30);
+    const idsAMano = visibles.filter((l) => l.resultado?.aMano).map((l) => l.id);
+    const escrito = new Map<string, any>();
+    if (idsAMano.length) {
+      const { data: bs } = await this.db.from('lecturas_comprobante')
+        .select('id, form:borrador->form, pie:borrador->pie, agregados:borrador->agregados').in('id', idsAMano);
+      for (const b of (bs ?? []) as any[]) escrito.set(b.id, b);
+    }
+    return visibles.map((l) => {
       const r = l.resultado ?? {};
+      const b = escrito.get(l.id);
       const colgada = l.estado === 'procesando' && Date.now() - new Date(l.creado_en).getTime() > 12 * 60_000;
       return {
         id: l.id,
@@ -569,12 +581,13 @@ export class ListasService {
         abiertaEn: l.abierta_en,
         releida: !!l.origen_id,
         porMail: !l.usuario_id && /^Mail · /.test(l.nombre_archivo ?? ''),
+        aMano: !!r.aMano,
         resumen: l.estado === 'listo' ? {
           proveedor: r.proveedor?.match?.nombre ?? r.proveedor?.detectado?.nombre ?? null,
-          numero: r.comprobante?.numero ?? null,
-          renglones: (r.items ?? []).length,
+          numero: (r.aMano ? b?.form?.comprobante?.numero : null) ?? r.comprobante?.numero ?? null,
+          renglones: r.aMano ? (Array.isArray(b?.agregados) ? b.agregados.length : 0) : (r.items ?? []).length,
           dudas: (r.dudas ?? []).length,
-          total: r.impuestos?.total ?? null,
+          total: (r.aMano && b?.pie && 'total' in b.pie ? b.pie.total : null) ?? r.impuestos?.total ?? null,
           demora: r.demora?.total ?? null,
         } : null,
       };
@@ -606,7 +619,8 @@ export class ListasService {
       // proveedor, sucursal, número y remarcación elegidos en la pantalla
       form: b.form && typeof b.form === 'object' && !Array.isArray(b.form) ? b.form : {},
       // los renglones agregados en la pantalla, enteros (13/11/2026)
-      agregados: Array.isArray(b.agregados) ? b.agregados.filter((a: any) => a && typeof a === 'object' && a.agregado).slice(0, 100) : [],
+      // (19/11/2026: en una factura cargada a mano TODOS los renglones son agregados; 100 cortaba callado)
+      agregados: Array.isArray(b.agregados) ? b.agregados.filter((a: any) => a && typeof a === 'object' && a.agregado).slice(0, 400) : [],
     } : null;
     const vacio = !limpio || (!limpio.renglones.length && !Object.keys(limpio.pie).length && !limpio.cambios.length && !Object.keys(limpio.form).length && !limpio.agregados.length);
     const { error } = await this.db
@@ -834,6 +848,82 @@ export class ListasService {
       .map(([, v]) => String(v).replace(/\D/g, ''));
   }
 
+  /** El original al bucket privado; null si no se pudo (no frena nada). */
+  private async guardarOriginal(archivo: { buffer: Buffer; mimetype: string }, esPdf: boolean): Promise<string | null> {
+    try {
+      const ext = esPdf ? 'pdf' : (archivo.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const ruta = `facturas/${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
+      const { error: errSubida } = await this.db.storage
+        .from('comprobantes')
+        .upload(ruta, archivo.buffer, { contentType: esPdf ? 'application/pdf' : archivo.mimetype });
+      return errSubida ? null : ruta;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * LA FACTURA CARGADA A MANO (19/11/2026, compras/lectura-manual.ts): una
+   * lectura que nace lista y sin renglones, para escribirlos en la pantalla de
+   * la factura. De cero (con o sin el original) o de una factura ya leída cuyos
+   * renglones no sirven: esa sale de la bandeja y la nueva se queda con todo lo
+   * demás (proveedor, número, fecha, impuestos, original). No llama a la IA.
+   */
+  async crearLecturaAMano(
+    b: { desdeLecturaId?: string; proveedorId?: string; comprobante?: any; impuestos?: unknown },
+    archivo?: { buffer: Buffer; mimetype: string; originalname?: string } | null,
+    usuarioId?: string,
+  ) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let desde: { id: string; resultado: any; nombre: string | null } | null = null;
+    if (b?.desdeLecturaId) {
+      if (!uuid.test(String(b.desdeLecturaId))) throw new BadRequestException('Lectura inválida');
+      const { data, error } = await this.db.from('lecturas_comprobante')
+        .select('id, estado, resultado, nombre_archivo').eq('id', b.desdeLecturaId).maybeSingle();
+      if (error) throw new BadRequestException(error.message);
+      if (!data) throw new BadRequestException('Esa lectura no existe');
+      desde = { id: (data as any).id, resultado: (data as any).estado === 'listo' ? (data as any).resultado ?? {} : {}, nombre: (data as any).nombre_archivo ?? null };
+    }
+    let proveedor: { id: string; razon_social: string; cuit: string | null } | null = null;
+    if (b?.proveedorId) {
+      if (!uuid.test(String(b.proveedorId))) throw new BadRequestException('Proveedor inválido');
+      const { data } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('id', b.proveedorId).maybeSingle();
+      if (!data) throw new BadRequestException('Ese proveedor no existe');
+      proveedor = data as any;
+    }
+    let archivoUrl: string | null = null;
+    if (archivo?.buffer?.length) {
+      const esPdf = /\.pdf$/i.test(archivo.originalname ?? '') || archivo.mimetype === 'application/pdf';
+      if (!esPdf && !/^image\//.test(archivo.mimetype)) throw new BadRequestException('El original tiene que ser una foto o un PDF');
+      archivoUrl = await this.guardarOriginal(archivo, esPdf);
+      if (!archivoUrl) throw new BadRequestException('No se pudo guardar el original. Probá de nuevo, o cargala sin el archivo.');
+    }
+    const resultado = resultadoAMano({
+      desde: desde ? { id: desde.id, resultado: desde.resultado } : null,
+      proveedor,
+      comprobante: b?.comprobante && typeof b.comprobante === 'object' ? b.comprobante : null,
+      impuestos: b?.impuestos,
+      archivoUrl,
+    });
+    const ahora = new Date().toISOString();
+    const { data, error } = await this.db.from('lecturas_comprobante')
+      .insert({
+        estado: 'listo',
+        resultado,
+        terminado_en: ahora,
+        usuario_id: usuarioId ?? null,
+        nombre_archivo: nombreAMano(desde?.nombre ?? archivo?.originalname ?? null),
+        origen_id: desde?.id ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+    // la leída sale de la bandeja: no puede quedar para registrarse dos veces
+    if (desde) await this.db.from('lecturas_comprobante').update({ descartada_en: ahora }).eq('id', desde.id);
+    this.log.log(`lectura ${(data as any).id}: cargada a mano${desde ? ` desde ${desde.id} (${resultado.aMano.renglonesDeLaIa} renglones de la IA fuera)` : ''}${archivoUrl ? ' · con original' : ''}`);
+    return { lecturaId: (data as any).id as string };
+  }
+
   async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }, aclaraciones?: string) {
     if (!archivo?.buffer) throw new BadRequestException('Falta el archivo');
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -852,17 +942,7 @@ export class ListasService {
 
     // Guardamos el comprobante original en el bucket privado: cuando se registre
     // la factura queda vinculado y se puede volver a ver siempre. Best-effort.
-    let archivoUrl: string | null = null;
-    try {
-      const ext = esPdf ? 'pdf' : (archivo.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-      const ruta = `facturas/${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
-      const { error: errSubida } = await this.db.storage
-        .from('comprobantes')
-        .upload(ruta, archivo.buffer, { contentType: esPdf ? 'application/pdf' : archivo.mimetype });
-      if (!errSubida) archivoUrl = ruta;
-    } catch {
-      /* sin adjunto no se frena la lectura */
-    }
+    const archivoUrl = await this.guardarOriginal(archivo, esPdf);
 
     const claude = new Anthropic();
     // Las instrucciones son idénticas en cada factura (~9k tokens): van al

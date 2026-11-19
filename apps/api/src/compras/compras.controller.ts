@@ -49,6 +49,32 @@ export class ComprasController {
     return this.listas.encolarComprobanteFoto(archivo, aclaraciones, req?.usuario?.sub);
   }
 
+  // LA FACTURA A MANO (19/11/2026): sin que la IA lea. De cero (con o sin la
+  // foto o el PDF como original) o desde una factura ya leída cuyos renglones
+  // no sirven (`desdeLecturaId`). Vuelve el id de una lectura lista, sin renglones.
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/entrada-foto/a-mano')
+  @UseInterceptors(
+    FileInterceptor('archivo', {
+      limits: { fileSize: 32 * 1024 * 1024 },
+      fileFilter: (_req, archivo, cb) =>
+        cb(null, /^image\//.test(archivo.mimetype) || archivo.mimetype === 'application/pdf' || /\.pdf$/i.test(archivo.originalname ?? '')),
+    }),
+  )
+  entradaAMano(@UploadedFile() archivo: Express.Multer.File | undefined, @Body() b: any, @Req() req: any) {
+    // por formulario (con el original) los datos llegan como texto
+    const deTexto = (v: unknown) => {
+      if (typeof v !== 'string') return v;
+      try { return JSON.parse(v); } catch { return undefined; }
+    };
+    return this.listas.crearLecturaAMano({
+      desdeLecturaId: b?.desdeLecturaId || undefined,
+      proveedorId: b?.proveedorId || undefined,
+      comprobante: deTexto(b?.comprobante),
+      impuestos: deTexto(b?.impuestos),
+    }, archivo ?? null, req?.usuario?.sub);
+  }
+
   @Get('compras/entrada-foto/:id')
   estadoEntradaFoto(@Param('id') id: string) {
     return this.listas.estadoLecturaComprobante(id);

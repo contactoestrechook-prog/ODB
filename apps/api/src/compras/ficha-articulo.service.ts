@@ -198,6 +198,8 @@ export class FichaArticuloService {
   async sembrar(): Promise<{ proveedores: number; renglones: number; fichas: number }> {
     const filas = await traerTodo<any>((d, h) => this.db.from('compras_historial')
       .select('proveedor_id, lectura_id, numero, fecha, renglon, producto_id, codigo_proveedor, descripcion, bultos, unidades_por_bulto, sueltas, entra_como, cantidad_stock, importe, incluido, es_descuento, creado_en')
+      // lo escrito a mano en la pantalla no es cómo viene el papel (19/11/2026)
+      .neq('origen', 'a_mano')
       .order('fecha').order('creado_en').order('renglon').range(d, h));
     // por proveedor, y adentro por factura
     const porFactura = new Map<string, any[]>();

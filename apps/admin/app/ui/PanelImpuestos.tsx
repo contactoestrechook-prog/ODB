@@ -13,15 +13,17 @@ const ICONO_LINEA = 'mr-1 inline size-4 shrink-0 align-[-3px]';
 const CHIP = 'relative inline-flex min-h-9 items-center rounded-full border px-3 text-xs transition-colors before:absolute before:inset-x-0 before:-inset-y-1 sm:min-h-8 sm:before:hidden';
 const numImp = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
-export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones }: {
+export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones, aMano = false }: {
   fotoImp: any;
   setFotoImp: (f: (x: any) => any) => void;
   habituales: Habituales;
   /** suma de cantidad × precio de los renglones de mercadería (para compararla con el neto) */
   sumaRenglones: number;
+  /** factura cargada a mano (19/11/2026): nadie leyó el pie, los montos arrancan abiertos para escribirlos */
+  aMano?: boolean;
 }) {
   const [impDeshacer, setImpDeshacer] = useState<any[]>([]);
-  const [impAMano, setImpAMano] = useState(false);
+  const [impAMano, setImpAMano] = useState(aMano);
   // "+ monto": el campo que se está cargando en pesos, en línea
   const [cargando, setCargando] = useState<string | null>(null);
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
@@ -172,7 +174,7 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
         </div>
       )}
       <p className="mt-2 text-xs text-tinta/60">
-        Se leen solos del pie del papel. Los impuestos internos <b>siempre</b> son costo; las percepciones (IVA e IIBB) son pago a cuenta y van al costo si está tildado “Percepciones al costo”.
+        {aMano ? 'Escribilos como dice el pie del papel: el neto, el IVA, las percepciones y el total.' : 'Se leen solos del pie del papel.'} Los impuestos internos <b>siempre</b> son costo; las percepciones (IVA e IIBB) son pago a cuenta y van al costo si está tildado “Percepciones al costo”.
       </p>
     </div>
   );
