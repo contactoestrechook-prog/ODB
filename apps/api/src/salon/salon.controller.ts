@@ -103,6 +103,13 @@ export class SalonController {
     return this.salon.sacarDelCarro(id, carga, req.usuario ?? {});
   }
 
+  // falta stock al armar (19/11/2026): queda lo que hay, sale del pedido o va otro en su lugar
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/falta')
+  falta(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.salon.faltaEnArmado(id, dto ?? {}, req.usuario ?? {});
+  }
+
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Post('pedidos/:id/terminar')
   terminar(@Param('id') id: string, @Req() req: any) {
