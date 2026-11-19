@@ -95,6 +95,10 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const [ultimo, setUltimo] = useState<string | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const lector = useRef<HTMLInputElement>(null);
+  const campoFoto = useRef<HTMLInputElement>(null);
+  const [leyendoFoto, setLeyendoFoto] = useState(false);
+  // al volver de la cámara del teléfono, la cámara en vivo se abre de nuevo
+  const [vueltaCamara, setVueltaCamara] = useState(0);
   const ocupado = useRef(false);
 
   // lo que llega del servidor manda (otro aparato, el refresco de cada 8 s)
@@ -183,7 +187,22 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     return () => clearInterval(t);
   }, [manual]);
 
-  const cerrado = !!manual || terminando;
+  async function leerFoto(archivo?: File | null) {
+    if (!archivo) return;
+    setLeyendoFoto(true);
+    try {
+      const c = await codigoDeFoto(archivo);
+      if (c) await sumar({ codigo: c, cantidad: 1 });
+      else avisar('error', 'No encontré el código en la foto. Sacala de más cerca, con luz y con el código derecho.');
+    } catch { avisar('error', 'No pude leer la foto. Probá de nuevo.'); }
+    finally {
+      setLeyendoFoto(false);
+      if (campoFoto.current) campoFoto.current.value = '';
+      setVueltaCamara((n) => n + 1);
+    }
+  }
+
+  const cerrado = !!manual || terminando || leyendoFoto;
   const porCompletar = ultimo ? items.find((i) => i.productoId === ultimo && i.enCarro < i.cantidad) ?? null : null;
   // dónde queda: lo que se retira va a la mesa de retiro; un envío, a la salida
   const destino = p.canal === 'domicilio' ? 'Dejalo listo para salir con el envío' : 'Dejalo en la mesa de retiro';
@@ -213,9 +232,13 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
       {/* la cámara (y el campo para el lector de mano) */}
       <div className="bg-white px-4 pb-3">
-        {camara && <Camara pausada={cerrado} onCodigo={(c) => sumarRef.current({ codigo: c, cantidad: 1 })} onError={() => setCamara(false)} />}
+        {camara && <Camara key={vueltaCamara} pausada={cerrado} onCodigo={(c) => sumarRef.current({ codigo: c, cantidad: 1 })} onError={() => setCamara(false)} onFoto={() => campoFoto.current?.click()} />}
+        <input ref={campoFoto} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1}
+          onChange={(e) => leerFoto(e.target.files?.[0])} />
+        {leyendoFoto && <p role="status" className="mt-2 rounded-lg bg-crema px-3 py-2 text-sm font-semibold text-tinta">Leyendo la foto…</p>}
         <form onSubmit={(e) => { e.preventDefault(); const c = codigo.trim(); if (c) { setCodigo(''); sumar({ codigo: c, cantidad: 1 }); } }} className="mt-2 flex gap-2">
           <Entrada ref={lector} inputMode="none" value={codigo} onChange={(e) => setCodigo(e.target.value)} aria-label="Código de barras (lector de mano)" placeholder="Lector de mano" className="flex-1" />
+          {!camara && <Boton type="button" variante="secundario" onClick={() => campoFoto.current?.click()}>Foto</Boton>}
           <Boton type="button" variante="secundario" onClick={() => setCamara((c) => !c)}>{camara ? 'Sin cámara' : 'Cámara'}</Boton>
         </form>
         {msg && (
@@ -315,7 +338,32 @@ function CargaManual({ item, onCerrar, onSumar }: { item: ItemArmado; onCerrar: 
 }
 
 /** La cámara siempre abierta, leyendo códigos uno atrás del otro. */
-function Camara({ pausada, onCodigo, onError }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void }) {
+/** El código de una foto sacada con la cámara del teléfono (iPhone, 19/11/2026:
+ *  «no lee el código desde iphone»: la cámara del navegador no enfoca de cerca;
+ *  la del iPhone sí). Se achica a 2000 px para que el lector no tarde. */
+async function codigoDeFoto(archivo: File): Promise<string | null> {
+  const det = await lectorDeCodigos();
+  if (!det) return null;
+  let fuente: { ancho: number; alto: number; dibujar: (c: CanvasRenderingContext2D, w: number, h: number) => void; soltar: () => void };
+  if (typeof createImageBitmap === 'function') {
+    const bmp = await createImageBitmap(archivo);
+    fuente = { ancho: bmp.width, alto: bmp.height, dibujar: (c, w, h) => c.drawImage(bmp, 0, 0, w, h), soltar: () => bmp.close?.() };
+  } else {
+    const url = URL.createObjectURL(archivo);
+    const img = await new Promise<HTMLImageElement>((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
+    fuente = { ancho: img.naturalWidth, alto: img.naturalHeight, dibujar: (c, w, h) => c.drawImage(img, 0, 0, w, h), soltar: () => URL.revokeObjectURL(url) };
+  }
+  const escala = Math.min(1, 2000 / Math.max(fuente.ancho, fuente.alto, 1));
+  const lienzo = document.createElement('canvas');
+  lienzo.width = Math.max(1, Math.round(fuente.ancho * escala));
+  lienzo.height = Math.max(1, Math.round(fuente.alto * escala));
+  fuente.dibujar(lienzo.getContext('2d')!, lienzo.width, lienzo.height);
+  fuente.soltar();
+  const r = await det.detect(lienzo);
+  return r?.[0]?.rawValue ? String(r[0].rawValue) : null;
+}
+
+function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [estado, setEstado] = useState<'abriendo' | 'leyendo' | 'sin-lector' | 'sin-permiso'>('abriendo');
   const pausadaRef = useRef(pausada);
@@ -335,9 +383,20 @@ function Camara({ pausada, onCodigo, onError }: { pausada: boolean; onCodigo: (c
       try {
         flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
         if (!vivo || !video.current) { flujo.getTracks().forEach((x) => x.stop()); return; }
+        // el iPhone pegado a la lata no enfoca: con 2x se lo tiene a un palmo y
+        // el código se ve grande. Donde no se puede, no pasa nada.
+        try {
+          const pista = flujo.getVideoTracks()[0] as any;
+          const cap = pista?.getCapabilities?.() ?? {};
+          if (cap.zoom?.max >= 1.5) await pista.applyConstraints({ advanced: [{ zoom: Math.min(2, cap.zoom.max) }] });
+          if (Array.isArray(cap.focusMode) && cap.focusMode.includes('continuous')) await pista.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+        } catch { /* sin zoom ni foco */ }
         video.current.srcObject = flujo;
         await video.current.play();
         setEstado('leyendo');
+        // si el lector falla en cada cuadro (no arrancó su motor), se avisa en vez
+        // de quedar «Apuntá al código» para siempre
+        let fallas = 0;
         const mirar = async () => {
           if (!vivo || !video.current) return;
           if (!pausadaRef.current && video.current.readyState >= 2) {
@@ -350,7 +409,10 @@ function Camara({ pausada, onCodigo, onError }: { pausada: boolean; onCodigo: (c
                 ultimo.cuando = ahora;
                 onCodigoRef.current(c);
               } else if (c) ultimo.cuando = ahora; // sigue apuntando al mismo: no cuenta de nuevo
-            } catch { /* cuadro sin código */ }
+              fallas = 0;
+            } catch {
+              if (++fallas >= 25) { setEstado('sin-lector'); return; }
+            }
           }
           t = setTimeout(mirar, 160);
         };
@@ -364,10 +426,13 @@ function Camara({ pausada, onCodigo, onError }: { pausada: boolean; onCodigo: (c
 
   if (estado === 'sin-lector' || estado === 'sin-permiso') {
     return (
-      <Aviso tono="atencion" accion={<Boton tamano="chico" variante="secundario" onClick={onError}>Cerrar</Boton>}>
+      <Aviso tono="atencion" accion={<>
+        <Boton tamano="chico" onClick={onFoto}>Sacar foto del código</Boton>
+        <Boton tamano="chico" variante="secundario" onClick={onError}>Cerrar</Boton>
+      </>}>
         {estado === 'sin-permiso'
-          ? 'No pude abrir la cámara: dale permiso de cámara a esta página en el navegador.'
-          : 'Este celular no puede leer códigos con la cámara. Usá el lector de mano o tocá cada producto.'}
+          ? 'No pude abrir la cámara en vivo. Sacale una foto al código y lo leo de la foto, o dale permiso de cámara a esta página.'
+          : 'La cámara en vivo no lee en este celular. Sacale una foto al código y lo leo de la foto.'}
       </Aviso>
     );
   }
@@ -376,8 +441,11 @@ function Camara({ pausada, onCodigo, onError }: { pausada: boolean; onCodigo: (c
       <video ref={video} playsInline muted className="size-full object-cover" />
       <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-marca shadow-[0_0_12px_rgba(184,45,37,0.9)]" />
       <p className="pointer-events-none absolute inset-x-0 bottom-1.5 text-center text-xs font-medium text-white/80">
-        {estado === 'abriendo' ? 'Abriendo la cámara…' : pausada ? 'En pausa' : 'Apuntá al código'}
+        {estado === 'abriendo' ? 'Abriendo la cámara…' : pausada ? 'En pausa' : 'Apuntá al código a un palmo'}
       </p>
+      <button type="button" onClick={onFoto} className="absolute right-2 top-2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur active:scale-95">
+        ¿No lee? Sacá foto
+      </button>
     </div>
   );
 }
