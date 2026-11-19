@@ -625,6 +625,32 @@ export class SalonService {
     return { ok: true, id: (data as any).id, productoId, cantidad, creadoEn: (data as any).creado_en };
   }
 
+  /**
+   * Falta stock al armar (Leandro, 19/11/2026: «el que arma el pedido tiene que
+   * poder modificar artículos por falta de stock»). El que arma dice cuánto hay
+   * en la góndola (0 = nada) y, si quiere, qué producto va en su lugar. El
+   * pedido se corrige con su total (resolver_falta_armado) y en el historial
+   * queda cuánto había y cuánto decía el sistema.
+   */
+  async faltaEnArmado(pedidoId: string, dto: { productoId?: string; hay?: number; reemplazoId?: string | null; cantidad?: number | null }, quien: Usuario) {
+    await this.pedidoDelArmado(pedidoId, quien);
+    if (!dto.productoId) throw new BadRequestException('Falta decir qué producto');
+    const hay = Number(dto.hay ?? 0);
+    if (!Number.isFinite(hay) || hay < 0 || hay > 1000) throw new BadRequestException('Cantidad inválida');
+    const cantidad = dto.cantidad == null || String(dto.cantidad) === '' ? null : Number(dto.cantidad);
+    if (cantidad != null && (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 1000)) throw new BadRequestException('Cantidad inválida');
+    const { data, error } = await this.db.rpc('resolver_falta_armado', {
+      p_pedido: pedidoId,
+      p_producto: dto.productoId,
+      p_hay: hay,
+      p_reemplazo: dto.reemplazoId || null,
+      p_cantidad: cantidad,
+      p_usuario: quien.sub ?? null,
+    });
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    return data;
+  }
+
   /** «Me equivoqué»: saca la última carga de ese producto. */
   async sacarDelCarro(pedidoId: string, cargaId: string, quien: Usuario) {
     await this.pedidoDelArmado(pedidoId, quien);

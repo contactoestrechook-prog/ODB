@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Aviso, Boton, Entrada, Modal, unir, useConfirmar } from './kit';
-import { numero } from '../lib/formato';
+import { numero, pesos } from '../lib/formato';
 
 // EL ARMADO A PANTALLA COMPLETA (Leandro, 5/11/2026: «una vez que tienen el
 // pedido se les abre en casi toda la pantalla; a medida que escanean se va
@@ -94,6 +94,8 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const [cargas, setCargas] = useState(p.cargas);
   const [msg, setMsg] = useState<Mensaje | null>(null);
   const [manual, setManual] = useState<ItemArmado | null>(null);
+  // falta en la góndola (19/11/2026): el que arma corrige el pedido
+  const [falta, setFalta] = useState<ItemArmado | null>(null);
   const [verCarro, setVerCarro] = useState(false);
   const [terminando, setTerminando] = useState(false);
   const [camara, setCamara] = useState(true);
@@ -254,10 +256,30 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     }
   }, [items, cargas, enviar, p.id, avisar, onCambio, sumar]);
 
+  // Falta en la góndola (Leandro, 19/11/2026: «el que arma el pedido tiene que
+  // poder modificar artículos por falta de stock»): queda lo que hay, sale del
+  // pedido o va otro en su lugar. El total se corrige solo en el servidor.
+  async function resolverFalta(it: ItemArmado, d: { hay: number; reemplazo: { id: string; nombre: string } | null; cantidad: number | null }) {
+    const r = await enviar({ accion: 'falta', pedidoId: p.id, productoId: it.productoId, hay: d.hay, reemplazoId: d.reemplazo?.id ?? null, cantidad: d.reemplazo ? d.cantidad : null });
+    setFalta(null);
+    const partes = [d.hay > 0 ? `${it.nombre}: quedan ${numero(d.hay, 2)}` : `${it.nombre} salió del pedido`];
+    if (r?.puso) partes.push(`va ${numero(r.puso.cantidad, 2)} × ${r.puso.nombre}`);
+    if (r?.totalAntes != null && r?.total != null && Number(r.totalAntes) !== Number(r.total)) partes.push(`total ${pesos(r.totalAntes)} → ${pesos(r.total)}`);
+    avisar('ok', partes.join(' · '));
+    await onCambio();
+    if (r?.pagado) {
+      await confirmar({
+        titulo: 'El pedido ya estaba pagado',
+        texto: `Se pagó ${pesos(r.totalAntes)} y ahora el pedido es de ${pesos(r.total)}. Avisale a la caja para que arregle la diferencia con el cliente.`,
+        textoConfirmar: 'Entendido',
+      });
+    }
+  }
+
   async function terminar() {
     if (faltan.length && !(await confirmar({
       titulo: `Faltan ${faltan.length} producto${faltan.length === 1 ? '' : 's'}`,
-      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, avisale a la caja. ¿Lo finalizás igual?`,
+      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, tocá el producto y elegí «No hay en la góndola». ¿Lo finalizás igual?`,
       textoConfirmar: 'Finalizar igual',
     }))) return;
     setTerminando(true);
@@ -272,13 +294,13 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
   // el lector de mano escribe en el campo y manda Enter: que el foco vuelva solo
   useEffect(() => {
-    if (manual) return;
+    if (manual || falta) return;
     const t = setInterval(() => {
       const activo = document.activeElement;
       if (!activo || activo === document.body) lector.current?.focus({ preventScroll: true });
     }, 1200);
     return () => clearInterval(t);
-  }, [manual]);
+  }, [manual, falta]);
 
   async function leerFoto(archivo?: File | null) {
     if (!archivo) return;
@@ -427,7 +449,9 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
         </Boton>
       </div>
 
-      {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }} />}
+      {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
+        onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
+      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} />}
     </div>
   );
 }
@@ -435,7 +459,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 /** Cuánto hay de ese producto en el carro, EN TOTAL (19/11/2026: antes el número
  *  era «cuánto sumar» y no había forma de bajar: con 3 cargados de más, quedaban).
  *  Sirve para lo que no tiene código y para corregir. */
-function CantidadEnCarro({ item, onCerrar, onFijar }: { item: ItemArmado; onCerrar: () => void; onFijar: (total: number) => void }) {
+function CantidadEnCarro({ item, onCerrar, onFijar, onFalta }: { item: ItemArmado; onCerrar: () => void; onFijar: (total: number) => void; onFalta: () => void }) {
   const entero = Number.isInteger(item.cantidad) && Number.isInteger(item.enCarro);
   const [valor, setValor] = useState(numero(item.cantidad, 3).replace(/\./g, ''));
   const total = Number(valor.replace(',', '.'));
@@ -455,6 +479,122 @@ function CantidadEnCarro({ item, onCerrar, onFijar }: { item: ItemArmado; onCerr
         {entero && <Boton variante="secundario" onClick={() => setValor(String(Math.min(item.cantidad, base + 1)))} aria-label="Uno más">+</Boton>}
       </div>
       {!valida && valor !== '' && <Aviso tono="atencion" className="mt-3">Poné una cantidad entre 0 y {numero(item.cantidad, 2)}.</Aviso>}
+      {item.enCarro < item.cantidad && (
+        <Boton variante="secundario" anchoCompleto className="mt-4" onClick={onFalta}>No hay en la góndola (o hay menos)</Boton>
+      )}
+    </Modal>
+  );
+}
+
+type Reemplazo = { id: string; nombre: string; stock: number | null };
+
+/** Falta en la góndola (Leandro, 19/11/2026: «el que arma el pedido tiene que
+ *  poder modificar artículos por falta de stock»). Cuánto hay de verdad y, si
+ *  se quiere, qué va en su lugar. El pedido y su total se corrigen en el
+ *  servidor; en el historial queda cuánto había y cuánto decía el sistema. */
+function FaltaEnGondola({ item, onCerrar, onListo }: {
+  item: ItemArmado;
+  onCerrar: () => void;
+  onListo: (d: { hay: number; reemplazo: Reemplazo | null; cantidad: number | null }) => Promise<void>;
+}) {
+  const entero = Number.isInteger(item.cantidad);
+  const [hay, setHay] = useState(numero(item.enCarro, 3).replace(/\./g, ''));
+  const [buscar, setBuscar] = useState('');
+  const [opciones, setOpciones] = useState<Reemplazo[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [reemplazo, setReemplazo] = useState<Reemplazo | null>(null);
+  const [cant, setCant] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const nHay = Number(hay.replace(',', '.'));
+  const hayValido = hay !== '' && Number.isFinite(nHay) && nHay >= 0 && nHay < item.cantidad - 1e-9;
+  const resto = hayValido ? redondo(item.cantidad - nHay) : item.cantidad;
+  const nCant = cant === '' ? resto : Number(cant.replace(',', '.'));
+  const cantValida = !reemplazo || (Number.isFinite(nCant) && nCant > 0 && nCant <= 1000);
+
+  // buscar el reemplazo (por nombre, SKU o código), con su stock en la sucursal
+  useEffect(() => {
+    const q = buscar.trim();
+    if (q.length < 2 || reemplazo) { setOpciones([]); setBuscando(false); return; }
+    let vivo = true;
+    setBuscando(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/salon?recurso=stock&q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+        const d = r.ok ? await r.json() : [];
+        if (!vivo) return;
+        setOpciones((Array.isArray(d) ? d : []).filter((x: any) => x.id !== item.productoId).slice(0, 8).map((x: any) => ({
+          id: String(x.id),
+          nombre: String(x.nombre),
+          stock: Array.isArray(x.sucursales) && x.sucursales.length ? x.sucursales.reduce((s: number, y: any) => s + (Number(y.cantidad) || 0), 0) : null,
+        })));
+      } catch { if (vivo) setOpciones([]); }
+      finally { if (vivo) setBuscando(false); }
+    }, 300);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [buscar, reemplazo, item.productoId]);
+
+  async function guardar() {
+    setGuardando(true);
+    setError(null);
+    try { await onListo({ hay: nHay, reemplazo, cantidad: reemplazo ? nCant : null }); }
+    catch (e: any) { setError(String(e?.message ?? 'No se pudo cambiar el pedido')); setGuardando(false); }
+  }
+
+  const textoBoton = reemplazo ? 'Guardar el cambio' : nHay === 0 ? 'Sacar del pedido' : `Dejar ${numero(nHay, 2)}`;
+  return (
+    <Modal abierto onCerrar={onCerrar} ancho="chico" titulo={`No hay: ${item.nombre}`}
+      descripcion={`Pide ${numero(item.cantidad, 2)}${item.ubicacion ? ` · ${item.ubicacion}` : ''}`}
+      pie={<>
+        <Boton variante="secundario" onClick={onCerrar}>Cancelar</Boton>
+        <Boton onClick={guardar} cargando={guardando} disabled={!hayValido || !cantValida}>{textoBoton}</Boton>
+      </>}>
+      <p className="mb-2 text-sm text-tinta/70">¿Cuánto hay en la góndola? <span className="text-tinta/50">(0 si no hay nada)</span></p>
+      <div className="flex items-center gap-3">
+        {entero && <Boton variante="secundario" onClick={() => setHay(String(Math.max(0, (Number.isFinite(nHay) ? nHay : 0) - 1)))} aria-label="Uno menos">−</Boton>}
+        <Entrada inputMode="decimal" value={hay} onChange={(e) => setHay(e.target.value.replace(/[^\d.,]/g, ''))} aria-label="Cuánto hay en la góndola" className="importe flex-1 text-center text-2xl font-bold" />
+        {entero && <Boton variante="secundario" onClick={() => setHay(String(Math.min(item.cantidad - 1, (Number.isFinite(nHay) ? nHay : 0) + 1)))} aria-label="Uno más">+</Boton>}
+      </div>
+      {!hayValido && hay !== '' && <Aviso tono="atencion" className="mt-3">Tiene que ser menos de {numero(item.cantidad, 2)}. Si hay todo, cargalo en el carro.</Aviso>}
+
+      <div className="mt-5 border-t border-black/[0.06] pt-4">
+        <p className="mb-2 text-sm font-semibold text-tinta">¿Va otro producto en su lugar? <span className="font-normal text-tinta/50">(si no, dejalo vacío)</span></p>
+        {reemplazo ? (
+          <div className="rounded-xl bg-ok-suave/70 p-3">
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-sm font-semibold text-tinta">{reemplazo.nombre}</p>
+              <Boton tamano="chico" variante="fantasma" onClick={() => { setReemplazo(null); setCant(''); }}>Cambiar</Boton>
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-sm text-tinta/70">
+              Cantidad
+              <Entrada inputMode="decimal" value={cant === '' ? numero(resto, 3).replace(/\./g, '') : cant} onChange={(e) => setCant(e.target.value.replace(/[^\d.,]/g, ''))}
+                aria-label={`Cantidad de ${reemplazo.nombre}`} className="importe w-24 text-center font-bold" />
+            </label>
+            {!cantValida && <Aviso tono="atencion" className="mt-2">Poné una cantidad mayor que 0.</Aviso>}
+          </div>
+        ) : (
+          <>
+            <Entrada value={buscar} onChange={(e) => setBuscar(e.target.value)} aria-label="Buscar el producto que va en su lugar, por nombre o código" />
+            {buscando && <p className="mt-2 text-xs text-tinta/50">Buscando…</p>}
+            {!buscando && buscar.trim().length >= 2 && !opciones.length && <p className="mt-2 text-xs text-tinta/60">No encontré nada con «{buscar.trim()}».</p>}
+            {opciones.length > 0 && (
+              <ul className="mt-2 max-h-56 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.06]">
+                {opciones.map((o) => (
+                  <li key={o.id}>
+                    <button type="button" onClick={() => setReemplazo(o)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left active:bg-crema-claro">
+                      <span className="min-w-0 flex-1 text-sm text-tinta">{o.nombre}</span>
+                      {o.stock != null && <span className={unir('importe shrink-0 text-xs', o.stock > 0 ? 'text-tinta/60' : 'text-marca')}>{o.stock > 0 ? `hay ${numero(o.stock, 2)}` : 'sin stock'}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+      <p className="mt-4 text-xs text-tinta/60">El total del pedido se corrige solo. Si el cliente ya pagó, te aviso para que se lo digas a la caja.</p>
+      {error && <Aviso tono="error" className="mt-3">{error}</Aviso>}
     </Modal>
   );
 }

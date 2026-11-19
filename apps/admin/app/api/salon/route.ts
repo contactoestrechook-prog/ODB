@@ -48,6 +48,8 @@ export async function POST(req: Request) {
     case 'carro': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro`, cuerpo({ codigo: b.codigo, productoId: b.productoId, cantidad: b.cantidad }));
     case 'sacar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro/${id(b.cargaId)}`, { method: 'DELETE' });
     case 'terminar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/terminar`, cuerpo({}));
+    // falta stock al armar (19/11/2026)
+    case 'falta': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad }));
     case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     default: return NextResponse.json({ message: 'Acción desconocida' }, { status: 400 });
   }
