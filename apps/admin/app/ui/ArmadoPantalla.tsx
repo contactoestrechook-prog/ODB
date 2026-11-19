@@ -11,7 +11,8 @@ import { numero } from '../lib/formato';
 //
 // La cámara queda abierta arriba y lee sola, uno atrás del otro. También anda
 // el lector de mano (escribe el código y un Enter). Lo que falta va primero;
-// lo que ya está en el carro baja. Tocar un producto abre la carga manual.
+// lo que ya está en el carro baja. Un escaneo cuenta UNO; tocar un producto
+// abre la cantidad (el total en el carro), que también sirve para corregir.
 
 export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
 export type CargaArmado = { id: number; productoId: string; cantidad: number; creadoEn: string };
@@ -23,10 +24,16 @@ export type PedidoArmado = {
 type Mensaje = { tono: 'ok' | 'error'; texto: string; vez: number };
 
 const FORMATOS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
-// el mismo código no se vuelve a contar hasta que pasa esto (la cámara lo ve muchas veces por segundo)
-// (19/11/2026, «no lo deja poner 2 queso adler»: con 1,6 s el segundo paquete
-// igual no entraba nunca, porque al cambiarlo el código casi no desaparece)
-const ESPERA_MISMO_CODIGO_MS = 900;
+// EL MISMO CÓDIGO NO SE CUENTA DOS VECES SOLO (Leandro, 19/11/2026: «pablo
+// escanea queso adler y le salen 4 unidades y no una»). La cámara está siempre
+// abierta: si el producto queda a la vista (en la mano, en el carro) lo pierde
+// y lo vuelve a ver, y con cualquier espera (1,6 s, 0,9 s) lo contaba de nuevo.
+// Ahora un escaneo cuenta UNO; para más del mismo, «+» o «Poner los N». Vuelve
+// a contar ese código recién cuando se escaneó otro. Se guarda por pedido para
+// que no se pierda al cerrar y volver a abrir el armado.
+const CONTADOS = new Map<string, { codigo: string; avisado: number }>();
+type Resultado = 'sumado' | 'completo' | 'rechazado' | 'falla' | 'ocupado';
+const redondo = (n: number) => Math.round(n * 1000) / 1000;
 // iPhone no trae lector de códigos en el navegador: se carga uno (44 KB) solo ahí
 const RESPALDO_LECTOR = 'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/iife/polyfill.js';
 
@@ -97,6 +104,31 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const [ultimo, setUltimo] = useState<string | null>(null);
   // la cámara volvió a ver el mismo código y no lo contó (puede ser otro igual)
   const [repetidoEn, setRepetidoEn] = useState(0);
+  const contado = useRef(CONTADOS.get(p.id) ?? { codigo: '', avisado: 0 });
+  // códigos que no suman (producto completo, de otro pedido): no se insiste en cada cuadro
+  const callados = useRef(new Map<string, number>());
+  // qué producto es cada código, según lo que ya contestó el servidor
+  const productoDe = useRef(new Map<string, string>());
+  // el celular queda horas con el armado abierto y esta pantalla tapa el aviso
+  // general: si se publicó una versión nueva, se avisa acá
+  const [hayVersion, setHayVersion] = useState(false);
+  useEffect(() => {
+    let inicial: string | null = null;
+    let vivo = true;
+    const mirar = async () => {
+      try {
+        const r = await fetch('/api/version', { cache: 'no-store' });
+        if (!r.ok) return;
+        const { version } = await r.json();
+        if (!version || !vivo) return;
+        if (inicial === null) inicial = version;
+        else if (version !== inicial) setHayVersion(true);
+      } catch { /* sin red: no molesta */ }
+    };
+    mirar();
+    const t = setInterval(mirar, 60_000);
+    return () => { vivo = false; clearInterval(t); };
+  }, []);
   const { confirmar, dialogo } = useConfirmar();
   const lector = useRef<HTMLInputElement>(null);
   const campoFoto = useRef<HTMLInputElement>(null);
@@ -120,32 +152,41 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }, []);
 
   /** Suma al carro. Antes de ir al servidor ya se ve (y si falla, vuelve atrás). */
-  const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number }) => {
-    if (ocupado.current) return;
-    let item = datos.productoId ? items.find((i) => i.productoId === datos.productoId) : undefined;
-    if (item && item.enCarro >= item.cantidad) { avisar('error', `Ya tenés todo: ${item.nombre}`); return; }
+  const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number }): Promise<Resultado> => {
+    if (ocupado.current) return 'ocupado';
+    const conocido = datos.productoId ?? (datos.codigo ? productoDe.current.get(datos.codigo) : undefined);
+    let item = conocido ? items.find((i) => i.productoId === conocido) : undefined;
+    // ya está completo: ni se manda (antes se cargaba y se borraba, una y otra vez)
+    if (item && item.enCarro >= item.cantidad) { setUltimo(item.productoId); avisar('error', `Ya tenés todo: ${item.nombre}`); return 'completo'; }
     ocupado.current = true;
-    if (item) setItems((xs) => xs.map((x) => (x.productoId === item!.productoId ? { ...x, enCarro: x.enCarro + datos.cantidad } : x)));
+    if (datos.productoId && item) setItems((xs) => xs.map((x) => (x.productoId === datos.productoId ? { ...x, enCarro: redondo(x.enCarro + datos.cantidad) } : x)));
     try {
       const r = await enviar({ accion: 'carro', pedidoId: p.id, ...datos });
+      if (datos.codigo) productoDe.current.set(datos.codigo, r.productoId);
       item = items.find((i) => i.productoId === r.productoId);
       if (!datos.productoId && item) {
         if (item.enCarro >= item.cantidad) {
           // escaneó de más: se saca la carga recién hecha
           await enviar({ accion: 'sacar', pedidoId: p.id, cargaId: r.id }).catch(() => null);
+          setUltimo(item.productoId);
           avisar('error', `Ya tenés todo: ${item.nombre}`);
-          return;
+          return 'completo';
         }
-        setItems((xs) => xs.map((x) => (x.productoId === r.productoId ? { ...x, enCarro: x.enCarro + r.cantidad } : x)));
-        setUltimo(r.productoId);
+        setItems((xs) => xs.map((x) => (x.productoId === r.productoId ? { ...x, enCarro: redondo(x.enCarro + r.cantidad) } : x)));
       }
+      // este código ya contó: la cámara no lo suma de nuevo aunque lo siga viendo
+      if (datos.codigo) { contado.current = { codigo: datos.codigo, avisado: Date.now() }; CONTADOS.set(p.id, contado.current); }
+      setUltimo(r.productoId);
       setCargas((cs) => [...cs, { id: r.id, productoId: r.productoId, cantidad: r.cantidad, creadoEn: r.creadoEn ?? new Date().toISOString() }]);
-      const resto = item ? Math.max(item.cantidad - item.enCarro - r.cantidad, 0) : 0;
-      avisar('ok', item ? `${item.nombre} · ${resto > 0 ? `faltan ${numero(resto, 2)}` : 'completo'}` : 'Sumado');
+      const lleva = item ? redondo(item.enCarro + r.cantidad) : 0;
+      avisar('ok', item ? `${item.nombre} · ${lleva >= item.cantidad ? 'completo' : `llevás ${numero(lleva, 2)} de ${numero(item.cantidad, 2)}`}` : 'Sumado');
       onCambio();
+      return 'sumado';
     } catch (e: any) {
-      if (datos.productoId) setItems((xs) => xs.map((x) => (x.productoId === datos.productoId ? { ...x, enCarro: x.enCarro - datos.cantidad } : x)));
-      avisar('error', e.message === 'Ese producto no está en el pedido' ? 'Ese producto NO es de este pedido' : e.message);
+      if (datos.productoId) setItems((xs) => xs.map((x) => (x.productoId === datos.productoId ? { ...x, enCarro: redondo(x.enCarro - datos.cantidad) } : x)));
+      const texto = String(e?.message ?? 'No pude hablar con el sistema');
+      avisar('error', texto === 'Ese producto no está en el pedido' ? 'Ese producto NO es de este pedido' : texto);
+      return /no está en el pedido|no está en el sistema/i.test(texto) ? 'rechazado' : 'falla';
     } finally {
       ocupado.current = false;
     }
@@ -154,16 +195,64 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const sumarRef = useRef(sumar);
   sumarRef.current = sumar;
 
-  async function deshacer(item: ItemArmado) {
-    const ultima = [...cargas].reverse().find((c) => c.productoId === item.productoId);
-    if (!ultima) return;
+  /** Lo que ve la cámara, cuadro por cuadro: decide si cuenta. */
+  const alLeer = useCallback((c: string) => {
+    const t = Date.now();
+    if (c === contado.current.codigo) {
+      // sigue viendo (o volvió a ver) el que ya contó: no suma, avisa cómo sumar otro igual
+      if (t - contado.current.avisado > 2500) {
+        contado.current.avisado = t;
+        const prod = productoDe.current.get(c);
+        if (prod) setUltimo(prod);
+        setRepetidoEn(t);
+      }
+      return;
+    }
+    if ((callados.current.get(c) ?? 0) > t) return;
+    sumarRef.current({ codigo: c, cantidad: 1 }).then((r) => {
+      if (r === 'completo') callados.current.set(c, Date.now() + 15_000);
+      else if (r === 'rechazado') callados.current.set(c, Date.now() + 5000);
+      else if (r === 'falla') callados.current.set(c, Date.now() + 1500);
+    });
+  }, []);
+
+  /** Deja EXACTAMENTE esa cantidad del producto en el carro: suma lo que falta o saca
+   *  lo que sobra (19/11/2026: no había forma de bajar una cantidad mal cargada). */
+  const fijar = useCallback(async (de: ItemArmado, pedido: number) => {
+    const item = items.find((i) => i.productoId === de.productoId);
+    if (!item) return;
+    const total = redondo(Math.min(Math.max(pedido, 0), item.cantidad));
+    const dif = redondo(total - item.enCarro);
+    if (dif === 0) return;
+    if (dif > 0) { await sumar({ productoId: item.productoId, cantidad: dif }); return; }
+    if (ocupado.current) return;
+    ocupado.current = true;
     try {
-      await enviar({ accion: 'sacar', pedidoId: p.id, cargaId: ultima.id });
-      setItems((xs) => xs.map((x) => (x.productoId === item.productoId ? { ...x, enCarro: Math.max(x.enCarro - ultima.cantidad, 0) } : x)));
-      setCargas((cs) => cs.filter((c) => c.id !== ultima.id));
+      // se sacan cargas desde la última; si una traía más de lo que sobra, se repone la diferencia
+      let sobra = -dif;
+      const sacadas: number[] = [];
+      for (const c of cargas.filter((x) => x.productoId === item.productoId).reverse()) {
+        if (sobra <= 0) break;
+        await enviar({ accion: 'sacar', pedidoId: p.id, cargaId: c.id });
+        sacadas.push(c.id);
+        sobra = redondo(sobra - c.cantidad);
+      }
+      let repuesta: any = null;
+      if (sobra < 0) repuesta = await enviar({ accion: 'carro', pedidoId: p.id, productoId: item.productoId, cantidad: redondo(-sobra) });
+      setCargas((cs) => [
+        ...cs.filter((c) => !sacadas.includes(c.id)),
+        ...(repuesta ? [{ id: repuesta.id, productoId: repuesta.productoId, cantidad: repuesta.cantidad, creadoEn: repuesta.creadoEn ?? new Date().toISOString() }] : []),
+      ]);
+      setItems((xs) => xs.map((x) => (x.productoId === item.productoId ? { ...x, enCarro: total } : x)));
+      setUltimo(item.productoId);
+      avisar('ok', `${item.nombre} · ${total > 0 ? `llevás ${numero(total, 2)} de ${numero(item.cantidad, 2)}` : 'lo saqué del carro'}`);
+    } catch (e: any) {
+      avisar('error', String(e?.message ?? 'No pude cambiar la cantidad'));
+    } finally {
+      ocupado.current = false;
       onCambio();
-    } catch (e: any) { avisar('error', e.message); }
-  }
+    }
+  }, [items, cargas, enviar, p.id, avisar, onCambio, sumar]);
 
   async function terminar() {
     if (faltan.length && !(await confirmar({
@@ -207,7 +296,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }
 
   const cerrado = !!manual || terminando || leyendoFoto;
-  const porCompletar = ultimo ? items.find((i) => i.productoId === ultimo && i.enCarro < i.cantidad) ?? null : null;
+  const enFranja = ultimo ? items.find((i) => i.productoId === ultimo) ?? null : null;
   // dónde queda: lo que se retira va a la mesa de retiro; un envío, a la salida
   const destino = p.canal === 'domicilio' ? 'Dejalo listo para salir con el envío' : 'Dejalo en la mesa de retiro';
   return (
@@ -223,6 +312,12 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
         <p className="importe text-4xl font-bold tabular-nums leading-none" aria-label="Tiempo desde que te lo asignaron">{reloj(p.asignadoEn, ahora)}</p>
       </header>
 
+      {hayVersion && (
+        <button type="button" onClick={() => window.location.reload()} className="bg-atencion-suave px-4 py-2 text-left text-sm font-semibold text-tinta">
+          Hay una versión nueva del sistema · Tocá acá para actualizar (no perdés lo cargado)
+        </button>
+      )}
+
       {/* avance */}
       <div className="bg-white px-4 py-2">
         <div className="flex items-baseline justify-between text-sm">
@@ -236,7 +331,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
       {/* la cámara (y el campo para el lector de mano) */}
       <div className="bg-white px-4 pb-3">
-        {camara && <Camara key={vueltaCamara} pausada={cerrado} onCodigo={(c) => sumarRef.current({ codigo: c, cantidad: 1 })} onError={() => setCamara(false)} onFoto={() => campoFoto.current?.click()} onRepetido={() => setRepetidoEn(Date.now())} />}
+        {camara && <Camara key={vueltaCamara} pausada={cerrado} onCodigo={alLeer} onError={() => setCamara(false)} onFoto={() => campoFoto.current?.click()} />}
         <input ref={campoFoto} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1}
           onChange={(e) => leerFoto(e.target.files?.[0])} />
         {leyendoFoto && <p role="status" className="mt-2 rounded-lg bg-crema px-3 py-2 text-sm font-semibold text-tinta">Leyendo la foto…</p>}
@@ -250,27 +345,33 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
             {msg.texto}
           </p>
         )}
-        {porCompletar && (() => {
-          const resto = porCompletar.cantidad - porCompletar.enCarro;
-          const repetido = ahora - repetidoEn < 3500;
+        {/* el último que se tocó: se corrige acá mismo, de a uno, o se completa */}
+        {enFranja && (() => {
+          const i = enFranja;
+          const entero = Number.isInteger(i.cantidad) && Number.isInteger(i.enCarro);
+          const resto = redondo(i.cantidad - i.enCarro);
+          const completo = resto <= 0;
+          const repetido = !completo && ahora - repetidoEn < 3500;
           return (
-            <div className={unir('mt-2 rounded-xl border bg-ok-suave px-3 py-2', repetido ? 'border-ok ring-2 ring-ok/30' : 'border-ok/25')}>
-              <p className="text-sm leading-snug text-tinta">
-                <b className="font-semibold">{porCompletar.nombre}</b> · llevás {numero(porCompletar.enCarro, 2)} de {numero(porCompletar.cantidad, 2)}
-              </p>
-              {repetido && <p className="mt-0.5 text-xs font-semibold text-ok">Ese código ya lo conté. Si es otro igual, tocá +1.</p>}
-              <div className="mt-2 flex flex-wrap gap-2">
-                {resto >= 1 && (
-                  <Boton tamano="chico" variante={repetido ? 'ok' : 'secundario'} onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: 1 })} aria-label={`Sumar uno más de ${porCompletar.nombre}`}>
-                    +1
+            <div className={unir('mt-2 rounded-xl border px-3 py-2', completo ? 'border-black/10 bg-crema-claro' : repetido ? 'border-ok bg-ok-suave ring-2 ring-ok/30' : 'border-ok/25 bg-ok-suave')}>
+              <p className="truncate text-sm font-semibold text-tinta">{i.nombre}</p>
+              {repetido && <p className="mt-0.5 text-xs font-semibold text-ok">Ese ya lo conté. Si es otro igual, tocá +</p>}
+              <div className="mt-1.5 flex items-center gap-2">
+                {entero && (
+                  <Boton tamano="chico" variante="secundario" className="min-w-11 text-lg leading-none" disabled={i.enCarro <= 0} onClick={() => fijar(i, i.enCarro - 1)} aria-label={`Sacar uno de ${i.nombre}`}>−</Boton>
+                )}
+                <button type="button" onClick={() => setManual(i)} aria-label={`Poner otra cantidad de ${i.nombre}`}
+                  className="importe min-w-0 flex-1 rounded-lg px-1 py-1.5 text-center text-sm text-tinta underline decoration-dotted underline-offset-4">
+                  llevás <b className="text-base">{numero(i.enCarro, 2)}</b> de {numero(i.cantidad, 2)}
+                </button>
+                {entero && !completo && (
+                  <Boton tamano="chico" variante={repetido ? 'ok' : 'secundario'} className="min-w-11 text-lg leading-none" onClick={() => sumar({ productoId: i.productoId, cantidad: 1 })} aria-label={`Sumar uno de ${i.nombre}`}>+</Boton>
+                )}
+                {(resto > 1 || (!entero && !completo)) && (
+                  <Boton tamano="chico" variante={repetido ? 'secundario' : 'ok'} onClick={() => fijar(i, i.cantidad)}>
+                    {entero ? `Poner los ${numero(i.cantidad, 2)}` : `Poner ${numero(i.cantidad, 2)}`}
                   </Boton>
                 )}
-                {resto > 1 && (
-                  <Boton tamano="chico" variante={repetido ? 'secundario' : 'ok'} onClick={() => sumar({ productoId: porCompletar.productoId, cantidad: resto })}>
-                    Poner x {numero(porCompletar.cantidad, 2)}
-                  </Boton>
-                )}
-                <Boton tamano="chico" variante="secundario" onClick={() => setManual(porCompletar)}>Otra cantidad</Boton>
               </div>
             </div>
           );
@@ -294,7 +395,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
                       {i.enCarro > 0 && ` · llevás ${numero(i.enCarro, 2)} de ${numero(i.cantidad, 2)}`}
                     </span>
                   </span>
-                  <span className="shrink-0 text-xs text-tinta/50">Tocar si<br />no tiene código</span>
+                  <span className="shrink-0 text-xs text-tinta/50">Tocar para<br />poner cantidad</span>
                 </button>
               </li>
             );
@@ -311,7 +412,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
                 {listos.map((i) => (
                   <li key={i.productoId} className="flex items-center gap-3 rounded-xl bg-ok-suave/70 px-3 py-2">
                     <span className="min-w-0 flex-1 text-sm text-tinta">{numero(i.enCarro, 2)} × {i.nombre}</span>
-                    <Boton tamano="chico" variante="fantasma" onClick={() => deshacer(i)}>Deshacer</Boton>
+                    <Boton tamano="chico" variante="fantasma" onClick={() => setManual(i)}>Cambiar</Boton>
                   </li>
                 ))}
               </ul>
@@ -326,30 +427,34 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
         </Boton>
       </div>
 
-      {manual && <CargaManual item={manual} onCerrar={() => setManual(null)} onSumar={(c) => { const it = manual; setManual(null); sumar({ productoId: it.productoId, cantidad: c }); }} />}
+      {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }} />}
     </div>
   );
 }
 
-/** Lo que no tiene código: se toca y se pone la cantidad a mano. */
-function CargaManual({ item, onCerrar, onSumar }: { item: ItemArmado; onCerrar: () => void; onSumar: (cantidad: number) => void }) {
-  const resto = Math.max(item.cantidad - item.enCarro, 0);
-  const [valor, setValor] = useState(numero(resto, 3).replace(/\./g, ''));
-  const cantidad = Number(valor.replace(',', '.'));
-  const valida = Number.isFinite(cantidad) && cantidad > 0 && cantidad <= resto + 1e-9;
-  const entero = Number.isInteger(resto);
+/** Cuánto hay de ese producto en el carro, EN TOTAL (19/11/2026: antes el número
+ *  era «cuánto sumar» y no había forma de bajar: con 3 cargados de más, quedaban).
+ *  Sirve para lo que no tiene código y para corregir. */
+function CantidadEnCarro({ item, onCerrar, onFijar }: { item: ItemArmado; onCerrar: () => void; onFijar: (total: number) => void }) {
+  const entero = Number.isInteger(item.cantidad) && Number.isInteger(item.enCarro);
+  const [valor, setValor] = useState(numero(item.cantidad, 3).replace(/\./g, ''));
+  const total = Number(valor.replace(',', '.'));
+  const valida = valor !== '' && Number.isFinite(total) && total >= 0 && total <= item.cantidad + 1e-9;
+  const base = Number.isFinite(total) ? total : 0;
   return (
-    <Modal abierto onCerrar={onCerrar} ancho="chico" titulo={item.nombre} descripcion={`Faltan ${numero(resto, 2)}${item.ubicacion ? ` · ${item.ubicacion}` : ''}`}
+    <Modal abierto onCerrar={onCerrar} ancho="chico" titulo={item.nombre}
+      descripcion={`Pide ${numero(item.cantidad, 2)}${item.enCarro > 0 ? ` · ahora llevás ${numero(item.enCarro, 2)}` : ''}${item.ubicacion ? ` · ${item.ubicacion}` : ''}`}
       pie={<>
         <Boton variante="secundario" onClick={onCerrar}>Cancelar</Boton>
-        <Boton onClick={() => onSumar(cantidad)} disabled={!valida}>Al carro</Boton>
+        <Boton onClick={() => onFijar(total)} disabled={!valida}>{valida && total === 0 ? 'Sacar del carro' : 'Guardar'}</Boton>
       </>}>
+      <p className="mb-2 text-sm text-tinta/70">¿Cuánto va en el carro <b className="font-semibold text-tinta">en total</b>?</p>
       <div className="flex items-center gap-3">
-        {entero && <Boton variante="secundario" onClick={() => setValor(String(Math.max(1, (cantidad || 1) - 1)))} aria-label="Uno menos">−</Boton>}
-        <Entrada autoFocus inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} aria-label="Cantidad" className="importe flex-1 text-center text-2xl font-bold" />
-        {entero && <Boton variante="secundario" onClick={() => setValor(String(Math.min(resto, (cantidad || 0) + 1)))} aria-label="Uno más">+</Boton>}
+        {entero && <Boton variante="secundario" onClick={() => setValor(String(Math.max(0, base - 1)))} aria-label="Uno menos">−</Boton>}
+        <Entrada autoFocus inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} aria-label="Cantidad en el carro, en total" className="importe flex-1 text-center text-2xl font-bold" />
+        {entero && <Boton variante="secundario" onClick={() => setValor(String(Math.min(item.cantidad, base + 1)))} aria-label="Uno más">+</Boton>}
       </div>
-      {!valida && valor !== '' && <Aviso tono="atencion" className="mt-3">Poné una cantidad entre 0 y {numero(resto, 2)}.</Aviso>}
+      {!valida && valor !== '' && <Aviso tono="atencion" className="mt-3">Poné una cantidad entre 0 y {numero(item.cantidad, 2)}.</Aviso>}
     </Modal>
   );
 }
@@ -380,21 +485,18 @@ async function codigoDeFoto(archivo: File): Promise<string | null> {
   return r?.[0]?.rawValue ? String(r[0].rawValue) : null;
 }
 
-function Camara({ pausada, onCodigo, onError, onFoto, onRepetido }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void; onRepetido?: () => void }) {
+function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [estado, setEstado] = useState<'abriendo' | 'leyendo' | 'sin-lector' | 'sin-permiso'>('abriendo');
   const pausadaRef = useRef(pausada);
   pausadaRef.current = pausada;
   const onCodigoRef = useRef(onCodigo);
   onCodigoRef.current = onCodigo;
-  const onRepetidoRef = useRef(onRepetido);
-  onRepetidoRef.current = onRepetido;
 
   useEffect(() => {
     let flujo: MediaStream | null = null;
     let vivo = true;
     let t: any;
-    const ultimo = { codigo: '', cuando: 0, avisado: 0 };
     (async () => {
       const det = await lectorDeCodigos();
       if (!vivo) return;
@@ -440,16 +542,8 @@ function Camara({ pausada, onCodigo, onError, onFoto, onRepetido }: { pausada: b
             try {
               const r = await det.detect(loVisible(video.current));
               const c = r?.[0]?.rawValue ? String(r[0].rawValue) : '';
-              const ahora = Date.now();
-              if (c && (c !== ultimo.codigo || ahora - ultimo.cuando > ESPERA_MISMO_CODIGO_MS)) {
-                ultimo.codigo = c;
-                ultimo.cuando = ahora;
-                onCodigoRef.current(c);
-              } else if (c) {
-                // sigue apuntando al mismo: no cuenta de nuevo, pero avisa que ya lo contó
-                ultimo.cuando = ahora;
-                if (ahora - ultimo.avisado > 2500) { ultimo.avisado = ahora; onRepetidoRef.current?.(); }
-              }
+              // avisa cada lectura: si cuenta o no lo decide la pantalla (nunca dos veces el mismo)
+              if (c) onCodigoRef.current(c);
               fallas = 0;
             } catch {
               if (++fallas >= 25) { setEstado('sin-lector'); return; }
