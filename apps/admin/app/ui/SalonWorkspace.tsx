@@ -18,12 +18,14 @@ import type { Sucursal } from './salon/comun';
 
 type Vista = 'armar' | 'stock' | 'puerta';
 
-export function SalonWorkspace({ proveedores, sucursales, sucursalPropia, verTodos }: {
+export function SalonWorkspace({ proveedores, sucursales, sucursalPropia, verTodos, miId = null }: {
   proveedores: { id: string; nombre: string }[];
   sucursales: Sucursal[];
   sucursalPropia: string | null;
   /** dueño, gerente, depósito, caja: ven los pedidos de todos */
   verTodos: boolean;
+  /** quién entró: lo que tiene asignado se le abre solo aunque vea los de todos */
+  miId?: string | null;
 }) {
   const [vista, setVista] = useState<Vista>('armar');
   const [pendientes, setPendientes] = useState<number | undefined>(undefined);
@@ -40,7 +42,7 @@ export function SalonWorkspace({ proveedores, sucursales, sucursalPropia, verTod
           { valor: 'puerta', etiqueta: 'Puerta de depósito' },
         ]}
       />
-      {vista === 'armar' && <Armar verTodos={verTodos} sucursales={sucursales} onCuenta={setPendientes} irAStock={() => setVista('stock')} />}
+      {vista === 'armar' && <Armar verTodos={verTodos} miId={miId} sucursales={sucursales} onCuenta={setPendientes} irAStock={() => setVista('stock')} />}
       {vista === 'stock' && <Stock sucursalPropia={sucursalPropia} />}
       {vista === 'puerta' && <Puerta proveedores={proveedores} sucursales={sucursales} sucursalPropia={sucursalPropia} />}
     </div>

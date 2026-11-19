@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Aviso, Boton, FOCO, IconoCerrar, unir } from '../ui/kit';
+import { Aviso, Boton, BotonLink, FOCO, IconoCerrar, unir } from '../ui/kit';
+import { codigoDe } from '../lib/pedidos';
 import { pesos as formatoPesos } from '../lib/formato';
 import { textoVisible } from '../lib/texto';
 import { NotaDePedido, type PedidoDeposito } from './NotaDePedido';
@@ -36,7 +37,7 @@ const COLUMNAS = [
   },
 ];
 
-export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRepartidor?: boolean }) {
+export function ColaDeposito({ puedeCargarRepartidor = false, miId = null }: { puedeCargarRepartidor?: boolean; miId?: string | null }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -49,6 +50,10 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
   // qué pedidos se ven abiertos (como Placa roja) y cuáles en la vista breve;
   // sin tocar, se abren solos los que están "En preparación"
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+
+  const mios = miId
+    ? pedidos.filter((p) => p.asignado_a === miId && ['recibido', 'pagado', 'en_preparacion'].includes(p.estado))
+    : [];
 
   const cargar = useCallback(async () => {
     try {
@@ -113,6 +118,18 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
       </div>
 
       {aviso && <Aviso tono="neutro">{aviso}</Aviso>}
+
+      {/* lo que la caja le asignó para armar, arriba de todo y con su botón
+          (19/11/2026: a Pablo Avalos le asignaron uno y no lo encontraba entre
+          los recibidos viejos) */}
+      {mios.length > 0 && (
+        <Aviso tono="atencion" titulo={mios.length === 1 ? `Te asignaron el pedido ${codigoDe(mios[0])} para armar` : `Te asignaron ${mios.length} pedidos para armar`}
+          accion={<BotonLink href="/salon" tamano="chico">{mios.length === 1 ? 'Armarlo' : 'Armarlos'}</BotonLink>}>
+          {mios.length === 1
+            ? mios[0].clienteNombre || 'Tocá «Armarlo» para abrirlo y cargar el carro.'
+            : mios.map((p) => [codigoDe(p), p.clienteNombre].filter(Boolean).join(' · ')).join(' — ')}
+        </Aviso>
+      )}
 
       {/* Las tres etapas con su color, igual que en Pedidos: rojo, ciruela y verde
           (Leandro, 17/11/2026: «los títulos de en qué estadio está cada pedido no se notan») */}

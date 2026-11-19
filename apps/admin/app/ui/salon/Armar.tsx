@@ -28,8 +28,9 @@ type Tiempo = { usuarioId: string; nombre: string; pedidos: number; minTotal: nu
 
 const ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
 
-export function Armar({ verTodos, sucursales, onCuenta, irAStock }: {
+export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }: {
   verTodos: boolean;
+  miId?: string | null;
   sucursales: Sucursal[];
   onCuenta: (n: number) => void;
   irAStock: () => void;
@@ -47,22 +48,25 @@ export function Armar({ verTodos, sucursales, onCuenta, irAStock }: {
       const d = await api<PedidoArmar[]>('GET', { recurso: 'pedidos', ...(verTodos ? { todos: '1' } : {}) });
       setPedidos(d);
       if (!verTodos) onCuenta(d.length);
-      // el op salón: apenas le asignan un pedido, se le abre a pantalla completa
-      if (!verTodos) {
-        setAbierto((ya) => {
-          if (ya && d.some((p) => p.id === ya)) return ya;
-          const nuevo = d.find((p) => !cerrados.current.has(p.id));
-          if (nuevo) { try { navigator.vibrate?.([200, 100, 200]); } catch { /* sin vibración */ } }
-          return nuevo?.id ?? null;
-        });
-      }
+      // apenas le asignan un pedido, se le abre a pantalla completa. Al op salón,
+      // todos los suyos; al que ve la sala de control (depósito, caja, dueños),
+      // los que están a SU nombre (19/11/2026: a Pablo Avalos, de depósito, le
+      // asignaron uno y no lo veía: quedaba abajo de los que esperan armador)
+      const propios = verTodos ? d.filter((p) => !!miId && p.asignadoA === miId) : d;
+      setAbierto((ya) => {
+        if (ya && d.some((p) => p.id === ya)) return ya;
+        const nuevo = propios.find((p) => !cerrados.current.has(p.id));
+        if (nuevo) { try { navigator.vibrate?.([200, 100, 200]); } catch { /* sin vibración */ } }
+        return nuevo?.id ?? null;
+      });
       setError(null);
     } catch (e: any) { setError(e.message); }
-  }, [verTodos, onCuenta]);
+  }, [verTodos, miId, onCuenta]);
 
   useEffect(() => { cargar(); const t = setInterval(cargar, 8000); return () => clearInterval(t); }, [cargar]);
 
   const actual = pedidos?.find((p) => p.id === abierto) ?? null;
+  const mios = verTodos && miId ? (pedidos ?? []).filter((p) => p.asignadoA === miId) : [];
   const pantalla = actual && (
     <ArmadoPantalla
       p={actual}
@@ -103,6 +107,15 @@ export function Armar({ verTodos, sucursales, onCuenta, irAStock }: {
   return (
     <>
       {pantalla}
+      {/* lo que tiene a su nombre va primero, antes que la sala de control */}
+      {mios.length > 0 && (
+        <Seccion id="salon-mios" color="dato-3" titulo={mios.length === 1 ? 'Te toca armar este pedido' : 'Te toca armar estos pedidos'} cuenta={mios.length}
+          bajada="Te lo asignaron a vos. Tocalo para abrirlo y empezar a cargar el carro.">
+          {mios.map((p) => (
+            <PedidoEnArmado key={p.id} p={p} ahora={ahora} propio onVer={() => { cerrados.current.delete(p.id); setAbierto(p.id); }} />
+          ))}
+        </Seccion>
+      )}
       <SalaDeControl pedidos={pedidos} error={error} ahora={ahora} sucursales={sucursales} onCuenta={onCuenta} recargar={cargar}
         onVer={(id) => { cerrados.current.delete(id); setAbierto(id); }} finalizado={finalizado} irAStock={irAStock} />
     </>

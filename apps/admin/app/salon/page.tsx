@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 // (Leandro: «100 mobile… que no accedan ni a cajas ni a administración ni a nada»).
 export default async function Salon() {
   const token = (await cookies()).get('odb_token')?.value;
-  const { nombre } = datosDesdeToken(token);
+  const { nombre, sub: miId } = datosDesdeToken(token);
   // op salón y fiambrería (sin otro rol): la pantalla de celular, solo lo suyo
   const esOp = esEncerrado(rolesDesdeToken(token));
   let proveedores: any[] = [];
@@ -31,6 +31,7 @@ export default async function Salon() {
       sucursales={(sucursales ?? []).filter((s: any) => !esOp || s.id === propia).map((s: any) => ({ id: s.id, nombre: s.nombre }))}
       sucursalPropia={propia}
       verTodos={!esOp}
+      miId={miId}
     />
   );
   // los que mandan: la sala de control a lo ancho (rediseño del 17/11/2026)
