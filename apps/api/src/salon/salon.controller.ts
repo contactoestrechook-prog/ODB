@@ -129,6 +129,13 @@ export class SalonController {
     return this.salon.fiambreriaPreparo(id, req.usuario ?? {});
   }
 
+  // «No hay» desde la ventana de fiambrería (19/11/2026)
+  @Roles('fiambreria', 'gerente', 'dueno')
+  @Post('fiambreria/:id/falta')
+  fiambreriaFalta(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.salon.fiambreriaFalta(id, dto ?? {}, req.usuario ?? {});
+  }
+
   @Roles('gerente', 'dueno')
   @Get('tiempos')
   tiempos(@Query('dias') dias?: string) {

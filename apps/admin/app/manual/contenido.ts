@@ -316,6 +316,7 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Si falta un producto mientras armás: tocalo y elegí «No hay en la góndola (o hay menos)». Poné cuánto hay (0 si no hay nada) y, si va otro en su lugar, buscalo por nombre o código. El pedido y su total se corrigen solos, y en el historial queda cuánto había y cuánto decía el sistema. Si el cliente ya pagó, avisa para que se lo digas a la caja.',
           'Un pedido incompleto marcado como listo llega mal al cliente y vuelve como reclamo: lo que no hay se corrige antes de finalizar.',
+          'En fiambrería, la ventana del pedido tiene «No hay» en cada renglón (mismo funcionamiento: cuánto hay, en kilos, y si va otro en su lugar). El pedido que tomaste con «Lo preparo» queda en la ventana en verde, «Lo estás preparando», sin sonar, hasta que tocás «Listo, ya está».',
         ],
       },
     ],

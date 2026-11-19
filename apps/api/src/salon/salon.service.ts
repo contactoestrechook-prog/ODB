@@ -57,6 +57,7 @@ export function parteDeFiambreria(p: any) {
     notas: p.notas ?? null,
     sucursalId: p.sucursal_id ?? null,
     items: suyos.map((it) => ({
+      productoId: it.producto_id ? String(it.producto_id) : null,
       cantidad: Number(it.cantidad) || 0,
       nombre: String(it.producto?.nombre ?? 'Producto'),
       sku: it.producto?.sku ?? null,
@@ -429,18 +430,22 @@ export class SalonService {
     const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
     let q = this.db
       .from('pedidos')
-      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, sucursal_id, contacto_nombre, destino_direccion,
+      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, sucursal_id, contacto_nombre, destino_direccion, fiambreria_por,
         cliente:clientes(nombre),
-        items:pedidos_items(cantidad, producto:productos(sku, nombre, vendido_por_peso, categoria:categorias(nombre)))`)
+        items:pedidos_items(producto_id, cantidad, producto:productos(sku, nombre, vendido_por_peso, categoria:categorias(nombre)))`)
       .in('estado', ESTADOS_ABIERTOS)
-      .is('fiambreria_en', null)
       .gte('creado_en', new Date(Date.now() - FIAMBRERIA_HASTA_MS).toISOString())
       .order('creado_en', { ascending: false });
+    // los que nadie tomó y (19/11/2026) los que tomé yo: si al cortar falta
+    // algo, desde la ventana se corrige («No hay»). Los míos no suenan.
+    q = quien.sub ? q.or(`fiambreria_en.is.null,fiambreria_por.eq.${quien.sub}`) : q.is('fiambreria_en', null);
     // el pedido sin sucursal le llega a todos (igual que la ventana de la caja)
     if (propia) q = q.or(`sucursal_id.eq.${propia},sucursal_id.is.null`);
     const { data, error } = await q;
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
-    return ((data ?? []) as any[]).map(parteDeFiambreria).filter(Boolean);
+    return ((data ?? []) as any[])
+      .map((p) => { const parte = parteDeFiambreria(p); return parte && { ...parte, mio: !!quien.sub && p.fiambreria_por === quien.sub }; })
+      .filter(Boolean);
   }
 
   /** «Lo preparo»: el primero de fiambrería que lo toca queda a cargo y la ventana se va para todos. */
@@ -456,6 +461,42 @@ export class SalonService {
     if (data?.length) return { tomado: true };
     const { data: ya } = await this.db.from('pedidos').select('fiambreria_por, usuario:usuarios!pedidos_fiambreria_por_fkey(nombre)').eq('id', pedidoId).maybeSingle();
     return { tomado: false, nombre: (ya as any)?.usuario?.nombre ?? null };
+  }
+
+  /**
+   * «No hay» desde la ventana de fiambrería (Leandro, 19/11/2026: «sumalo»). Lo
+   * mismo que en el armado (resolver_falta_armado), pero solo para lo de
+   * fiambrería (fiambres, quesos, chacinados), de su sucursal, y si nadie más
+   * de fiambrería tomó ese pedido.
+   */
+  async fiambreriaFalta(pedidoId: string, dto: { productoId?: string; hay?: number; reemplazoId?: string | null; cantidad?: number | null }, quien: Usuario) {
+    if (!pedidoId || !dto.productoId) throw new BadRequestException('Falta decir qué producto');
+    const { data, error } = await this.db
+      .from('pedidos')
+      .select('id, estado, sucursal_id, fiambreria_por, items:pedidos_items(producto_id, producto:productos(categoria:categorias(nombre)))')
+      .eq('id', pedidoId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    if (!data) throw new BadRequestException('No existe el pedido');
+    const p = data as any;
+    if (!ESTADOS_ABIERTOS.includes(p.estado)) throw new BadRequestException('Ese pedido ya no se está armando');
+    if (!veTodoElArmado(quien)) {
+      const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
+      if (propia && p.sucursal_id && p.sucursal_id !== propia) throw new ForbiddenException('Ese pedido es de otra sucursal');
+      if (p.fiambreria_por && p.fiambreria_por !== quien.sub) throw new ForbiddenException('Ese pedido lo está preparando otra persona de fiambrería');
+    }
+    const item = ((p.items ?? []) as any[]).find((i) => i.producto_id === dto.productoId);
+    if (!item) throw new BadRequestException('Ese producto ya no está en el pedido: actualizá la pantalla');
+    if (!esDeFiambreria(item.producto?.categoria?.nombre)) throw new BadRequestException('Ese producto no es de fiambrería: lo arma la caja');
+    const hay = Number(dto.hay ?? 0);
+    if (!Number.isFinite(hay) || hay < 0 || hay > 1000) throw new BadRequestException('Cantidad inválida');
+    const cantidad = dto.cantidad == null || String(dto.cantidad) === '' ? null : Number(dto.cantidad);
+    if (cantidad != null && (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 1000)) throw new BadRequestException('Cantidad inválida');
+    const { data: r, error: e2 } = await this.db.rpc('resolver_falta_armado', {
+      p_pedido: pedidoId, p_producto: dto.productoId, p_hay: hay, p_reemplazo: dto.reemplazoId || null, p_cantidad: cantidad, p_usuario: quien.sub ?? null,
+    });
+    if (e2) throw new BadRequestException(this.faltaMigracion(e2.message));
+    return r;
   }
 
   // ---------- 3. Armado de pedidos ----------

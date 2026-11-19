@@ -6,6 +6,8 @@ import { cantidadLegible, haceCuanto } from '../lib/pedidos';
 import { llevaFlotantes } from '../lib/rutas';
 import { alCambiarAudio, audioActivo, esperaDe, nivelDe, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
 import { Boton, FOCO, IconoCerrar, unir } from './kit';
+import { pesos } from '../lib/formato';
+import { FaltaEnGondola, cantidadDe, type Reemplazo } from './FaltaEnGondola';
 
 // PEDIDO CON FIAMBRERÍA (Leandro, 19/11/2026: «que a las cajas les salga el pop
 // up cada vez que hay un pedido, también a fiambrería si es que hay algo de
@@ -13,10 +15,17 @@ import { Boton, FOCO, IconoCerrar, unir } from './kit';
 // de cada pedido abierto que trae Fiambres, Quesos o Chacinados, con SOLO eso
 // para preparar, suena y vibra. «Lo preparo» la cierra para toda fiambrería y
 // deja el nombre; no toma el pedido entero (el resto lo sigue la caja).
+//
+// «No hay» (Leandro, 19/11/2026: «sí, sumalo»): cada renglón se corrige si en
+// la heladera no hay (queda lo que hay, sale o va otro en su lugar), como en el
+// armado. Como lo que falta se descubre al cortar, el pedido que tomaste sigue
+// en la ventana, en verde («Lo estás preparando»), sin sonar, hasta «Listo».
 
 type Parte = {
   id: string; codigo: string; creadoEn: string; canal: string; cliente: string | null; envio: string | null; notas: string | null;
-  items: { cantidad: number; nombre: string; sku: string | null; porPeso: boolean }[]; otros: number;
+  items: { productoId: string | null; cantidad: number; nombre: string; sku: string | null; porPeso: boolean }[]; otros: number;
+  /** lo tomé yo («Lo preparo»): no suena, y se corrige hasta «Listo» */
+  mio?: boolean;
 };
 
 const CADA_MS = 12_000;
@@ -24,6 +33,15 @@ const POSPONER_MS = 10 * 60_000;
 const CLAVE_POSPUESTOS = 'odb_fiambreria_pospuestos';
 const leer = (): Record<string, number> => { try { return JSON.parse(sessionStorage.getItem(CLAVE_POSPUESTOS) ?? '{}') ?? {}; } catch { return {}; } };
 const guardar = (v: Record<string, number>) => { try { sessionStorage.setItem(CLAVE_POSPUESTOS, JSON.stringify(v)); } catch { /* modo privado */ } };
+// «Listo»: el pedido que preparé ya no se muestra en este celular
+const CLAVE_LISTOS = 'odb_fiambreria_listos';
+const leerListos = (): Record<string, number> => { try { return JSON.parse(localStorage.getItem(CLAVE_LISTOS) ?? '{}') ?? {}; } catch { return {}; } };
+const guardarListos = (v: Record<string, number>) => {
+  // lo de más de dos días se borra solo
+  const limpio = Object.fromEntries(Object.entries(v).filter(([, t]) => t > Date.now() - 2 * 86_400_000));
+  try { localStorage.setItem(CLAVE_LISTOS, JSON.stringify(limpio)); } catch { /* modo privado */ }
+  return limpio;
+};
 
 /** Cantidad para leer de lejos: lo pesado en gramos o kilos, lo demás en unidades. */
 function cuanto(it: Parte['items'][number]) {
@@ -35,6 +53,8 @@ export function AvisoFiambreria() {
   const ruta = usePathname();
   const [partes, setPartes] = useState<Parte[]>([]);
   const [pospuestos, setPospuestos] = useState<Record<string, number>>({});
+  const [listos, setListos] = useState<Record<string, number>>({});
+  const [falta, setFalta] = useState<{ pedido: Parte; item: Parte['items'][number] } | null>(null);
   const [tomando, setTomando] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<{ texto: string; ok: boolean } | null>(null);
   const [sinSonido, setSinSonido] = useState(false);
@@ -50,8 +70,8 @@ export function AvisoFiambreria() {
       if (!r.ok) return;
       const lista = await r.json();
       if (!Array.isArray(lista)) return;
-      // vibra una vez por pedido nuevo
-      const nuevos = (lista as Parte[]).filter((p) => !vistos.current.has(p.id));
+      // vibra una vez por pedido nuevo (los que ya tomé no)
+      const nuevos = (lista as Parte[]).filter((p) => !p.mio && !vistos.current.has(p.id));
       for (const p of lista as Parte[]) vistos.current.add(p.id);
       if (nuevos.length) { try { navigator.vibrate?.([300, 150, 300, 150, 300]); } catch { /* sin vibración */ } }
       setPartes(lista as Parte[]);
@@ -60,6 +80,7 @@ export function AvisoFiambreria() {
 
   useEffect(() => {
     setPospuestos(leer());
+    setListos(leerListos());
     prepararAudio();
     setSinSonido(!audioActivo());
     const dejarDeOir = alCambiarAudio(() => setSinSonido(!audioActivo()));
@@ -78,10 +99,13 @@ export function AvisoFiambreria() {
   }, [mirar]);
 
   const ahora = Date.now();
-  const visibles = partes.filter((p) => !(pospuestos[p.id] && pospuestos[p.id] > ahora));
+  const visibles = partes.filter((p) => !(pospuestos[p.id] && pospuestos[p.id] > ahora) && !(p.mio && listos[p.id]));
+  // primero lo que nadie tomó (suena); después lo que estoy preparando
+  const porTomar = visibles.filter((p) => !p.mio);
+  const ordenados = [...porTomar, ...visibles.filter((p) => p.mio)];
 
   // suena hasta que alguien de fiambrería lo toma, y crece con el tiempo (como la caja)
-  const suenaDesde = visibles.length && llevaFlotantes(ruta) ? Math.min(...visibles.map((p) => Date.parse(p.creadoEn))) : null;
+  const suenaDesde = porTomar.length && llevaFlotantes(ruta) && !falta ? Math.min(...porTomar.map((p) => Date.parse(p.creadoEn))) : null;
   useEffect(() => {
     if (suenaDesde === null) return;
     let t: ReturnType<typeof setTimeout>;
@@ -100,7 +124,8 @@ export function AvisoFiambreria() {
       const r = await fetch('/api/salon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'fiambreria-preparo', pedidoId: p.id }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setMensaje({ texto: d?.message ?? 'No se pudo. Probá de nuevo.', ok: false }); return; }
-      setPartes((xs) => xs.filter((x) => x.id !== p.id));
+      // lo tomé: queda en la ventana como «Lo estás preparando» (si al cortar falta algo, «No hay»)
+      setPartes((xs) => (d?.tomado ? xs.map((x) => (x.id === p.id ? { ...x, mio: true } : x)) : xs.filter((x) => x.id !== p.id)));
       setMensaje(d?.tomado
         ? { texto: `Listo: lo de fiambrería del pedido ${p.codigo} queda a tu nombre.`, ok: true }
         : { texto: `Lo de fiambrería del pedido ${p.codigo} ya lo tomó ${d?.nombre ?? 'otra persona'}.`, ok: false });
@@ -112,14 +137,49 @@ export function AvisoFiambreria() {
     }
   }
 
+  function terminado(p: Parte) {
+    setListos(guardarListos({ ...leerListos(), [p.id]: Date.now() }));
+    setMensaje({ texto: `Lo de fiambrería del pedido ${p.codigo} quedó listo.`, ok: true });
+    setTimeout(() => setMensaje(null), 4000);
+  }
+
+  // «No hay»: queda lo que hay, sale del pedido o va otro en su lugar
+  async function corregir(p: Parte, it: Parte['items'][number], d: { hay: number; reemplazo: Reemplazo | null; cantidad: number | null }) {
+    const r = await fetch('/api/salon', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'fiambreria-falta', pedidoId: p.id, productoId: it.productoId, hay: d.hay, reemplazoId: d.reemplazo?.id ?? null, cantidad: d.reemplazo ? d.cantidad : null }),
+    });
+    const res = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(res?.message ?? 'No se pudo cambiar el pedido');
+    setFalta(null);
+    const partesTexto = [d.hay > 0 ? `${it.nombre}: quedan ${cantidadDe(d.hay, it.porPeso)}` : `${it.nombre} salió del pedido`];
+    if (res?.puso) partesTexto.push(`va ${cantidadDe(Number(res.puso.cantidad), it.porPeso)} de ${res.puso.nombre}`);
+    if (res?.totalAntes != null && res?.total != null && Number(res.totalAntes) !== Number(res.total)) partesTexto.push(`total ${pesos(res.totalAntes)} → ${pesos(res.total)}`);
+    if (res?.pagado) partesTexto.push('ya estaba pagado: avisale a la caja la diferencia');
+    setMensaje({ texto: partesTexto.join(' · '), ok: !res?.pagado });
+    setTimeout(() => setMensaje(null), res?.pagado ? 15000 : 7000);
+    await mirar();
+  }
+
   function posponer(p: Parte) {
     const v = { ...leer(), [p.id]: Date.now() + POSPONER_MS };
     guardar(v);
     setPospuestos(v);
   }
 
+  // corrigiendo: la ventana se corre (la de «No hay» va por debajo de los avisos)
+  if (falta) {
+    return (
+      <FaltaEnGondola
+        item={{ productoId: String(falta.item.productoId), nombre: falta.item.nombre, cantidad: falta.item.cantidad, enCarro: 0, ubicacion: null, porPeso: falta.item.porPeso }}
+        onCerrar={() => setFalta(null)}
+        onListo={(d) => corregir(falta.pedido, falta.item, d)}
+      />
+    );
+  }
+
   if (!llevaFlotantes(ruta) || (!visibles.length && !mensaje)) return null;
-  const [primero] = visibles;
+  const [primero] = ordenados;
 
   // 19/11/2026, Leandro: «en fiambrería se buguea y no pueden salir de esa
   // pantalla». En el celular la ventana es fija: con muchos renglones y una
@@ -137,13 +197,13 @@ export function AvisoFiambreria() {
       )}
       {primero && (
         <section aria-label={`Pedido con fiambrería ${primero.codigo}`} className="animate-entra-aviso flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-flotante ring-1 ring-black/[0.06] motion-reduce:animate-none">
-          <div className="flex shrink-0 items-center justify-between gap-2 bg-marca py-1 pl-4 pr-1 text-white">
+          <div className={unir('flex shrink-0 items-center justify-between gap-2 py-1 pl-4 pr-1 text-white', primero.mio ? 'bg-ok' : 'bg-marca')}>
             <p className="flex min-w-0 items-center gap-2 text-xs font-bold uppercase tracking-[0.12em]">
               <span className="relative flex size-2.5 shrink-0" aria-hidden="true">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-white/70 motion-reduce:animate-none" />
+                {!primero.mio && <span className="absolute inline-flex size-full animate-ping rounded-full bg-white/70 motion-reduce:animate-none" />}
                 <span className="relative inline-flex size-2.5 rounded-full bg-white" />
               </span>
-              <span className="truncate">Pedido con fiambrería</span>
+              <span className="truncate">{primero.mio ? 'Lo estás preparando' : 'Pedido con fiambrería'}</span>
             </p>
             <span className="flex shrink-0 items-center gap-1">
               <span className="importe text-xs text-white/80">{haceCuanto(primero.creadoEn)}</span>
@@ -167,9 +227,19 @@ export function AvisoFiambreria() {
             <p className="text-sm text-tinta/70">{primero.envio ? `Envío a ${primero.envio}` : 'Retira en el local'}</p>
             <ul className="divide-y divide-black/[0.06] border-y border-black/[0.06]">
               {primero.items.map((it, i) => (
-                <li key={i} className="flex min-w-0 items-baseline gap-3 py-2">
+                <li key={it.productoId ?? i} className="flex min-w-0 items-center gap-3 py-1.5">
                   <span className="importe w-16 shrink-0 text-right text-base font-bold text-marca">{cuanto(it)}</span>
-                  <span className="min-w-0 break-words text-base text-tinta">{it.nombre}</span>
+                  <span className="min-w-0 flex-1 break-words text-base text-tinta">{it.nombre}</span>
+                  {it.productoId && (
+                    <button
+                      type="button"
+                      onClick={() => setFalta({ pedido: primero, item: it })}
+                      aria-label={`No hay ${it.nombre}: corregir el pedido`}
+                      className={unir('shrink-0 rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold text-tinta/70 hover:bg-crema-claro hover:text-tinta', FOCO)}
+                    >
+                      No hay
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -180,7 +250,9 @@ export function AvisoFiambreria() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2 border-t border-black/[0.06] px-4 py-3">
-            <Boton onClick={() => preparo(primero)} cargando={tomando === primero.id} className="flex-1">Lo preparo</Boton>
+            {primero.mio
+              ? <Boton variante="ok" onClick={() => terminado(primero)} className="flex-1">Listo, ya está</Boton>
+              : <Boton onClick={() => preparo(primero)} cargando={tomando === primero.id} className="flex-1">Lo preparo</Boton>}
             <button
               type="button"
               onClick={() => posponer(primero)}
