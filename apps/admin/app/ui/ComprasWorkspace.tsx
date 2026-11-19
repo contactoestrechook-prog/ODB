@@ -729,6 +729,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
           precio: envase && Number(r.precioPropuesto) > 0 ? Number(r.precioPropuesto) : i.precio ?? '',
           envaseAplicado: envase,
           sku: i.match?.sku ?? '',
+          // el producto con el que el lector midió el costo (razonBulto): si después se cambia, esa prueba ya no vale (19/11/2026)
+          skuLeido: i.match?.sku ?? '',
           nombre: i.match?.nombre ?? null,
           variacionPct: i.match?.variacionPct ?? null,
           sugerido, // la IA lo propuso: hay que confirmar antes de incluir
@@ -1771,33 +1773,45 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // usa lo que pasó siempre con los demás artículos suyos (lib/forma-proveedor.ts),
   // con los mismos candados: la cuenta del renglón tiene que cerrar y el costo no
   // puede quedar lejos del catálogo.
-  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma: number[] } | null> => {
+  //
+  // LO QUE LA CUENTA YA PRUEBA (19/11/2026). Leandro: «todo lo que es cajas entra
+  // en sueltas; se lo explicamos y lo corrige, no lo aprende». El renglón «×N» que
+  // el lector midió como caja (el precio ÷ N cuadra con el costo del producto)
+  // entra como caja que se abre en cualquier proveedor, aunque sea su primera
+  // factura y aunque todavía no se sepa cuál es (lib/forma-proveedor.ts,
+  // fichaPorCuenta). Sin proveedor no se le pide nada a la API.
+  const aplicarFichas = async (): Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma: number[]; porCuenta: number[]; renglones: number[] } | null> => {
     const pid = f?.proveedorId;
     const pedidas = fotoItemsVivos.current;
-    if (!pid || !pedidas.length) return null;
+    if (!pedidas.length) return null;
     try {
-      const r = await fetch('/api/entrada-foto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'fichas', proveedorId: pid, renglones: pedidas.map((i: any) => ({ descripcion: i.descripcion, sku: i.sku || null })) }),
-      });
-      if (!r.ok) return null;
-      const d = await r.json().catch(() => ({}));
+      let d: any = {};
+      if (pid) {
+        const r = await fetch('/api/entrada-foto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accion: 'fichas', proveedorId: pid, renglones: pedidas.map((i: any) => ({ descripcion: i.descripcion, sku: i.sku || null })) }),
+        });
+        // sin la memoria del proveedor igual decide la cuenta de cada renglón
+        if (r.ok) d = await r.json().catch(() => ({}));
+      }
       const filas = fotoItemsVivos.current;
       // si la tabla cambió mientras se pedían (otro proveedor, otra lectura), no se toca nada
       if (filas.length !== pedidas.length || filas.some((x: any, k: number) => x.descripcion !== pedidas[k].descripcion)) return null;
-      const nombreProveedor = provList.find((p: any) => p.id === pid)?.razon_social ?? null;
-      const conForma = fichasConForma(filas, Array.isArray(d?.fichas) ? d.fichas : [], Array.isArray(d?.antecedentes) ? d.antecedentes : [], nombreProveedor);
+      const nombreProveedor = pid ? provList.find((p: any) => p.id === pid)?.razon_social ?? null : null;
+      const fichasApi = Array.isArray(d?.fichas) && d.fichas.length === filas.length ? d.fichas : filas.map(() => null);
+      const conForma = fichasConForma(filas, fichasApi, Array.isArray(d?.antecedentes) ? d.antecedentes : [], nombreProveedor);
       // lo que ya tocó una persona (o el chat) no se vuelve a decidir
       const tocados = renglonesTocados();
       const libres = conForma.fichas.map((x, k) => (tocados.has(k + 1) ? null : x));
       const { cambios, aplicadas, yaEstaban, noCierran } = cambiosDeFichas(filas, libres, esRenglonDescuento);
-      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran, porForma: [] };
+      if (!cambios.length) return { aplicados: [], yaEstaban: yaEstaban.length, noCierran, porForma: [], porCuenta: [], renglones: [] };
       // los que el freno del costo va a dejar como se leyeron no se cuentan como cargados
       const prueba = aplicarCambiosIA(filas, cambios, esRenglonDescuento);
       const frenados = new Set(frenarReglasAbsurdas(filas, prueba.items, prueba.registros).frenados);
       const res = await aplicarIA(cambios, [], true, 'Memoria');
-      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran, porForma: conForma.porForma.filter((n) => aplicadas.includes(n) && !frenados.has(n)) };
+      const quedaron = (lista: number[]) => lista.filter((n) => aplicadas.includes(n) && !frenados.has(n));
+      return { aplicados: res.aplicados, yaEstaban: yaEstaban.length, noCierran, porForma: quedaron(conForma.porForma), porCuenta: quedaron(conForma.porCuenta), renglones: aplicadas.filter((n) => !frenados.has(n)) };
     } catch { return null; }
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)

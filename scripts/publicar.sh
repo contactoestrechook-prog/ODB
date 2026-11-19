@@ -83,7 +83,7 @@ if echo "$CAMBIADOS" | grep -qE '^apps/(api/src/(compras|listas)/|api/scripts/re
       scripts/repasar-fichas.ts "$ENV_REPASO") > "$SALIDA_REPASO" 2>&1
     REPASO=$?
     set -e
-    grep -E "facturas registradas|entrarían solos|la ficha dejaría mal|LO DEJÓ MAL" "$SALIDA_REPASO" || true
+    grep -E "facturas registradas|entrarían solos|la ficha dejaría mal|LO DEJÓ MAL|la cuenta decide" "$SALIDA_REPASO" || true
     if [ "$REPASO" -eq 1 ]; then
       echo "CANDADO: con este código la memoria del artículo deja mal renglones que venían bien. No se publica."
       grep -E "^  ! " "$SALIDA_REPASO" || true

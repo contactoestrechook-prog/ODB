@@ -41,8 +41,8 @@ export type FichaArticulo = {
   veces: number;
   ultimaFactura: string | null;
   ultimaFecha: string | null;
-  /** de dónde salió: la ficha del artículo (por su descripción o su producto) o la forma del proveedor */
-  por?: 'descripcion' | 'producto' | 'forma';
+  /** de dónde salió: la ficha del artículo (por su descripción o su producto), la forma del proveedor, o la cuenta del propio renglón (lib/forma-proveedor.ts, fichaPorCuenta) */
+  por?: 'descripcion' | 'producto' | 'forma' | 'cuenta';
   /** el motivo que queda en «Cambios» cuando la ficha sale de la forma del proveedor (lib/forma-proveedor.ts) */
   porque?: string;
 };

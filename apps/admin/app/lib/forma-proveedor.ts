@@ -246,24 +246,74 @@ export function fichaDeForma(fila: any, forma: Forma | null | undefined, proveed
     };
 }
 
+// ============================================================
+// LO QUE LA CUENTA YA PRUEBA: SON CAJAS (19/11/2026). Leandro: «en facturación
+// todo lo que es cajas entra en sueltas; se lo explicamos y lo corrige, no lo
+// aprende».
+//
+// Medido ese día sobre lo registrado desde el 9/11: el lector ya calcula, en
+// cada renglón «×N» sin decidir, si el precio es el de la caja (el precio ÷ N
+// cuadra con el costo del producto, o la columna de bultos es la cantidad). En
+// 64 renglones de 14 proveedores dijo «son cajas» y las 64 veces se terminaron
+// registrando abiertas: ninguna al revés. Pero desde el 6/10 «convertir sigue
+// siendo siempre decisión de una persona»: el renglón quedaba pendiente, la
+// pantalla lo mostraba como «Sueltas 2 a $186.063» y Ana se lo explicaba al chat.
+//
+// Y lo que explicaba se guardaba como regla DE ESE proveedor (Monteviejo,
+// Arizu, Tronador, Speed, Cunnington, Umami…): la factura siguiente, de otra
+// bodega, volvía igual. Lo aprendido estaba bien; el cajón era chico.
+//
+// Ahora, con esa prueba, el renglón entra como caja que se abre, en cualquier
+// proveedor (aunque sea su primera factura o no se sepa cuál es). Pasa por el
+// mismo camino que la ficha del artículo: la cuenta tiene que seguir dando el
+// importe impreso, el freno del costo la puede volver atrás, y queda en
+// «Cambios» a nombre de «Memoria» con la cuenta que lo prueba.
+//
+// Lo que NO decide: la palabra «caja» sola (de 8 renglones con «caja» y sin
+// prueba de costo, 5 eran paquetes que entran tal cual: Oxxon «Paty caja x 4»,
+// Gbrands) ni un renglón cuyo producto cambió después de leerlo (la prueba era
+// con el costo de otro producto).
+// ============================================================
+export function fichaPorCuenta(fila: any): FichaArticulo | null {
+  const firma = firmaDe(fila);
+  if (!firma) return null;
+  const razon = fila.razonBulto;
+  if (razon?.sugerencia !== 'convertir') return null;
+  // la prueba del costo era con el producto que vinculó el lector: si después se
+  // eligió otro, ya no vale (la de la columna de bultos es del papel y sigue)
+  if (razon.evidencia !== 'columna' && fila.skuLeido !== undefined && String(fila.sku ?? '') !== String(fila.skuLeido ?? '')) return null;
+  const n = num(fila.papel.uxb) as number;
+  const prueba = String(razon.motivo ?? '').trim();
+  const porque = `Son cajas de ${n} y se abren${prueba ? `: ${prueba}` : ''}`.slice(0, 300);
+  const base = { unidadesPorBulto: n, costoNeto: null, veces: 1, ultimaFactura: null, ultimaFecha: null, por: 'cuenta' as const, porque };
+  return firma === 'sueltas'
+    ? { ...base, cuentaEn: 'sueltas', entraComo: 'abiertas', entraDe: n, factor: n, porUnidad: n }
+    : { ...base, cuentaEn: 'bultos', entraComo: 'unidades', entraDe: null, factor: n, porUnidad: 1 };
+}
+
 /**
- * Las fichas de una factura, completadas con la forma del proveedor: donde el
- * artículo ya tiene su ficha, manda esa; donde no, la de la forma (si decide).
+ * Las fichas de una factura: donde el artículo ya tiene su ficha, manda esa;
+ * donde no, la cuenta del propio renglón (si prueba que son cajas) y después la
+ * forma del proveedor (si decide). Sin proveedor, `fichas` viene toda en null y
+ * `antecedentes` vacío: decide solo la cuenta.
  */
 export function fichasConForma<F extends FichaArticulo>(
   filas: any[],
   fichas: (F | null | undefined)[],
   antecedentes: Antecedente[] | null | undefined,
   proveedor?: string | null,
-): { fichas: (FichaArticulo | null)[]; porForma: number[] } {
+): { fichas: (FichaArticulo | null)[]; porForma: number[]; porCuenta: number[] } {
   const porForma: number[] = [];
-  if (!Array.isArray(fichas) || fichas.length !== filas.length) return { fichas: (fichas ?? []).map((f) => f ?? null), porForma };
+  const porCuenta: number[] = [];
+  if (!Array.isArray(fichas) || fichas.length !== filas.length) return { fichas: (fichas ?? []).map((f) => f ?? null), porForma, porCuenta };
   const forma = antecedentes?.length ? formaDe(antecedentes) : null;
   const salida = filas.map((fila, k) => {
     if (fichas[k]) return fichas[k] as FichaArticulo;
+    const c = fichaPorCuenta(fila);
+    if (c) { porCuenta.push(k + 1); return c; }
     const f = forma ? fichaDeForma(fila, forma, proveedor) : null;
     if (f) porForma.push(k + 1);
     return f;
   });
-  return { fichas: salida, porForma };
+  return { fichas: salida, porForma, porCuenta };
 }

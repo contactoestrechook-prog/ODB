@@ -17,7 +17,7 @@ import { createClient } from '@supabase/supabase-js';
 import { claveArticulo, fichaTrasRegistro, presentacionDeRenglon, type Presentacion } from '../src/compras/ficha-articulo';
 import { cambiosDeFicha, type FichaArticulo } from '../../admin/app/lib/ficha-articulo';
 import { aplicarCambiosIA, frenarReglasAbsurdas, papelDeLectura } from '../../admin/app/lib/tabla-factura';
-import { fichaDeForma, firmaDe, formaDe, type Antecedente } from '../../admin/app/lib/forma-proveedor';
+import { fichaDeForma, fichaPorCuenta, firmaDe, formaDe, type Antecedente } from '../../admin/app/lib/forma-proveedor';
 import { esRenglonDescuento } from '../../admin/app/lib/descuentos-compras';
 
 const rutaEnv = process.argv[2] ?? '.env';
@@ -100,6 +100,13 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
   const formaBien: string[] = [];
   const formaMal: string[] = [];
   const formaFalta: string[] = [];
+  // LA CUENTA DEL RENGLÓN (19/11/2026): los «×N» sin decidir en que el lector
+  // midió que el precio es el de la caja. Se decide en cualquier proveedor, así
+  // que se mira en TODOS los renglones sin decidir (tengan ficha o no). «mal» frena.
+  const cu = { pendientes: 0, decide: 0, bien: 0, mal: 0, noCierra: 0, frenadas: 0 };
+  const cuentaBien: string[] = [];
+  const cuentaMal: string[] = [];
+  const cuentaFalta: string[] = [];
   // para «la próxima vez»: cada renglón sin decidir, contra TODO lo demás que ese proveedor ya tiene registrado
   const sinDecidir: { proveedor: string; etiqueta: string; fila: Record<string, any>; registrado: number; descripcion: string }[] = [];
 
@@ -142,6 +149,22 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
               const porque = !propia ? 'no deja ficha' : rp!.estado === 'no_aplica' ? 'la ficha no aplica' : rp!.estado === 'no_cierra' ? 'la cuenta no cierra con la ficha' : 'queda distinto';
               if (!propia) prox.sinFicha++; else if (rp!.estado === 'no_aplica') prox.noAplica++; else if (rp!.estado === 'no_cierra') prox.noCierra++; else prox.distinto++;
               proxFaltan.push(`${etiqueta} · leído ${fila.cantidad}${fila.porPeso ? ' kg' : ''}, registrado ${registrado} (${h.entra_como}; papel ${h.bultos ?? '—'} bultos × ${h.unidades_por_bulto ?? '—'} + ${h.sueltas ?? '—'}) · ${porque}`);
+            }
+          }
+        }
+        if (firmaDe(fila)) {
+          cu.pendientes++;
+          const deCuenta = fichaPorCuenta(fila);
+          if (deCuenta) {
+            cu.decide++;
+            const rc = cambiosDeFicha(fila, deCuenta, 1, esRenglonDescuento as any);
+            if (rc.estado !== 'aplicada') { cu.noCierra++; cuentaFalta.push(`${etiqueta} · son cajas pero la cuenta no cierra abriéndolas`); }
+            else {
+              const r0 = aplicarCambiosIA([fila], rc.cambios, esRenglonDescuento as any);
+              const freno = frenarReglasAbsurdas([fila], r0.items, r0.registros);
+              if (freno.frenados.length) { cu.frenadas++; cuentaFalta.push(`${etiqueta} · el freno del costo lo deja sin decidir`); }
+              else if (cerca(num(freno.items[0].cantidad), registrado)) { cu.bien++; cuentaBien.push(`${etiqueta} · leído ${fila.cantidad} sin decidir → ${freno.items[0].cantidad}`); }
+              else { cu.mal++; cuentaMal.push(`${etiqueta} · la cuenta lo dejó en ${freno.items[0].cantidad} y se registró ${registrado} (${h.entra_como})`); }
             }
           }
         }
@@ -247,6 +270,11 @@ async function todo<T>(tabla: string, columnas: string, orden: string[]): Promis
   console.log(`  entrarían solos y bien: ${px.bien} · QUEDARÍAN MAL: ${px.mal} · siguen sin decidir: ${px.noDecide + px.noCierra + px.frenadas} (no decide ${px.noDecide}, la cuenta no cierra ${px.noCierra}, frenadas por el costo ${px.frenadas})`);
   if (pxNo.size) console.log(`  proveedores que todavía no deciden: ${[...pxNo.entries()].map(([k, v]) => `${k.slice(0, 22)} (${v})`).join(' · ')}`);
   if (pxMal.length) console.log(`\nLA PRÓXIMA VEZ QUEDARÍAN MAL:\n${pxMal.map((x) => `  ! ${x}`).join('\n')}`);
+  console.log(`\nLa cuenta del renglón (cajas que el costo o la columna prueban, en cualquier proveedor):`);
+  console.log(`  renglones «×N» sin decidir: ${cu.pendientes} · la cuenta decide: ${cu.decide} → bien ${cu.bien} · LA CUENTA LOS DEJÓ MAL: ${cu.mal} · la cuenta no cierra ${cu.noCierra} · frenadas por el costo ${cu.frenadas}`);
+  if (cuentaMal.length) console.log(`\nLA CUENTA LOS DEJÓ MAL:\n${cuentaMal.map((x) => `  ! ${x}`).join('\n')}`);
+  if (process.argv.includes('--detalle') && cuentaBien.length) console.log(`\nResueltos por la cuenta:\n${cuentaBien.map((x) => `  + ${x}`).join('\n')}`);
+  if (process.argv.includes('--detalle') && cuentaFalta.length) console.log(`\nLa cuenta decidió pero no se aplicó:\n${cuentaFalta.map((x) => `  · ${x}`).join('\n')}`);
   if (process.argv.includes('--detalle') && formaFalta.length) console.log(`\nSiguen sin decidir:\n${formaFalta.map((x) => `  · ${x}`).join('\n')}`);
-  process.exit(rotas.length || proxRotos.length || formaMal.length || pxMal.length ? 1 : 0);
+  process.exit(rotas.length || proxRotos.length || formaMal.length || pxMal.length || cuentaMal.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

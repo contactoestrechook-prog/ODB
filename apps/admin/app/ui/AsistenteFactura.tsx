@@ -88,8 +88,11 @@ export type PropsAsistente = {
   /** recién leída y sin ningún cambio todavía, ni de la memoria */
   recienLeida?: boolean;
   /** la memoria del artículo: deja cada renglón como entró la última vez (11/11/2026) */
-  /** `porForma`: los renglones de artículos nuevos que se decidieron por cómo factura el proveedor (17/11/2026) */
-  onMemoria?: () => Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma?: number[] } | null>;
+  /**
+   * `porForma`: los renglones de artículos nuevos que se decidieron por cómo factura el proveedor (17/11/2026).
+   * `porCuenta`: los «×N» que la cuenta del propio renglón prueba que son cajas (19/11/2026); corre aunque no haya proveedor.
+   */
+  onMemoria?: () => Promise<{ aplicados: string[]; yaEstaban: number; noCierran: number[]; porForma?: number[]; porCuenta?: number[]; renglones?: number[] } | null>;
   /**
    * «El proveedor es Bimbo» (17/11/2026): lo elige la pantalla, sin pasar por la IA.
    * Devuelve el que quedó elegido, o los que pueden ser si hay más de uno.
@@ -138,20 +141,28 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   // LA MEMORIA DEL ARTÍCULO (11/11/2026): factura recién leída + proveedor
   // elegido → cada artículo que ya vino entra como la última vez. No usa IA y
   // tarda un instante. Las reglas del proveedor (abajo) esperan a que termine.
+  // Sin proveedor también corre (19/11/2026): las cajas que la cuenta del renglón
+  // prueba no dependen de saber quién factura. Cuando después se elige el
+  // proveedor, corre otra vez con su memoria (otra clave).
   useEffect(() => {
-    if (!recienLeida || !lecturaId || !proveedorId || !onMemoria) return;
-    const clave = `${lecturaId}:${proveedorId}`;
+    if (!recienLeida || !lecturaId || !onMemoria) return;
+    const clave = `${lecturaId}:${proveedorId ?? ''}`;
     if (memoria.current.has(clave)) return;
     memoria.current.set(clave, new Promise<void>((listo) => {
       setTimeout(async () => {
         try {
           const r = await onMemoria();
           if (r && (r.aplicados.length || r.noCierran.length)) {
+            const cajas = r.porCuenta ?? [];
             const nuevos = r.porForma?.length ?? 0;
+            // algún renglón salió de la memoria del proveedor (no solo de la cuenta)
+            const deMemoria = r.renglones ? r.renglones.some((n) => !cajas.includes(n)) : !cajas.length;
+            const lista = (xs: number[]) => (xs.length === 1 ? `el renglón ${xs[0]}` : `los renglones ${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`);
             const partes = [
-              r.aplicados.length && !nuevos ? `Cargué de memoria lo que ya vino de ${proveedorNombre ?? 'este proveedor'}: bultos, unidades y cómo entran, igual que la última vez.` : '',
-              r.aplicados.length && nuevos ? `Cargué de memoria cómo entra lo de ${proveedorNombre ?? 'este proveedor'}. ${nuevos === 1 ? `El renglón ${r.porForma![0]} es un artículo nuevo` : `Los renglones ${r.porForma!.join(', ')} son artículos nuevos`}: ${nuevos === 1 ? 'lo cargué' : 'los cargué'} como entran siempre los suyos que dicen «x N». Si alguno va distinto, decímelo o deshacelo en «Cambios».` : '',
-              r.noCierran.length ? `${r.noCierran.length === 1 ? `El renglón ${r.noCierran[0]} no lo toqué` : `Los renglones ${r.noCierran.join(', ')} no los toqué`}: con lo de la última vez la cuenta no da el importe impreso. Miralo${r.noCierran.length === 1 ? '' : 's'}.` : '',
+              cajas.length ? `${lista(cajas).replace(/^e/, 'E').replace(/^l/, 'L')} ${cajas.length === 1 ? 'entra como cajas que se abren' : 'entran como cajas que se abren'}: el precio de cada caja dividido lo que trae da el costo del producto. Si alguno va distinto, deshacelo en «Cambios».` : '',
+              deMemoria && !nuevos ? `Cargué de memoria lo que ya vino de ${proveedorNombre ?? 'este proveedor'}: bultos, unidades y cómo entran, igual que la última vez.` : '',
+              deMemoria && nuevos ? `Cargué de memoria cómo entra lo de ${proveedorNombre ?? 'este proveedor'}. ${nuevos === 1 ? `El renglón ${r.porForma![0]} es un artículo nuevo` : `Los renglones ${r.porForma!.join(', ')} son artículos nuevos`}: ${nuevos === 1 ? 'lo cargué' : 'los cargué'} como entran siempre los suyos que dicen «x N». Si alguno va distinto, decímelo o deshacelo en «Cambios».` : '',
+              r.noCierran.length ? `${r.noCierran.length === 1 ? `El renglón ${r.noCierran[0]} no lo toqué` : `Los renglones ${r.noCierran.join(', ')} no los toqué`}: así la cuenta no da el importe impreso. Miralo${r.noCierran.length === 1 ? '' : 's'}.` : '',
             ].filter(Boolean).join(' ');
             setMensajes((xs) => [...xs, { rol: 'ia', texto: partes, cambios: r.aplicados, noAplicados: [] }]);
           }

@@ -563,6 +563,17 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Las cajas entran como cajas, en cualquier proveedor',
+        pasos: [
+          'Cuando el renglón dice "x 6", "CAJA X 4" o "6X750" y el precio es el de la caja, el sistema lo prueba con la cuenta: el precio dividido lo que trae la caja da el costo del producto (o la columna de bultos del papel es la cantidad). Con esa prueba lo carga solo como cajas que se abren: "2 bultos de 4 a precio de bulto", y entran las 8 unidades a precio de unidad.',
+          'Vale para cualquier proveedor, aunque sea su primera factura o todavía no se sepa quién factura. No hace falta explicárselo a la IA.',
+          'En "Cambios" aparece a nombre de "Memoria" con la cuenta que lo prueba ("Son cajas de 4 y se abren: …"). Si alguno va distinto, deshacelo ahí.',
+          'La palabra "caja" sola no alcanza: hay "cajas" que son el paquete que se vende entero (las hamburguesas "caja x 4"). Sin la prueba del costo, el renglón queda con la pregunta de siempre o lo decide la memoria del proveedor.',
+          'Si el renglón no dice cuántas trae cada caja (un vino que dice solo "Malbec" con el precio de la caja), decíselo a la IA: "son cajas de 6".',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'También se acuerda de cómo factura cada proveedor',
         pasos: [
           'Un artículo que viene por primera vez no tiene memoria propia, pero el proveedor sí: si sus renglones que dicen "x 9", "X 24" o "CAJA X 12" entraron siempre igual (la cantidad ya son los paquetes, o son bultos que se abren), el artículo nuevo entra de la misma manera, sin preguntar.',

@@ -1,8 +1,8 @@
 // LA FORMA DEL PROVEEDOR (17/11/2026). Los renglones son reales: La Farina
 // (remitos 0001-00000109 y 0001-00000116) y Tronador (Franui, 10/11).
-import { decidir, fichaDeForma, fichasConForma, firmaDe, formaDe, salidaDe, filaLeida, cuentaParecida, type Antecedente } from '../../../admin/app/lib/forma-proveedor';
+import { decidir, fichaDeForma, fichaPorCuenta, fichasConForma, firmaDe, formaDe, salidaDe, filaLeida, cuentaParecida, type Antecedente } from '../../../admin/app/lib/forma-proveedor';
 import { cambiosDeFicha, cambiosDeFichas } from '../../../admin/app/lib/ficha-articulo';
-import { aplicarCambiosIA, papelDeLectura } from '../../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, papelDeLectura, vistaDelPapel } from '../../../admin/app/lib/tabla-factura';
 import { esRenglonDescuento } from '../../../admin/app/lib/descuentos-compras';
 
 const sinDecidir = (descripcion: string, cantidad: number, precio: number, uxb: number, sugerencia: string | null = null) => ({
@@ -182,5 +182,79 @@ describe('la costumbre vale para lo que se parece a lo que el proveedor ya mostr
     expect(fichaDeForma(enPantalla(sinDecidir('FRANUI PISTACHO CAJA X 24', 3, 115024, 24)), formaAbre, 'TRONADOR')?.entraComo).toBe('abiertas');
     // una «caja x 24» de $3.000: cada unidad saldría $125 contra $4.793 de las otras
     expect(fichaDeForma(enPantalla(sinDecidir('SERVILLETAS X 24', 3, 3000, 24)), formaAbre, 'TRONADOR')).toBeNull();
+  });
+});
+
+// 19/11/2026. Leandro: «en facturación todo lo que es cajas entra en sueltas; se
+// lo explicamos y lo corrige, no lo aprende». Desde el 9/11, en 64 renglones de
+// 14 proveedores el lector ya decía «son cajas» (el precio ÷ N cuadra con el
+// costo del producto) y las 64 veces se registraron abiertas. Quedaban
+// pendientes, la pantalla los mostraba como «Sueltas» y lo explicado se guardaba
+// como regla de ESE proveedor.
+describe('lo que la cuenta ya prueba: son cajas, en cualquier proveedor', () => {
+  // Umami, 19/11 16:59 (primera factura de Umami): «LP EXPLORACION GEWURZTRAMINER
+  // CAJA X 4», 2 × $92.340,89 contra el Gewurztraminer de catálogo a $17.867,96
+  const prueba = { sugerencia: 'convertir', evidencia: 'costo', motivo: '$92.340,89 ÷ 4 = $23.085,22, que cuadra con el costo de catálogo ($17.867,96) de la unidad' };
+  const conPrueba = (i: any, razon: any = prueba, sku = '40211') => ({ ...enPantalla({ ...i, interpretado: { ...i.interpretado, razonBulto: razon } }), sku, skuLeido: sku });
+  const gewurz = sinDecidir('LP EXPLORACION GEWURZTRAMINER CAJA X 4', 2, 92340.89, 4);
+
+  it('el renglón entra como 2 cajas que se abren: 8 botellas a precio de botella, y se ve «2 bultos a precio de bulto»', () => {
+    const fila = conPrueba(gewurz);
+    // antes: «Sueltas 2 · Precio u. $92.340»
+    expect(vistaDelPapel(fila)).toMatchObject({ bultos: 0, sueltas: 2, precioPor: 'unidad' });
+    const ficha = fichaPorCuenta(fila);
+    expect(ficha).toMatchObject({ por: 'cuenta', entraComo: 'abiertas', entraDe: 4 });
+    expect(ficha?.porque).toContain('Son cajas de 4');
+    const r = cambiosDeFicha(fila, ficha, 1, esRenglonDescuento as any);
+    expect(r.estado).toBe('aplicada');
+    const final = aplicarCambiosIA([fila], r.cambios, esRenglonDescuento as any).items[0];
+    expect(final.cantidad).toBe(8);
+    expect(Number(final.precio)).toBeCloseTo(92340.89 / 4, 1);
+    expect(vistaDelPapel(final)).toMatchObject({ bultos: 2, sueltas: 0, precioPor: 'bulto' });
+  });
+
+  it('decide sin saber el proveedor y sin antecedentes (era su primera factura)', () => {
+    const filas = [conPrueba(gewurz), enPantalla(decidido('LP RVA DON JUAN x 3 lt MAGNUM 3000CC', 2, 100685.75))];
+    const r = fichasConForma(filas, [null, null], [], null);
+    expect(r.porCuenta).toEqual([1]);
+    expect(r.porForma).toEqual([]);
+    expect(cambiosDeFichas(filas, r.fichas, esRenglonDescuento as any).aplicadas).toEqual([1]);
+  });
+
+  it('Tronador: la primera caja de Franui ya entra sola, sin que nadie lo explique', () => {
+    const fila = { ...enPantalla(franuiLeche), sku: 'f1', skuLeido: 'f1' };
+    const final = aplicarCambiosIA([fila], cambiosDeFicha(fila, fichaPorCuenta(fila), 1, esRenglonDescuento as any).cambios, esRenglonDescuento as any).items[0];
+    expect(final.cantidad).toBe(48);
+  });
+
+  it('la columna de bultos del papel también lo prueba', () => {
+    const fila = conPrueba(gewurz, { sugerencia: 'convertir', evidencia: 'columna', motivo: 'el papel dice 2 bulto(s) y esa es la cantidad: son cajas de 4' });
+    expect(fichaPorCuenta(fila)?.entraComo).toBe('abiertas');
+    // aunque después se cambie el producto: la columna es del papel, no del catálogo
+    expect(fichaPorCuenta({ ...fila, sku: 'otro' })?.entraComo).toBe('abiertas');
+  });
+
+  it('si el producto cambió después de leer, la prueba del costo ya no vale', () => {
+    expect(fichaPorCuenta({ ...conPrueba(gewurz), sku: '99999' })).toBeNull();
+    expect(fichaPorCuenta({ ...conPrueba(gewurz), sku: '' })).toBeNull();
+  });
+
+  it('sin prueba no decide: la palabra «caja» sola no alcanza (Oxxon «Paty caja x 4» entra tal cual)', () => {
+    const paty = sinDecidir('QF- PATY LIGHT CAJA X (4 UNID)', 6, 6045.74, 4);
+    expect(fichaPorCuenta(enPantalla(paty))).toBeNull();
+    expect(fichaPorCuenta(conPrueba(paty, { sugerencia: 'unidades', evidencia: 'costo', motivo: '' }))).toBeNull();
+    expect(fichaPorCuenta(conPrueba(paty, { sugerencia: 'caja', evidencia: 'catalogo', motivo: '' }))).toBeNull();
+    // ni lo que ya está decidido
+    expect(fichaPorCuenta(enPantalla(decidido('Alfajorcitos de maicena', 16, 3450)))).toBeNull();
+  });
+
+  it('la ficha del propio artículo sigue mandando; la cuenta va antes que la costumbre del proveedor', () => {
+    const filas = [conPrueba(gewurz), conPrueba(sinDecidir('Budín x 12 unidades', 2, 60000, 12))];
+    const fichaPropia = { cuentaEn: 'sueltas' as const, unidadesPorBulto: 4, entraComo: 'abiertas' as const, entraDe: 4, factor: 4, porUnidad: 4, costoNeto: 23085, veces: 2, ultimaFactura: '0001-1', ultimaFecha: '2026-11-12' };
+    // La Farina deja los «x N» tal cual, pero el budín prueba por el costo que es caja de 12
+    const r = fichasConForma(filas, [fichaPropia, null], [talCual(panArabe), talCual(figacitasQueso)], 'La Farina');
+    expect(r.fichas[0]).toBe(fichaPropia);
+    expect(r.porCuenta).toEqual([2]);
+    expect(r.fichas[1]).toMatchObject({ por: 'cuenta', entraComo: 'abiertas', entraDe: 12 });
   });
 });
