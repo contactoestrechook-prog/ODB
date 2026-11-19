@@ -10,7 +10,17 @@
 // «está bien» (queda en la constancia). Se prueba en
 // apps/api/src/compras/revision-factura.spec.ts.
 // ============================================================
-import { marcaDelRenglon, mismaMarca } from './marca';
+//
+// 19/11/2026, Distri-Sur 00007-00060714 (Ana, 47 minutos y 17 mensajes sin poder
+// registrar): dos preguntas eran mentira.
+//   · «Entra partido» miraba cada renglón y el stock recibe cada PRODUCTO: los
+//     Ferrero T8 de regalo (0,75 caja) y los pagos (5,25) son 6 cajas enteras,
+//     que es lo que la pantalla manda al registrar (fusionarPorSku, costo
+//     promediado, igual que Odoo y ERPNext con las unidades sin cargo). Ahora la
+//     cantidad partida se mira sumando los renglones del mismo producto.
+//   · La marca: 172 «está bien» en 59 facturas. Ahora pregunta con `otraMarca`
+//     (lib/marca.ts), que entiende abreviaturas, plurales y siglas.
+import { marcaDistinta } from './marca';
 
 export type RenglonARevisar = {
   renglon: number;
@@ -29,6 +39,8 @@ export type RenglonARevisar = {
   precioActual?: number | null;
   /** en cuántos comprobantes de este proveedor ya se registró este texto del papel con este mismo producto */
   vecesRegistradoAsi?: number | null;
+  /** el código del producto vinculado: los renglones del mismo producto entran juntos al stock */
+  sku?: string | null;
 };
 
 export type Alerta = { clave: string; renglon: number; tipo: 'cantidad' | 'marca' | 'costo' | 'precio'; texto: string };
@@ -50,19 +62,36 @@ export const YA_REGISTRADO_ASI = 2;
 /** Costo: más del doble o menos de la mitad del que tenía. Precio de venta: más de 50 % arriba o un tercio abajo. */
 export const LIMITES = { costoArriba: 2, costoAbajo: 0.5, precioArriba: 1.5, precioAbajo: 0.67 };
 
+/** «17 y 19», «3, 5 y 8» */
+const lista = (ns: number[]) => ns.length === 1 ? String(ns[0]) : `${ns.slice(0, -1).join(', ')} y ${ns[ns.length - 1]}`;
+
 export function revisarAntesDeRegistrar(renglones: RenglonARevisar[]): Alerta[] {
   const alertas: Alerta[] = [];
+  // lo que entra de cada producto, sumando sus renglones (el regalo y lo pago son una sola entrada)
+  const delProducto = new Map<string, { cantidad: number; renglones: number[]; partes: number[] }>();
+  for (const r of renglones) {
+    if (!r.entra || !r.producto || r.porPeso || !(r.cantidad > 0)) continue;
+    const k = r.sku || r.producto;
+    const g = delProducto.get(k) ?? { cantidad: 0, renglones: [], partes: [] };
+    g.cantidad += r.cantidad;
+    g.renglones.push(r.renglon);
+    g.partes.push(r.cantidad);
+    delProducto.set(k, g);
+  }
   for (const r of renglones) {
     if (!r.entra || !r.producto) continue;
     const a = (tipo: Alerta['tipo'], texto: string) => alertas.push({ clave: `${tipo}-${r.renglon}`, renglon: r.renglon, tipo, texto });
-    // una unidad no entra partida: 0,333 paquetes, 7,5 cajas
-    if (!r.porPeso && r.cantidad > 0 && Math.abs(r.cantidad - Math.round(r.cantidad)) > 0.001) {
-      a('cantidad', `Renglón ${r.renglon}: entran ${cant(r.cantidad)} de «${r.producto}». Algo que se vende por unidad no entra partido: revisá cómo entra (unidades, cajas, paquetes).`);
+    // una unidad no entra partida: 0,333 paquetes, 7,5 cajas. Se mira el producto entero, en su primer renglón.
+    const g = delProducto.get(r.sku || r.producto);
+    if (!r.porPeso && g && g.renglones[0] === r.renglon && Math.abs(g.cantidad - Math.round(g.cantidad)) > 0.001) {
+      a('cantidad', g.renglones.length === 1
+        ? `Renglón ${r.renglon}: entran ${cant(g.cantidad)} de «${r.producto}». Algo que se vende por unidad no entra partido: revisá cómo entra (unidades, cajas, paquetes).`
+        : `Renglones ${lista(g.renglones)}: entran ${g.partes.map(cant).join(' + ')} = ${cant(g.cantidad)} de «${r.producto}». Algo que se vende por unidad no entra partido: revisá cómo entra (unidades, cajas, paquetes).`);
     }
     // otra marca
-    const marca = marcaDelRenglon(r.descripcion);
-    if (marca && !mismaMarca(r.descripcion, r.producto) && (Number(r.vecesRegistradoAsi) || 0) < YA_REGISTRADO_ASI) {
-      a('marca', `Renglón ${r.renglon}: el papel dice «${marca}» y el producto vinculado es «${r.producto}». ¿Es el mismo producto?`);
+    const dice = marcaDistinta(r.descripcion, r.producto);
+    if (dice && (Number(r.vecesRegistradoAsi) || 0) < YA_REGISTRADO_ASI) {
+      a('marca', `Renglón ${r.renglon}: el papel dice «${dice}» y el producto vinculado es «${r.producto}». ¿Es el mismo producto?`);
     }
     // el costo, muy lejos del que tenía
     const cn = Number(r.costoNuevo ?? 0), cc = Number(r.costoCatalogo ?? 0);

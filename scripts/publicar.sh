@@ -95,6 +95,32 @@ if echo "$CAMBIADOS" | grep -qE '^apps/(api/src/(compras|listas)/|api/scripts/re
     echo "AVISO: no se repasaron las facturas registradas (falta apps/api/.env o las dependencias de la API)."
   fi
 fi
+# EL REPASO DE LA PREGUNTA DE MARCA (19/11/2026): si cambió la regla de marca o
+# «Antes de registrar», se pasan los renglones registrados por la regla nueva.
+# Frena si deja de preguntar por un vínculo mal hecho que la persona tuvo que
+# corregir (apps/api/scripts/repasar-marca.ts: solo lee, sin IA).
+if echo "$CAMBIADOS" | grep -qE '^apps/(admin/app/lib/(marca|revision-factura)|api/src/listas/marca|api/scripts/repasar-marca)'; then
+  RAIZ=$(pwd)
+  ENV_REPASO="$RAIZ/apps/api/.env"; [ -f "$ENV_REPASO" ] || ENV_REPASO="$HOME/Projects/odb/apps/api/.env"
+  NM_REPASO="$RAIZ/apps/api/node_modules"; [ -d "$NM_REPASO" ] || NM_REPASO="$HOME/Projects/odb/apps/api/node_modules"
+  if [ -f "$ENV_REPASO" ] && [ -x "$NM_REPASO/.bin/ts-node" ]; then
+    echo "Repasando la pregunta de marca contra lo registrado…"
+    SALIDA_MARCA="${TMPDIR:-/tmp}/odb-repaso-marca.log"
+    set +e
+    (cd "$RAIZ/apps/api" && NODE_PATH="$NM_REPASO" "$NM_REPASO/.bin/ts-node" --transpile-only --skip-project \
+      --compiler-options '{"module":"commonjs","target":"es2021","esModuleInterop":true}' \
+      scripts/repasar-marca.ts "$ENV_REPASO") > "$SALIDA_MARCA" 2>&1
+    REPASO_MARCA=$?
+    set -e
+    grep -E "FALSAS ALARMAS|VÍNCULOS MAL" "$SALIDA_MARCA" || true
+    if [ "$REPASO_MARCA" -eq 1 ]; then
+      echo "CANDADO: con esta regla «Antes de registrar» deja de preguntar por vínculos mal hechos. No se publica."
+      grep -A20 "DEJA PASAR" "$SALIDA_MARCA" || true
+      exit 1
+    fi
+    [ "$REPASO_MARCA" -eq 0 ] || echo "AVISO: el repaso de marca no se pudo correr (salida $REPASO_MARCA): mirá $SALIDA_MARCA. La publicación sigue."
+  fi
+fi
 # EL EXAMEN DEL CHAT DE LA FACTURA (18/11/2026). Leandro: «siempre encontrás la
 # falla pero nunca encontrás el problema de raíz»; y a «¿hago que el examen corra
 # solo en cada publicación y la frene si rinde peor?»: «Sí, que frene». Si se

@@ -1825,6 +1825,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     cuentaDeLaFactura: cuentaParaIA(cuenta),
     // lo que el control antes de registrar todavía frena (10/11/2026): el chat lo explica y lo corrige si la persona lo pide
     antesDeRegistrar: revisionPendiente.map((a) => a.texto),
+    // LO QUE APAGA EL BOTÓN (19/11/2026). Ana preguntó cuatro veces «¿por qué no
+    // puedo registrar?» y el chat le contestó cuatro veces «no hay nada que
+    // trabe»: veía los avisos pero no sabía que apagaban el botón. Es la misma
+    // lista que la pantalla escribe al lado del botón («Para registrar: …»).
+    paraRegistrar: (soloLaFactura || esNotaCredito ? faltanConciliar : faltanEntrada).map((x) => x.texto),
     percepcionesAlCosto,
     diferenciaAceptada,
   });
@@ -2112,6 +2117,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     precioActual: numImp(i.precioActual) || null,
     // vale solo mientras el renglón siga vinculado al mismo producto con el que se registró antes
     vecesRegistradoAsi: i.vinculoRegistrado && i.vinculoRegistrado.sku === i.sku ? i.vinculoRegistrado.veces : 0,
+    // la cantidad partida se mira por producto: así entra al stock (fusionarPorSku)
+    sku: i.sku ? String(i.sku) : null,
   })));
   const revisionPendiente = revision.filter((a) => !revisionOk.includes(a.texto));
   const revisionBloquea = revisionPendiente.length > 0;

@@ -13,7 +13,9 @@ describe('antes de registrar', () => {
   // 17/11/2026: en dos facturas de La Serenísima Ana contestó «está bien» 16 veces
   // por artículos que ya había registrado igual hasta cinco veces.
   it('la marca no se vuelve a preguntar por lo que ya se registró igual dos veces', () => {
-    const leche = { ...base, renglon: 3, descripcion: 'LECHE LS ULTRA ENTERA 3% FORT SACHET 1L', producto: 'Leche La Serenisima 3% clasica  sachet  x 1l' };
+    // la leche de la sigla: hasta el 19/11 preguntaba («ultra»); «LS» es La Serenísima
+    expect(revisarAntesDeRegistrar([{ ...base, renglon: 3, descripcion: 'LECHE LS ULTRA ENTERA 3% FORT SACHET 1L', producto: 'Leche La Serenisima 3% clasica  sachet  x 1l' }])).toEqual([]);
+    const leche = { ...base, renglon: 3, descripcion: 'LECHE ULTRA ENTERA 3% FORT SACHET 1L', producto: 'Leche Sancor 3% clasica  sachet  x 1l' };
     expect(revisarAntesDeRegistrar([leche]).map((x) => x.tipo)).toEqual(['marca']);
     expect(revisarAntesDeRegistrar([{ ...leche, vecesRegistradoAsi: 1 }]).map((x) => x.tipo)).toEqual(['marca']);
     expect(revisarAntesDeRegistrar([{ ...leche, vecesRegistradoAsi: 2 }])).toEqual([]);
@@ -40,6 +42,28 @@ describe('antes de registrar', () => {
     const r = { ...base, renglon: 1, descripcion: 'RHODESIA CLASICA x 3', producto: 'Galletitas Rhodesia x 3u', costoCatalogo: 2540 };
     expect(revisarAntesDeRegistrar([{ ...r, costoNuevo: 27883 }]).map((x) => x.tipo)).toEqual(['costo']);
     expect(revisarAntesDeRegistrar([{ ...r, costoNuevo: 2997 }])).toEqual([]);
+  });
+  // 19/11/2026, Distri-Sur 00007-00060714: 47 minutos sin poder registrar.
+  it('Ferrero de regalo + pagos: el partido se mira sobre el producto entero', () => {
+    const t8 = { descripcion: 'Bocadito Ferrero Rocher T8 UNIDAD x 12.5grs', producto: 'Ferrero Rocher x 8 un', sku: 'L4467', entra: true };
+    // 6 de regalo (0,75 caja) + 42 pagas (5,25) = 6 cajas: así entran al stock
+    expect(revisarAntesDeRegistrar([{ ...t8, renglon: 17, cantidad: 0.75 }, { ...t8, renglon: 19, cantidad: 5.25 }])).toEqual([]);
+    const t24 = { descripcion: 'Bocadito Ferrero Rocher T24 UNIDAD x 12.5grs', producto: 'Ferrero Rocher x 24 unidades', sku: 'L7484', entra: true };
+    expect(revisarAntesDeRegistrar([{ ...t24, renglon: 15, cantidad: 0.5 }, { ...t24, renglon: 16, cantidad: 3.5 }])).toEqual([]);
+    // si la suma tampoco da entera, un solo aviso que nombra los dos renglones
+    const a = revisarAntesDeRegistrar([{ ...t8, renglon: 17, cantidad: 0.75 }, { ...t8, renglon: 19, cantidad: 5 }]);
+    expect(a).toHaveLength(1);
+    expect(a[0].texto).toBe('Renglones 17 y 19: entran 0,75 + 5 = 5,75 de «Ferrero Rocher x 8 un». Algo que se vende por unidad no entra partido: revisá cómo entra (unidades, cajas, paquetes).');
+    // un renglón que no entra no suma
+    expect(revisarAntesDeRegistrar([{ ...t8, renglon: 17, cantidad: 0.75, entra: false }, { ...t8, renglon: 19, cantidad: 5.25 }]).map((x) => x.texto)).toEqual([
+      'Renglón 19: entran 5,25 de «Ferrero Rocher x 8 un». Algo que se vende por unidad no entra partido: revisá cómo entra (unidades, cajas, paquetes).',
+    ]);
+  });
+  it('la marca: lo que preguntaba de mentira en la misma factura', () => {
+    expect(revisarAntesDeRegistrar([{ ...base, renglon: 20, descripcion: 'Garbanzo UNIDAD X 350grs. Inca', producto: 'Garbanzos INCA  x lata 350g' }])).toEqual([]);
+    expect(revisarAntesDeRegistrar([{ ...base, renglon: 21, descripcion: 'Nachos Rest. Style UNIDAD x 250gr. Macricas', producto: 'Nachos Macritas  Extra Grandes 250grs' }])).toEqual([]);
+    // la que el lector leyó mal («Varillas Pezz») se sigue preguntando
+    expect(revisarAntesDeRegistrar([{ ...base, renglon: 7, descripcion: 'Varillas Pezz 8 X 444 Grs (36U)', producto: 'Vainillas Pozo 36 Unid  444gr' }]).map((x) => x.tipo)).toEqual(['marca']);
   });
   it('lo que no entra al stock o no tiene producto no se revisa', () => {
     expect(revisarAntesDeRegistrar([{ renglon: 1, descripcion: 'Alfajor Jorgito', producto: 'Alfajor Cachafaz', entra: false, cantidad: 0.5 }])).toEqual([]);
