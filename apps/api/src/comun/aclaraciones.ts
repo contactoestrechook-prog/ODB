@@ -55,6 +55,24 @@ export function aclaracionesDeNotas(notas: unknown): Aclaracion[] {
     .filter((a) => a.nombre && a.texto);
 }
 
+/**
+ * Cambia (o agrega) la aclaración de UN producto en las notas de un pedido y deja
+ * lo demás como estaba (20/11/2026: el cliente eligió otra fragancia porque no
+ * había la que pidió). El tramo de aclaraciones queda en el mismo lugar.
+ */
+export function cambiarAclaracion(notas: unknown, nombre: string, texto: string): string {
+  const actuales = aclaracionesDeNotas(notas);
+  const n = limpiar(nombre).toLowerCase();
+  const nuevas = actuales.some((a) => limpiar(a.nombre).toLowerCase() === n)
+    ? actuales.map((a) => (limpiar(a.nombre).toLowerCase() === n ? { nombre: a.nombre, texto } : a))
+    : [...actuales, { nombre, texto }];
+  const tramo = `${PREFIJO} ${nuevas.map((a) => `${limpiar(a.nombre)} «${limpiar(a.texto)}»`).join('; ')}`;
+  const partes = String(notas ?? '').split(/\s*·\s*/).filter(Boolean);
+  const i = partes.findIndex((t) => t.trim().startsWith(PREFIJO));
+  if (i >= 0) partes[i] = tramo; else partes.unshift(tramo);
+  return partes.join(' · ');
+}
+
 /** La aclaración de un producto del pedido, por su nombre (sin importar mayúsculas ni espacios). */
 export function aclaracionDe(nombre: string, aclaraciones: Aclaracion[]): string | null {
   const n = limpiar(nombre).toLowerCase();

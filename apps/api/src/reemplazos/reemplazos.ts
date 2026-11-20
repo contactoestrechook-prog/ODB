@@ -99,10 +99,60 @@ export type CambioParaTexto = {
   nombre_falta: string; pide: number; hay: number;
   nombre_reemplazo: string; cantidad: number; precio: number | null;
   faltaPorPeso?: boolean; reemplazoPorPeso?: boolean;
+  /** variedad (20/11/2026): el mismo producto en otra fragancia, sabor o color */
+  tipo?: 'parecido' | 'variedad';
+  pedida?: string | null; variedades?: string[] | null; elegida?: string | null;
 };
+
+// ---------- La variedad (Leandro, 20/11/2026: «no hay ese sabor, y cuáles sí») ----------
+
+/** «lavanda», «lavanda y coco», «lavanda, coco y vainilla». */
+export function enLista(xs: string[], marca = ''): string {
+  const v = xs.map((x) => `${marca}${x}${marca}`);
+  return v.length <= 1 ? v.join('') : `${v.slice(0, -1).join(', ')} y ${v[v.length - 1]}`;
+}
+
+/** Las variedades que anotó quien arma: sin vacías, sin repetidas, cortas. */
+export function variedadesLimpias(xs: unknown): string[] {
+  const vistas = new Set<string>();
+  const salida: string[] = [];
+  for (const x of Array.isArray(xs) ? xs : []) {
+    const t = String(x ?? '').replace(/[«»*;·\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const k = sinTildes(t).toLowerCase();
+    if (t && !vistas.has(k)) { vistas.add(k); salida.push(t); }
+  }
+  return salida.slice(0, 8);
+}
+
+/** «Saphirus Textil VARIOS de limón» o el nombre solo. */
+const conPedida = (c: CambioParaTexto) => `*${c.nombre_falta}*${c.pedida ? ` de *${c.pedida}*` : ''}`;
+
+/**
+ * ¿Cuál eligió? Por las palabras de la respuesta, sin IA: «lavanda», «la de
+ * coco», «mandame vainilla porfa». Un «no» o «ninguno» es que no quiere
+ * ninguna; un «sí» solo vale si había una sola. null: no queda claro (la lee la IA).
+ */
+export function leerVariedad(texto: string, variedades: string[]): { elegida: string } | 'no' | null {
+  const norm = (t: string) => sinTildes(String(t ?? '')).toLowerCase().replace(/[^a-z0-9ñ\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const s = ` ${norm(texto)} `;
+  if (!s.trim()) return null;
+  const nombradas = variedades.filter((v) => { const n = norm(v); return n && s.includes(` ${n} `); });
+  if (nombradas.length === 1) return { elegida: nombradas[0] };
+  if (nombradas.length > 1) return null;
+  const sn = leerSiNo(texto);
+  if (sn === 'no') return 'no';
+  if (sn === 'si' && variedades.length === 1) return { elegida: variedades[0] };
+  return null;
+}
 
 /** El producto de la pregunta: qué falta y qué va en su lugar, con su precio. */
 export function renglonDePregunta(c: CambioParaTexto): string {
+  if (c.tipo === 'variedad') {
+    const hay = c.variedades ?? [];
+    return hay.length
+      ? `${conPedida(c)} no hay. De ese tenemos: ${enLista(hay, '*')}.`
+      : `${conPedida(c)} no hay.`;
+  }
   const va = `*${conCantidad(c.cantidad, c.nombre_reemplazo, c.reemplazoPorPeso)}*${c.precio != null ? ` (${pesos(c.cantidad * c.precio)})` : ''}`;
   if (c.hay > 0) {
     const faltan = Math.round((c.pide - c.hay) * 1000) / 1000;
@@ -131,13 +181,40 @@ export function textoDePregunta(c: CambioParaTexto, o: { cliente?: string | null
     ? `Hola${nombre ? ` ${nombre}` : ''}, te escribimos de ODB por tu pedido ${o.codigo}.${o.total > 1 ? ` Nos faltan ${o.total} productos y te consultamos de a uno.` : ''}`
     : 'Anotado ✔';
   const numero = o.total > 1 ? `(${o.numero} de ${o.total}) ` : '';
-  return `${cabeza}\n\n${numero}${renglonDePregunta(c)}\n\n¿Te sirve? Respondé *SÍ* o *NO*.`;
+  const cierre = c.tipo === 'variedad'
+    ? (c.variedades?.length ?? 0) > 1
+      ? '¿Cuál querés? Respondé con la que elegís, o *NO* si no querés ninguna.'
+      : `¿Te sirve ${c.variedades?.[0] ? `*${c.variedades[0]}*` : 'otra'}? Respondé *SÍ* o *NO*.`
+    : '¿Te sirve? Respondé *SÍ* o *NO*.';
+  return `${cabeza}\n\n${numero}${renglonDePregunta(c)}\n\n${cierre}`;
+}
+
+/**
+ * NO HAY Y NO HAY OTRA (20/11/2026): no se le pregunta nada, se le avisa. Sale
+ * cuando quien arma saca el producto del pedido con «Avisarle al cliente».
+ */
+export function textoDeNoHay(o: { cliente?: string | null; codigo: string; nombre: string; pedida?: string | null; total: number | null }): string {
+  const nombre = primerNombre(o.cliente);
+  return [
+    `Hola${nombre ? ` ${nombre}` : ''}, te escribimos de ODB por tu pedido ${o.codigo}.`,
+    '',
+    `*${o.nombre}*${o.pedida ? ` de *${o.pedida}*` : ''} no hay, así que no va en tu pedido.${o.total != null ? ` El total queda en ${pesos(o.total)}.` : ''}`,
+  ].join('\n');
 }
 
 export type CambioRespondido = CambioParaTexto & { estado: 'aceptado' | 'rechazado'; error?: string | null };
 
 /** Cada cambio en una línea: ✔ lo que entra, ✖ lo que sale. */
 export function lineaDeCambio(c: CambioRespondido, para: 'cliente' | 'equipo'): string {
+  if (c.tipo === 'variedad') {
+    const de = c.pedida ? ` (${c.pedida})` : '';
+    if (c.estado === 'aceptado') {
+      return para === 'cliente'
+        ? `✔ ${c.nombre_falta}: ${c.elegida ?? 'otra'}${c.pedida ? ` (en lugar de ${c.pedida})` : ''}`
+        : `✔ ELIGIÓ ${String(c.elegida ?? 'otra').toUpperCase()}: ${c.nombre_falta}${c.pedida ? ` (no había ${c.pedida})` : ''}`;
+    }
+    return para === 'cliente' ? `✖ ${c.nombre_falta}${de}: no va` : `✖ NO: ${c.nombre_falta}${de} sale del pedido`;
+  }
   if (c.estado === 'aceptado') {
     const va = conCantidad(c.cantidad, c.nombre_reemplazo, c.reemplazoPorPeso);
     return para === 'cliente' ? `✔ ${va} (en lugar de ${c.nombre_falta})` : `✔ SÍ: ${va} (por ${c.nombre_falta})`;

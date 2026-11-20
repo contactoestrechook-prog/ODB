@@ -125,8 +125,8 @@ export class SalonController {
 
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')
   @Post('pedidos/:id/cambios/:cambio/decidir')
-  decidir(@Param('id') id: string, @Param('cambio') cambio: string, @Body() dto: { acepta?: boolean }, @Req() req: any) {
-    return this.salon.decidirCambio(id, cambio, dto?.acepta === true, req.usuario ?? {});
+  decidir(@Param('id') id: string, @Param('cambio') cambio: string, @Body() dto: { acepta?: boolean; elegida?: string }, @Req() req: any) {
+    return this.salon.decidirCambio(id, cambio, dto?.acepta === true, req.usuario ?? {}, typeof dto?.elegida === 'string' ? dto.elegida : null);
   }
 
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')

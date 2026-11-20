@@ -37,7 +37,7 @@ function baseEnMemoria(tablas: Record<string, Fila[]>, rpcs: Record<string, (a: 
       if (accion === 'insert') {
         const nuevas = (Array.isArray(valores) ? valores : [valores]).map((v) => ({ id: `id${++n}`, ...v }));
         filas().push(...nuevas);
-        return { data: nuevas, error: null };
+        return { data: una ? nuevas[0] : nuevas, error: null };
       }
       if (accion === 'upsert') {
         const v = valores;
@@ -278,6 +278,88 @@ describe('consultar al cliente los cambios', () => {
     await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
     await expect(s.consultar('P1', 'U-PABLO')).rejects.toThrow('No tengo el WhatsApp del cliente');
     expect(tablas.pedidos_reemplazos[0].estado).toBe('propuesto');
+  });
+
+  // «NO HAY ESE SABOR; DE ESE HAY ESTOS» (Leandro, 20/11/2026, simulacro con el Saphirus limón)
+  const SAPHIRUS = 'Aromatizante Saphirus Textil VARIOS';
+  function conSaphirus(extra: Record<string, (a: any) => any> = {}) {
+    const { s, tablas, responde } = armar();
+    Object.assign(tablas.pedidos[0], {
+      notas: `PRUEBA — se arma pero NO se cobra ni se entrega (simulacro). Retira: Daniela · Aclaraciones: ${SAPHIRUS} «limón» · Paga en efectivo`,
+      items: [{ producto_id: 'SAPH', cantidad: 1, precio_unitario: 5600, producto: { nombre: SAPHIRUS } }],
+    });
+    tablas.pedidos_historial = [];
+    // las rpc del armado de siempre (decidir con «no» y sacar lo que no hay)
+    const rpcs: Record<string, (a: any) => any> = {
+      decidir_reemplazo: (a: any) => {
+        const f = tablas.pedidos_reemplazos.find((x) => x.id === a.p_id)!;
+        Object.assign(f, { estado: a.p_acepta ? 'aceptado' : 'rechazado', respondido_en: new Date().toISOString(), respuesta: a.p_respuesta, decidido_por: a.p_usuario, resultado: { totalAntes: 30000, total: 24400 } });
+        return { estado: f.estado, resultado: f.resultado, error: null };
+      },
+      resolver_falta_armado: () => ({ totalAntes: 30000, total: 24400 }),
+      ...extra,
+    };
+    const llamadas: { nombre: string; args: any }[] = [];
+    (s as any).db.rpc = async (nombre: string, args: any) => { llamadas.push({ nombre, args }); return { data: rpcs[nombre](args), error: null }; };
+    return { s, tablas, responde, llamadas };
+  }
+
+  it('VARIEDAD: «de limón no hay, de ese tenemos…»; el cliente elige y cambia la aclaración del pedido (producto y precio igual)', async () => {
+    const { s, tablas } = conSaphirus();
+    const r: any = await s.proponerVariedad('P1', { productoId: 'SAPH', variedades: ['lavanda', ' Coco ', 'lavanda', ''] }, 'U-PABLO');
+    expect(r).toMatchObject({ falta: SAPHIRUS, pedida: 'limón', variedades: ['lavanda', 'Coco'], variedad: true });
+    expect(tablas.pedidos_reemplazos[0]).toMatchObject({ tipo: 'variedad', reemplazo_id: 'SAPH', estado: 'propuesto', hay: 0, precio: 5600 });
+
+    await s.consultar('P1', 'U-PABLO');
+    expect(enviados[0].text).toContain(`*${SAPHIRUS}* de *limón* no hay. De ese tenemos: *lavanda* y *Coco*.`);
+    expect(enviados[0].text).toContain('¿Cuál querés? Respondé con la que elegís, o *NO* si no querés ninguna.');
+
+    // pregunta otra cosa: no decide (lo lee la IA, que dice «otra»)
+    expect(await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: '¿y de naranja no tenés?' })).toMatchObject({ otra: true });
+    expect(tablas.pedidos_reemplazos[0].estado).toBe('preguntado');
+
+    const elige: any = await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'dale, mandame el de coco porfa' });
+    expect(elige).toMatchObject({ respondido: true, acepta: true, elegida: 'Coco' });
+    expect(tablas.pedidos_reemplazos[0]).toMatchObject({ estado: 'aceptado', elegida: 'Coco' });
+    // la aclaración del renglón cambia; lo demás de las notas queda igual
+    expect(tablas.pedidos[0].notas).toBe(`PRUEBA — se arma pero NO se cobra ni se entrega (simulacro). Retira: Daniela · Aclaraciones: ${SAPHIRUS} «Coco» · Paga en efectivo`);
+    expect(tablas.pedidos_historial[0].detalle).toMatchObject({ acepta: true, falta: `${SAPHIRUS} (limón)`, reemplazo: `${SAPHIRUS} (Coco)`, variedad: true, por_whatsapp: true });
+    // cierre: al cliente cómo queda, a quien arma qué eligió
+    expect(enviados[enviados.length - 1].text).toContain(`✔ ${SAPHIRUS}: Coco (en lugar de limón)`);
+    expect(tablas.avisos_pedidos[0].detalle.texto).toContain(`✔ ELIGIÓ COCO: ${SAPHIRUS} (no había limón)`);
+  });
+
+  it('VARIEDAD: «ninguna» saca el producto del pedido (como un parecido rechazado); con una sola opción, «sí» la elige', async () => {
+    const a = conSaphirus();
+    await a.s.proponerVariedad('P1', { productoId: 'SAPH', variedades: ['lavanda', 'coco'] }, 'U-PABLO');
+    await a.s.consultar('P1', 'U-PABLO');
+    await a.s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'ninguna gracias' });
+    expect(a.llamadas.find((l) => l.nombre === 'decidir_reemplazo')?.args).toMatchObject({ p_acepta: false });
+    expect(enviados[enviados.length - 1].text).toContain(`✖ ${SAPHIRUS} (limón): no va`);
+
+    const b = conSaphirus();
+    await b.s.proponerVariedad('P1', { productoId: 'SAPH', variedades: ['lavanda'] }, 'U-PABLO');
+    await b.s.consultar('P1', 'U-PABLO');
+    expect(enviados[0].text).toContain('¿Te sirve *lavanda*? Respondé *SÍ* o *NO*.');
+    await expect(b.s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'sí' })).resolves.toMatchObject({ elegida: 'lavanda' });
+  });
+
+  it('VARIEDAD anotada a mano: tiene que ser una de las ofrecidas', async () => {
+    const { s, tablas } = conSaphirus();
+    await s.proponerVariedad('P1', { productoId: 'SAPH', variedades: ['lavanda', 'coco'] }, 'U-PABLO');
+    const id = tablas.pedidos_reemplazos[0].id;
+    await expect(s.decidir(id, true, { elegida: 'naranja', usuarioId: 'U-PABLO' })).rejects.toThrow('Elegí una de las que hay: lavanda, coco');
+    await expect(s.decidir(id, true, { elegida: 'COCO', usuarioId: 'U-PABLO' })).resolves.toMatchObject({ estado: 'aceptado' });
+    expect(tablas.pedidos_reemplazos[0]).toMatchObject({ elegida: 'coco', decidido_por: 'U-PABLO' });
+  });
+
+  it('NO HAY Y NO HAY OTRA: sale del pedido y al cliente se le avisa en el momento, con el total nuevo', async () => {
+    const { s, llamadas } = conSaphirus();
+    const r: any = await s.sacarYAvisar('P1', 'SAPH', 'U-PABLO');
+    expect(llamadas[0]).toMatchObject({ nombre: 'resolver_falta_armado', args: { p_pedido: 'P1', p_producto: 'SAPH', p_hay: 0, p_reemplazo: null } });
+    expect(r).toMatchObject({ avisado: true, total: 24400 });
+    expect(enviados[0]).toMatchObject({ to: `${LID}@lid` });
+    expect(enviados[0].text).toBe(`Hola Andrea, te escribimos de ODB por tu pedido DOM-87B017B4EA14.\n\n*${SAPHIRUS}* de *limón* no hay, así que no va en tu pedido. El total queda en $24.400.`);
   });
 
   it('PRUEBA de un celular probador (tiene su charla): se le consulta como a cualquiera; la del botón «Pedido de prueba» (sin charla), no', async () => {

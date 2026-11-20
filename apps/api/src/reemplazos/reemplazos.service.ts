@@ -8,9 +8,10 @@ import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { linkDelSalon } from '../avisos/aviso-pedido';
 import {
-  cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo,
-  ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDePregunta, textoParaQuienArma,
+  cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo, leerVariedad,
+  ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDeNoHay, textoDePregunta, textoParaQuienArma, variedadesLimpias,
 } from './reemplazos';
+import { aclaracionDe, aclaracionesDeNotas, cambiarAclaracion } from '../comun/aclaraciones';
 
 // «TENGO PARECIDO» Y LA CONSULTA AL CLIENTE (Leandro y Jaqui, 20/11/2026):
 //  1. Al armar, si un producto no está, quien arma elige un parecido (el sistema
@@ -40,6 +41,8 @@ type Fila = {
   otra_respuesta: string | null; otra_respuesta_en: string | null;
   respondido_en: string | null; respuesta: string | null; decidido_por: string | null; resultado: any; error: string | null; cerrado_en: string | null;
   falta?: { vendido_por_peso?: boolean | null } | null; parecido?: { vendido_por_peso?: boolean | null } | null;
+  // variedad (20/11/2026): el mismo producto en otra fragancia, sabor o color
+  tipo?: 'parecido' | 'variedad' | null; pedida?: string | null; variedades?: string[] | null; elegida?: string | null;
 };
 const COLUMNAS = '*, falta:productos!pedidos_reemplazos_producto_id_fkey(vendido_por_peso), parecido:productos!pedidos_reemplazos_reemplazo_id_fkey(vendido_por_peso)';
 const ABIERTOS_PEDIDO = ['recibido', 'pagado', 'en_preparacion', 'listo'];
@@ -49,6 +52,7 @@ const paraTexto = (f: Fila): CambioParaTexto => ({
   cantidad: Number(f.cantidad), precio: f.precio == null ? null : Number(f.precio),
   faltaPorPeso: sePesa(f.nombre_falta, f.falta?.vendido_por_peso === true, Number(f.pide)),
   reemplazoPorPeso: sePesa(f.nombre_reemplazo, f.parecido?.vendido_por_peso === true, Number(f.cantidad)),
+  tipo: f.tipo === 'variedad' ? 'variedad' : 'parecido', pedida: f.pedida ?? null, variedades: f.variedades ?? null, elegida: f.elegida ?? null,
 });
 const respondido = (f: Fila): CambioRespondido => ({ ...paraTexto(f), estado: f.estado as 'aceptado' | 'rechazado', error: f.error });
 const digitos = (t: unknown) => String(t ?? '').replace(/\D/g, '');
@@ -154,6 +158,76 @@ export class ReemplazosService {
     return data;
   }
 
+  /**
+   * «NO HAY ESE SABOR; DE ESE HAY ESTOS» (Leandro, 20/11/2026). El mismo
+   * producto en otra fragancia, sabor o color: queda propuesto como un parecido
+   * y sale con «Consultar al cliente». La que eligió cambia la aclaración del
+   * renglón en las notas; producto, cantidad y precio quedan igual.
+   */
+  async proponerVariedad(pedidoId: string, dto: { productoId?: string; pedida?: string | null; variedades?: unknown }, usuarioId?: string | null) {
+    if (!dto.productoId) throw new BadRequestException('Falta decir qué producto');
+    const variedades = variedadesLimpias(dto.variedades);
+    if (!variedades.length) throw new BadRequestException('Anotá al menos una que haya');
+    const { data: ped, error } = await this.db.from('pedidos')
+      .select('id, estado, venta_id, notas, items:pedidos_items(producto_id, cantidad, precio_unitario, producto:productos(nombre))')
+      .eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(this.migracion(error.message));
+    if (!ped) throw new BadRequestException('No existe el pedido');
+    if (['entregado', 'cancelado'].includes(String((ped as any).estado)) || (ped as any).venta_id) throw new BadRequestException(`El pedido ya está ${(ped as any).estado}: no se le pueden cambiar los productos`);
+    const item = (((ped as any).items ?? []) as any[]).find((i) => i.producto_id === dto.productoId);
+    if (!item) throw new BadRequestException('Ese producto ya no está en el pedido: actualizá la pantalla');
+    const nombre = String(item.producto?.nombre ?? 'Producto');
+    const pedida = String(dto.pedida ?? '').trim().slice(0, 40) || aclaracionDe(nombre, aclaracionesDeNotas((ped as any).notas)) || null;
+    const { data: esperando } = await this.db.from('pedidos_reemplazos').select('id').eq('pedido_id', pedidoId).eq('producto_id', dto.productoId).eq('estado', 'preguntado').limit(1);
+    if (esperando?.length) throw new BadRequestException(`Ya le preguntamos al cliente por ${nombre}: esperá la respuesta`);
+    await this.db.from('pedidos_reemplazos').update({ estado: 'anulado' }).eq('pedido_id', pedidoId).eq('producto_id', dto.productoId).in('estado', ['propuesto', 'en_cola']);
+    const precio = item.precio_unitario == null ? null : Number(item.precio_unitario);
+    const { data, error: e } = await this.db.from('pedidos_reemplazos').insert({
+      pedido_id: pedidoId, producto_id: dto.productoId, nombre_falta: nombre, pide: Number(item.cantidad), hay: 0, precio_falta: precio,
+      reemplazo_id: dto.productoId, nombre_reemplazo: nombre, cantidad: Number(item.cantidad), precio,
+      tipo: 'variedad', pedida, variedades, creado_por: usuarioId ?? null, estado: 'propuesto', intentos: 0, creado_en: new Date().toISOString(),
+    }).select('id').single();
+    if (e) throw new BadRequestException(this.migracion(e.message));
+    return { id: (data as any).id, falta: nombre, pedida, variedades, variedad: true };
+  }
+
+  /**
+   * NO HAY Y NO HAY OTRA (20/11/2026): sale del pedido y al cliente se le avisa
+   * en el momento (no hay nada que preguntarle). Sin WhatsApp del cliente, o de
+   * noche, sale igual del pedido y quien arma ve por qué no se le avisó.
+   */
+  async sacarYAvisar(pedidoId: string, productoId: string, usuarioId?: string | null) {
+    const { data: ped } = await this.db.from('pedidos')
+      .select('qr_retiro, notas, contacto_nombre, cliente:clientes(nombre), items:pedidos_items(producto_id, producto:productos(nombre))')
+      .eq('id', pedidoId).maybeSingle();
+    const item = (((ped as any)?.items ?? []) as any[]).find((i) => i.producto_id === productoId);
+    if (!item) throw new BadRequestException('Ese producto ya no está en el pedido: actualizá la pantalla');
+    const nombre = String(item.producto?.nombre ?? 'Producto');
+    const pedida = aclaracionDe(nombre, aclaracionesDeNotas((ped as any)?.notas));
+    const { data: r, error } = await this.db.rpc('resolver_falta_armado', { p_pedido: pedidoId, p_producto: productoId, p_hay: 0, p_reemplazo: null, p_cantidad: null, p_usuario: usuarioId ?? null });
+    if (error) throw new BadRequestException(error.message);
+    const total = (r as any)?.total == null ? null : Number((r as any).total);
+    const destino = await this.destinoDelPedido(pedidoId);
+    let avisado = false;
+    let motivo: string | null = null;
+    if (!destino) motivo = 'No tengo el WhatsApp del cliente: avisale vos (llamalo).';
+    else if (!enHorarioDeMensajes()) motivo = 'Son más de las 22: avisale mañana (de noche no se le escribe a nadie).';
+    else if (!this.puedeMandar(destino.sesion)) motivo = 'Este servidor no manda WhatsApp (solo el de producción).';
+    else {
+      const codigo = String((ped as any)?.qr_retiro || pedidoId.slice(0, 8).toUpperCase());
+      const texto = textoDeNoHay({ cliente: (ped as any)?.cliente?.nombre || (ped as any)?.contacto_nombre || null, codigo, nombre, pedida, total });
+      const w = await enviarWhatsapp(this.db, { to: destino.chat, sesion: destino.sesion, text: texto, origen: 'reemplazo', referencia: `pedido/${pedidoId}` });
+      avisado = !!(w.enviado || w.incierto);
+      if (avisado) {
+        const f = { linea: destino.linea, chat_clave: destino.chatClave, chat: destino.chat } as Fila;
+        await this.anotarEnLaCharla(f, [{ role: 'assistant', content: texto }]);
+        this.registrarEnResponde?.(this.waIdDe(f), '', texto).catch(() => null);
+      } else motivo = `No salió el WhatsApp (${w.motivo ?? 'sin motivo'}): avisale vos.`;
+    }
+    this.log.log(`pedido ${pedidoId}: ${nombre}${pedida ? ` (${pedida})` : ''} no hay, salió del pedido; ${avisado ? 'se le avisó al cliente' : `no se le avisó (${motivo})`}`);
+    return { ...((r as any) ?? {}), avisado, motivo };
+  }
+
   /** Se arrepintió antes de consultar: el producto vuelve a estar como antes. */
   async anular(pedidoId: string, id: string) {
     const { data, error } = await this.db.from('pedidos_reemplazos').update({ estado: 'anulado' })
@@ -182,6 +256,7 @@ export class ReemplazosService {
         estado: f.estado, consultadoEn: f.consultado_en, preguntadoEn: f.preguntado_en, respondidoEn: f.respondido_en,
         respuesta: f.respuesta, porWhatsapp: !!f.respondido_en && !f.decidido_por, error: f.error, ultimoError: f.ultimo_error,
         otraRespuesta: f.otra_respuesta, otraRespuestaEn: f.otra_respuesta_en, cerradoEn: f.cerrado_en,
+        tipo: f.tipo === 'variedad' ? 'variedad' : 'parecido', pedida: f.pedida ?? null, variedades: f.variedades ?? null, elegida: f.elegida ?? null,
       }]);
     }
     return porPedido;
@@ -345,6 +420,25 @@ export class ReemplazosService {
       return null;
     }
 
+    // VARIEDAD (20/11/2026): elige una de las que hay, o ninguna
+    if (f.tipo === 'variedad') {
+      const opciones = f.variedades ?? [];
+      let v: { elegida: string } | 'no' | 'otra' | null = leerVariedad(texto, opciones);
+      if (!v && soloCortesia(texto)) v = 'otra';
+      if (!v && texto.length <= 400) v = await this.leerVariedadConIA(texto, paraTexto(f)).catch((e) => { this.log.warn(`no pude leer la variedad con IA: ${e?.message ?? e}`); return null; });
+      if (!v || v === 'otra') {
+        await this.db.from('pedidos_reemplazos').update({ otra_respuesta: texto.slice(0, 500), otra_respuesta_en: new Date().toISOString() }).eq('id', f.id);
+        this.log.log(`pedido ${f.pedido_id}: el cliente contestó otra cosa sobre ${f.nombre_falta}: «${texto.slice(0, 80)}»`);
+        return { otra: true, reemplazoId: f.id };
+      }
+      await this.anotarEnLaCharla(f, [{ role: 'user', content: texto }]);
+      this.registrarEnResponde?.(this.waIdDe(f), texto, null).catch(() => null);
+      const elegida = v === 'no' ? null : v.elegida;
+      const r = await this.decidir(f.id, !!elegida, { texto, elegida });
+      this.log.log(`pedido ${f.pedido_id}: ${f.nombre_falta}${f.pedida ? ` (${f.pedida})` : ''}: el cliente ${elegida ? `eligió ${elegida}` : 'no quiso ninguna'}`);
+      return { respondido: true, acepta: !!elegida, elegida, ...r };
+    }
+
     let lectura: 'si' | 'no' | 'otra' | null = leerSiNo(texto);
     // un «gracias» o un saludo solo no contesta (sin gastar IA)
     if (!lectura && soloCortesia(texto)) lectura = 'otra';
@@ -366,17 +460,77 @@ export class ReemplazosService {
    * quien arma («Lo llamé y dijo que sí»). Aplica el cambio y sigue con la
    * pregunta siguiente.
    */
-  async decidir(id: string, acepta: boolean, o: { texto?: string | null; usuarioId?: string | null; pedidoId?: string } = {}) {
-    const { data: f } = await this.db.from('pedidos_reemplazos').select('pedido_id, estado, consultado_en').eq('id', id).maybeSingle();
+  async decidir(id: string, acepta: boolean, o: { texto?: string | null; usuarioId?: string | null; pedidoId?: string; elegida?: string | null } = {}) {
+    const { data: f } = await this.db.from('pedidos_reemplazos').select('id, pedido_id, producto_id, estado, consultado_en, tipo, pedida, variedades, nombre_falta').eq('id', id).maybeSingle();
     if (!f || (o.pedidoId && (f as any).pedido_id !== o.pedidoId)) throw new BadRequestException('No existe ese cambio');
-    const { data, error } = await this.db.rpc('decidir_reemplazo', { p_id: id, p_acepta: acepta, p_respuesta: o.texto ?? null, p_usuario: o.usuarioId ?? null });
-    if (error) throw new BadRequestException(this.migracion(error.message));
-    const r = (data ?? {}) as any;
+    // la variedad elegida no cambia producto ni precio: cambia la aclaración del renglón
+    // (con «ninguna», sale del pedido como un parecido rechazado: decidir_reemplazo)
+    const r = (f as any).tipo === 'variedad' && acepta
+      ? await this.aceptarVariedad(f as any, String(o.elegida ?? '').trim(), o)
+      : await (async () => {
+        const { data, error } = await this.db.rpc('decidir_reemplazo', { p_id: id, p_acepta: acepta, p_respuesta: o.texto ?? null, p_usuario: o.usuarioId ?? null });
+        if (error) throw new BadRequestException(this.migracion(error.message));
+        return (data ?? {}) as any;
+      })();
     // lo consultado sigue con la pregunta siguiente (o cierra); lo que se decidió sin consultar, no manda nada
     const siguiente = (f as any).consultado_en && !r.yaEstaba
       ? await this.preguntarSiguiente(String((f as any).pedido_id)).catch((e) => ({ enviado: false, motivo: String(e?.message ?? e) }))
       : null;
     return { estado: r.estado, error: r.error ?? null, resultado: r.resultado ?? null, siguiente };
+  }
+
+  /** Eligió otra variedad: queda anotada en el cambio, en las notas del pedido (la aclaración) y en el historial. */
+  private async aceptarVariedad(f: { pedido_id: string; producto_id: string; nombre_falta: string; pedida: string | null; variedades: string[] | null }, elegida: string, o: { texto?: string | null; usuarioId?: string | null }) {
+    const opciones = f.variedades ?? [];
+    const exacta = opciones.find((v) => v.toLowerCase() === elegida.toLowerCase());
+    if (!elegida || (opciones.length && !exacta)) throw new BadRequestException(`Elegí una de las que hay: ${opciones.join(', ')}`);
+    const final = exacta ?? elegida;
+    const ahora = new Date().toISOString();
+    const { data: ped } = await this.db.from('pedidos').select('total, notas').eq('id', f.pedido_id).maybeSingle();
+    const total = (ped as any)?.total == null ? null : Number((ped as any).total);
+    const resultado = { totalAntes: total, total, variedad: final };
+    const { data: tomada, error } = await this.db.from('pedidos_reemplazos').update({
+      estado: 'aceptado', elegida: final, respondido_en: ahora, respuesta: String(o.texto ?? '').slice(0, 500) || null, decidido_por: o.usuarioId ?? null, resultado, error: null,
+    }).eq('id', (f as any).id ?? '').in('estado', ['propuesto', 'en_cola', 'preguntado']).select('id');
+    if (error) throw new BadRequestException(this.migracion(error.message));
+    if (!tomada?.length) return { estado: 'aceptado', yaEstaba: true };
+    let fallo: string | null = null;
+    const { error: eNotas } = await this.db.from('pedidos').update({ notas: cambiarAclaracion((ped as any)?.notas, f.nombre_falta, final) }).eq('id', f.pedido_id);
+    if (eNotas) fallo = eNotas.message;
+    await this.db.from('pedidos_historial').insert({
+      pedido_id: f.pedido_id, evento: 'reemplazo', usuario_id: o.usuarioId ?? null,
+      detalle: { acepta: true, falta: `${f.nombre_falta}${f.pedida ? ` (${f.pedida})` : ''}`, reemplazo: `${f.nombre_falta} (${final})`, variedad: true, por_whatsapp: !o.usuarioId, respuesta: String(o.texto ?? '').slice(0, 200) || null },
+    }).then(() => null, () => null);
+    if (fallo) await this.db.from('pedidos_reemplazos').update({ error: fallo }).eq('id', (f as any).id);
+    return { estado: 'aceptado', resultado, error: fallo };
+  }
+
+  /** Una respuesta a «¿cuál querés?» que no nombra una sola de las que hay, leída por la IA (Haiku). */
+  private async leerVariedadConIA(texto: string, c: CambioParaTexto): Promise<{ elegida: string } | 'no' | 'otra'> {
+    const opciones = c.variedades ?? [];
+    if (!opciones.length) return 'otra';
+    const claude = new Anthropic();
+    const r: any = await claude.messages.create({
+      model: MODELO_LECTURA,
+      max_tokens: 2000,
+      thinking: RAZONAMIENTO,
+      system: [
+        'Un almacén le avisó a un cliente por WhatsApp que no hay la variedad que pidió de un producto y le preguntó cuál de las que hay quiere.',
+        'Decidí qué contestó: una de las opciones si elige esa (exactamente una), "no" si no quiere ninguna (que lo saquen),',
+        '"otra" si pregunta algo, pone una condición, elige dos, pide algo que no está en la lista, solo saluda o agradece, o no se entiende. Ante la duda, "otra".',
+      ].join(' '),
+      messages: [{ role: 'user', content: `Pregunta: «${c.nombre_falta}${c.pedida ? ` de ${c.pedida}` : ''} no hay. De ese tenemos: ${opciones.join(', ')}. ¿Cuál querés?»\nRespuesta del cliente: «${texto.slice(0, 400)}»` }],
+      output_config: {
+        effort: esfuerzo('REEMPLAZOS_ESFUERZO', 'low', { general: false }),
+        format: { type: 'json_schema', schema: { type: 'object', properties: { respuesta: { type: 'string', enum: [...opciones, 'no', 'otra'] } }, required: ['respuesta'], additionalProperties: false } },
+      },
+    } as any);
+    if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') return 'otra';
+    const bloque = (r.content ?? []).find((x: any) => x.type === 'text');
+    const v = String(JSON.parse(bloque?.text ?? '{}').respuesta ?? 'otra');
+    if (v === 'no') return 'no';
+    const elegida = opciones.find((o) => o === v);
+    return elegida ? { elegida } : 'otra';
   }
 
   /** Una respuesta que no es un sí o un no claro, leída por la IA (Haiku). */

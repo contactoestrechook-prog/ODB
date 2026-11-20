@@ -1,6 +1,33 @@
 import {
   cantidadEquivalente, conCantidad, enHorarioDeMensajes, leerSiNo, sePesa, soloCortesia, ordenarParecidos, puntajeParecido, textoDeCierre, textoDePregunta, textoParaQuienArma,
+  enLista, leerVariedad, variedadesLimpias,
 } from './reemplazos';
+
+// «No hay ese sabor; de ese hay estos» (Leandro, 20/11/2026)
+describe('la variedad que elige el cliente', () => {
+  const HAY = ['lavanda', 'coco', 'vainilla'];
+  it('nombra una sola: esa', () => {
+    expect(leerVariedad('lavanda', HAY)).toEqual({ elegida: 'lavanda' });
+    expect(leerVariedad('LAVANDA!!', HAY)).toEqual({ elegida: 'lavanda' });
+    expect(leerVariedad('Hola, mandame la de coco porfa', HAY)).toEqual({ elegida: 'coco' });
+    expect(leerVariedad('vainílla', HAY)).toEqual({ elegida: 'vainilla' });
+  });
+  it('dos, una que no está o una pregunta: no se decide sola', () => {
+    expect(leerVariedad('lavanda y coco', HAY)).toBeNull();
+    expect(leerVariedad('¿no tenés de naranja?', HAY)).toBeNull();
+    expect(leerVariedad('sí', HAY)).toBeNull();
+  });
+  it('ninguna: no; con una sola opción, el sí la elige', () => {
+    expect(leerVariedad('no', HAY)).toBe('no');
+    expect(leerVariedad('ninguna, gracias', HAY)).toBe('no');
+    expect(leerVariedad('dale', ['coco'])).toEqual({ elegida: 'coco' });
+  });
+  it('lo que anota quien arma queda limpio y la lista se lee bien', () => {
+    expect(variedadesLimpias([' Lavanda ', 'lavanda', '', '«coco»;', null])).toEqual(['Lavanda', 'coco']);
+    expect(enLista(['a', 'b', 'c'], '*')).toBe('*a*, *b* y *c*');
+    expect(enLista(['a'])).toBe('a');
+  });
+});
 
 // «Tengo parecido» y la consulta al cliente (Leandro y Jaqui, 20/11/2026).
 

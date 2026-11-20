@@ -26,6 +26,8 @@ export type CambioArmado = {
   estado: 'propuesto' | 'en_cola' | 'preguntado' | 'aceptado' | 'rechazado';
   consultadoEn: string | null; preguntadoEn: string | null; respondidoEn: string | null; porWhatsapp: boolean;
   error: string | null; ultimoError: string | null; otraRespuesta: string | null; otraRespuestaEn: string | null; cerradoEn: string | null;
+  /** variedad (20/11/2026): el mismo producto en otra fragancia, sabor o color */
+  tipo?: 'parecido' | 'variedad'; pedida?: string | null; variedades?: string[] | null; elegida?: string | null;
 };
 export type PedidoArmado = {
   id: string; codigo: string; canal?: string | null; cliente: string | null; notas: string | null; sucursal: string | null;
@@ -307,16 +309,23 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   // Falta en la góndola (Leandro, 19/11/2026: «el que arma el pedido tiene que
   // poder modificar artículos por falta de stock»): queda lo que hay, sale del
   // pedido o va otro en su lugar. El total se corrige solo en el servidor.
-  async function resolverFalta(it: ItemArmado, d: { hay: number; reemplazo: { id: string; nombre: string } | null; cantidad: number | null }) {
-    const r = await enviar({ accion: 'falta', pedidoId: p.id, productoId: it.productoId, hay: d.hay, reemplazoId: d.reemplazo?.id ?? null, cantidad: d.reemplazo ? d.cantidad : null });
+  async function resolverFalta(it: ItemArmado, d: { hay: number; reemplazo: { id: string; nombre: string } | null; cantidad: number | null; variedades?: string[]; avisar?: boolean }) {
+    const r = await enviar({
+      accion: 'falta', pedidoId: p.id, productoId: it.productoId, hay: d.hay, reemplazoId: d.reemplazo?.id ?? null, cantidad: d.reemplazo ? d.cantidad : null,
+      ...(d.variedades?.length ? { variedades: d.variedades, pedida: it.aclaracion ?? undefined } : {}), ...(d.avisar ? { avisar: true } : {}),
+    });
     setFalta(null);
-    // «Tengo parecido»: queda para consultar; el pedido todavía no cambia
+    // «Tengo parecido» y la otra variedad: quedan para consultar; el pedido todavía no cambia
     if (r?.propuesto) {
-      avisar('ok', `Guardado: ${it.nombre} → ${numero(Number(r.cantidad), 2)} × ${r.reemplazo}. Al terminar, consultale al cliente.`);
+      avisar('ok', r.variedad
+        ? `Guardado: ${it.nombre}${r.pedida ? ` (no hay ${r.pedida})` : ''} → ${(r.variedades ?? []).join(', ')}. Tocá «Consultar al cliente».`
+        : `Guardado: ${it.nombre} → ${numero(Number(r.cantidad), 2)} × ${r.reemplazo}. Al terminar, consultale al cliente.`);
       await onCambio();
       return;
     }
     const partes = [d.hay > 0 ? `${it.nombre}: quedan ${numero(d.hay, 2)}` : `${it.nombre} salió del pedido`];
+    // no había otra: se le avisó al cliente (o por qué no)
+    if (d.avisar) partes.push(r?.avisado ? 'le avisé al cliente por WhatsApp' : String(r?.motivo ?? 'no le pude avisar: avisale vos'));
     if (r?.puso) partes.push(`va ${numero(r.puso.cantidad, 2)} × ${r.puso.nombre}`);
     if (r?.totalAntes != null && r?.total != null && Number(r.totalAntes) !== Number(r.total)) partes.push(`total ${pesos(r.totalAntes)} → ${pesos(r.total)}`);
     avisar('ok', partes.join(' · '));
@@ -349,16 +358,19 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }
 
   /** Lo que le dijo el cliente por otro lado (lo llamó, vino al local). */
-  async function anotar(c: CambioArmado, acepta: boolean) {
-    const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
+  async function anotar(c: CambioArmado, acepta: boolean, elegida?: string) {
+    const variedad = c.tipo === 'variedad';
+    const va = variedad ? `${c.falta} (${elegida ?? ''})` : conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
     if (!(await confirmar({
-      titulo: acepta ? '¿El cliente dijo que SÍ?' : '¿El cliente dijo que NO?',
-      texto: acepta ? `Entra ${va} en lugar de ${c.hay > 0 ? `lo que falta de ${c.falta} (queda en ${cantidadDe(c.hay, c.faltaPorPeso)})` : c.falta}.` : `${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'} y no va ${c.reemplazo}.`,
-      textoConfirmar: acepta ? 'Sí, dijo que sí' : 'Sí, dijo que no',
+      titulo: variedad ? (acepta ? `¿El cliente eligió ${elegida}?` : '¿El cliente no quiere ninguna?') : acepta ? '¿El cliente dijo que SÍ?' : '¿El cliente dijo que NO?',
+      texto: variedad
+        ? acepta ? `Va ${c.falta} de ${elegida}${c.pedida ? ` en lugar de ${c.pedida}` : ''}.` : `${c.falta} sale del pedido.`
+        : acepta ? `Entra ${va} en lugar de ${c.hay > 0 ? `lo que falta de ${c.falta} (queda en ${cantidadDe(c.hay, c.faltaPorPeso)})` : c.falta}.` : `${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'} y no va ${c.reemplazo}.`,
+      textoConfirmar: variedad ? (acepta ? `Sí, eligió ${elegida}` : 'Sí, ninguna') : acepta ? 'Sí, dijo que sí' : 'Sí, dijo que no',
     }))) return;
     try {
-      const r = await enviar({ accion: 'decidir-cambio', pedidoId: p.id, cambioId: c.id, acepta });
-      avisar(r?.error ? 'error' : 'ok', r?.error ? `Anotado, pero no pude cambiar el pedido: ${r.error}` : acepta ? `Anotado: va ${va}` : `Anotado: no va ${c.reemplazo}`);
+      const r = await enviar({ accion: 'decidir-cambio', pedidoId: p.id, cambioId: c.id, acepta, ...(elegida ? { elegida } : {}) });
+      avisar(r?.error ? 'error' : 'ok', r?.error ? `Anotado, pero no pude cambiar el pedido: ${r.error}` : acepta ? `Anotado: va ${va}` : variedad ? `Anotado: ${c.falta} sale del pedido` : `Anotado: no va ${c.reemplazo}`);
       await onCambio();
     } catch (e: any) { avisar('error', String(e?.message ?? 'No pude anotarlo')); }
   }
@@ -572,7 +584,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
       {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
         onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
-      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} />}
+      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} conCliente pedida={falta.aclaracion ?? null} />}
     </div>
   );
 }
@@ -586,7 +598,7 @@ function CambiosConElCliente({ cambios, ahora, aMano, onAnotar, onQuitar }: {
   cambios: CambioArmado[]; ahora: number;
   /** sin WhatsApp del cliente: lo propuesto también se anota a mano */
   aMano: boolean;
-  onAnotar: (c: CambioArmado, acepta: boolean) => void; onQuitar: (c: CambioArmado) => void;
+  onAnotar: (c: CambioArmado, acepta: boolean, elegida?: string) => void; onQuitar: (c: CambioArmado) => void;
 }) {
   const minutos = (desde: string | null) => desde ? Math.max(0, Math.floor((ahora - Date.parse(desde)) / 60_000)) : 0;
   const respondidos = cambios.filter((c) => c.estado === 'aceptado' || c.estado === 'rechazado');
@@ -602,8 +614,46 @@ function CambiosConElCliente({ cambios, ahora, aMano, onAnotar, onQuitar }: {
       </p>
       <ul className="mt-2 space-y-2">
         {cambios.map((c) => {
-          const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
           const min = minutos(c.preguntadoEn);
+          // NO HAY ESE SABOR; DE ESE HAY ESTOS (20/11/2026)
+          if (c.tipo === 'variedad') {
+            const opciones = c.variedades ?? [];
+            const anotarCual = (c.estado === 'preguntado' || c.estado === 'en_cola' || (c.estado === 'propuesto' && aMano));
+            return (
+              <li key={c.id} className="rounded-xl bg-crema-claro/70 px-3 py-2">
+                <p className="text-sm text-tinta">
+                  {c.estado === 'aceptado' ? <b className="text-ok">✔ {String(c.elegida ?? '').toUpperCase()}</b> : c.estado === 'rechazado' ? <b className="text-marca">✖ NINGUNA</b> : null}
+                  {c.estado === 'aceptado' || c.estado === 'rechazado' ? ' · ' : ''}
+                  <span className="font-semibold">{c.falta}</span>
+                  {c.pedida ? <> · no hay <b>{c.pedida}</b></> : null}
+                  {c.estado !== 'aceptado' && c.estado !== 'rechazado' && <> → ¿{opciones.join(', ')}?</>}
+                </p>
+                <p className="mt-0.5 text-xs text-tinta/70">
+                  {c.estado === 'propuesto' && 'Para consultar'}
+                  {c.estado === 'en_cola' && (c.ultimoError ? `Todavía no salió: ${c.ultimoError}` : hayPreguntado ? 'Sale después de la respuesta anterior' : deNoche ? 'Le sale a las 8: de noche no se le escribe a nadie' : 'Saliendo por WhatsApp…')}
+                  {c.estado === 'preguntado' && `Esperando que elija · le escribí hace ${min} min${min >= 10 ? '. Si no contesta, llamalo.' : ''}`}
+                  {c.estado === 'aceptado' && `${c.porWhatsapp ? 'Lo eligió por WhatsApp' : 'Anotado a mano'}: armalo de ${c.elegida}.`}
+                  {c.estado === 'rechazado' && 'No quiso ninguna: sale del pedido.'}
+                </p>
+                {c.error && <p className="mt-1 text-xs font-semibold text-marca">No pude anotarlo en el pedido: {c.error}. Avisale a la caja.</p>}
+                {c.estado === 'preguntado' && c.otraRespuesta && (
+                  <p className="mt-1 rounded-lg bg-atencion-suave px-2 py-1 text-xs text-tinta">Escribió: «{c.otraRespuesta}»</p>
+                )}
+                {anotarCual && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {opciones.map((v) => <Boton key={v} tamano="chico" variante="secundario" onClick={() => onAnotar(c, true, v)}>Eligió {v}</Boton>)}
+                    <Boton tamano="chico" variante="secundario" onClick={() => onAnotar(c, false)}>Ninguna</Boton>
+                  </div>
+                )}
+                {c.estado === 'propuesto' && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Boton tamano="chico" variante="fantasma" onClick={() => onQuitar(c)}>Sacar la consulta</Boton>
+                  </div>
+                )}
+              </li>
+            );
+          }
+          const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
           return (
             <li key={c.id} className="rounded-xl bg-crema-claro/70 px-3 py-2">
               <p className="text-sm text-tinta">

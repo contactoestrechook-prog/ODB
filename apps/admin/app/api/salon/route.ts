@@ -51,10 +51,11 @@ export async function POST(req: Request) {
     case 'sacar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro/${id(b.cargaId)}`, { method: 'DELETE' });
     case 'terminar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/terminar`, cuerpo({}));
     // falta stock al armar (19/11/2026)
-    case 'falta': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad }));
+    // + variedades / avisar (20/11/2026: «no hay ese sabor, y cuáles sí»)
+    case 'falta': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad, variedades: Array.isArray(b.variedades) ? b.variedades : undefined, pedida: typeof b.pedida === 'string' ? b.pedida : undefined, avisar: b.avisar === true }));
     // «Tengo parecido» y la consulta al cliente (20/11/2026)
     case 'consultar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/consultar`, cuerpo({}));
-    case 'decidir-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}/decidir`, cuerpo({ acepta: b.acepta === true }));
+    case 'decidir-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}/decidir`, cuerpo({ acepta: b.acepta === true, elegida: typeof b.elegida === 'string' ? b.elegida : undefined }));
     case 'anular-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}`, { method: 'DELETE' });
     case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     // «No hay» desde la ventana de fiambrería (19/11/2026)

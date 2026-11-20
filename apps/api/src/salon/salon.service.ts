@@ -706,7 +706,7 @@ export class SalonService {
    * pedido se corrige con su total (resolver_falta_armado) y en el historial
    * queda cuánto había y cuánto decía el sistema.
    */
-  async faltaEnArmado(pedidoId: string, dto: { productoId?: string; hay?: number; reemplazoId?: string | null; cantidad?: number | null }, quien: Usuario) {
+  async faltaEnArmado(pedidoId: string, dto: { productoId?: string; hay?: number; reemplazoId?: string | null; cantidad?: number | null; variedades?: unknown; pedida?: string | null; avisar?: boolean }, quien: Usuario) {
     await this.pedidoDelArmado(pedidoId, quien);
     if (!dto.productoId) throw new BadRequestException('Falta decir qué producto');
     const hay = Number(dto.hay ?? 0);
@@ -719,6 +719,15 @@ export class SalonService {
       const r = await this.reemplazos.proponer(pedidoId, { productoId: dto.productoId, hay, reemplazoId: dto.reemplazoId, cantidad }, quien.sub ?? null);
       return { ...(r as any), propuesto: true };
     }
+    // «NO HAY ESE SABOR; DE ESE HAY ESTOS» (Leandro, 20/11/2026): el mismo
+    // producto en otra variedad, consultado como un parecido
+    if (Array.isArray(dto.variedades) && dto.variedades.some((v) => String(v ?? '').trim())) {
+      if (hay > 0) throw new BadRequestException('Para ofrecerle otra variedad, poné 0 en cuánto hay');
+      const r = await this.reemplazos.proponerVariedad(pedidoId, { productoId: dto.productoId, pedida: dto.pedida ?? null, variedades: dto.variedades }, quien.sub ?? null);
+      return { ...(r as any), propuesto: true };
+    }
+    // no hay y no hay otra: sale del pedido y al cliente se le avisa en el momento
+    if (dto.avisar === true && hay === 0) return this.reemplazos.sacarYAvisar(pedidoId, dto.productoId, quien.sub ?? null);
     const { data, error } = await this.db.rpc('resolver_falta_armado', {
       p_pedido: pedidoId,
       p_producto: dto.productoId,
@@ -745,9 +754,12 @@ export class SalonService {
   }
 
   /** «Lo llamé y dijo que sí / que no»: lo anota quien arma, sin esperar el WhatsApp. */
-  async decidirCambio(pedidoId: string, cambioId: string, acepta: boolean, quien: Usuario) {
+  async decidirCambio(pedidoId: string, cambioId: string, acepta: boolean, quien: Usuario, elegida?: string | null) {
     await this.pedidoDelArmado(pedidoId, quien);
-    return this.reemplazos.decidir(cambioId, acepta, { usuarioId: quien.sub ?? null, pedidoId, texto: `Lo anotó quien arma: ${acepta ? 'sí' : 'no'}` });
+    return this.reemplazos.decidir(cambioId, acepta, {
+      usuarioId: quien.sub ?? null, pedidoId, elegida: elegida ?? null,
+      texto: `Lo anotó quien arma: ${acepta ? (elegida ? `eligió ${elegida}` : 'sí') : 'no'}`,
+    });
   }
 
   /** Se arrepintió del parecido antes de consultar. */
