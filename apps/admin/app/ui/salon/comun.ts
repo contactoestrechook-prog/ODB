@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 // Lo que comparten las tres pestañas del salón (rediseño del 17/11/2026).
 
-export type Item = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
+export type Item = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null; aclaracion?: string | null };
 export type Carga = { id: number; productoId: string; cantidad: number; creadoEn: string };
 export type PedidoArmar = {
   id: string; estado: string; canal: string; origen: string; codigo: string; cliente: string | null; notas: string | null;

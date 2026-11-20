@@ -291,7 +291,12 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        items: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, cantidad: { type: 'number' } }, required: ['sku','cantidad'], additionalProperties: false } },
+        items: { type: 'array', items: { type: 'object', properties: {
+          sku: { type: 'string' },
+          cantidad: { type: 'number' },
+          // 20/11/2026: el «limón» del Saphirus Textil VARIOS no le llegaba a quien arma
+          aclaracion: { type: 'string', description: 'Lo que el cliente pidió de ese renglón y el nombre del producto no dice: fragancia, sabor, color, variedad (sobre todo en los productos VARIOS). Le aparece a quien arma el pedido. Vacío si no hay.' },
+        }, required: ['sku','cantidad'], additionalProperties: false } },
         tipo: { type: 'string', enum: ['pickup','domicilio'] },
         nombre: { type: 'string', description: 'Nombre de quien retira (retiro) o recibe (envío), ya indicado por el cliente. Obligatorio en los dos.' },
         direccion: { type: 'string', description: 'Calle y número para envío; vacío para retiro.' },

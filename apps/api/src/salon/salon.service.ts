@@ -8,6 +8,7 @@ import { PedidosService } from '../pedidos/pedidos.service';
 import { ReemplazosService } from '../reemplazos/reemplazos.service';
 import { tiemposPorPreparador } from './tiempos';
 import { reservadoDelRenglon } from '../pedidos/sin-stock';
+import { aclaracionDe, aclaracionesDeNotas, sinAclaraciones } from '../comun/aclaraciones';
 import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
 
 // OP SALÓN (Leandro, 5/11/2026). Tres trabajos del que está en el salón:
@@ -617,12 +618,15 @@ export class SalonService {
     const enSistema = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, Number(l.cantidad) || 0]));
     return pedidos.map((p) => {
       const cargas = ((carro ?? []) as any[]).filter((c) => c.pedido_id === p.id);
+      // lo que aclaró el cliente de cada renglón («limón» del Saphirus VARIOS, 20/11/2026)
+      const aclaraciones = aclaracionesDeNotas(p.notas);
       const items = ((p.items ?? []) as any[]).map((i) => {
         const enCarro = cargas.filter((c) => c.producto_id === i.producto_id).reduce((a, c) => a + Number(c.cantidad), 0);
         return {
           productoId: i.producto_id,
           sku: i.producto?.sku ?? null,
           nombre: i.producto?.nombre ?? 'Producto',
+          aclaracion: aclaracionDe(String(i.producto?.nombre ?? ''), aclaraciones),
           cantidad: Number(i.cantidad),
           enCarro,
           ubicacion: lugar.get(`${i.producto_id}|${p.sucursal_id}`) ?? null,
@@ -639,7 +643,8 @@ export class SalonService {
         origen: p.origen,
         codigo: p.qr_retiro ?? p.id.slice(0, 6).toUpperCase(),
         cliente: p.cliente?.nombre?.trim() || p.contacto_nombre?.trim() || null,
-        notas: p.notas ?? null,
+        // las aclaraciones ya van en su renglón: en la nota no se repiten
+        notas: sinAclaraciones(p.notas) || null,
         sucursal: p.sucursal?.nombre ?? null,
         sucursalId: p.sucursal_id ?? null,
         asignadoA: p.asignado_a,

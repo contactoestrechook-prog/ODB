@@ -46,6 +46,17 @@ describe('retiro: el nombre de quien lo pasa a buscar', () => {
     expect(inserts[0].nombre).toBe('Juan Pérez');
   });
 
+  it('la aclaración del cliente («limón») queda en su renglón, en el resumen y en las notas del pedido (20/11/2026)', async () => {
+    const { s, inserts } = armar();
+    const out = await s.prepararPedido('111', 'pedidos', { tipo: 'pickup', nombre: 'Daniela', notas: 'Paga en efectivo', items: [{ sku: 'picada', cantidad: 3, aclaracion: 'limón' }] });
+    expect(out.resumen).toMatch(/^• Combo Picada Box \(limón\) — 3 × \$44\.500 c\/u = \$133\.500$/m);
+    expect(out.resumen).not.toMatch(/Indicaciones: .*Aclaraciones/);
+    expect(inserts[0].items[0]).toMatchObject({ sku: 'picada', aclaracion: 'limón' });
+    expect(inserts[0].notas).toBe('Aclaraciones: Combo Picada Box «limón» · Paga en efectivo');
+    // la placa sigue leyendo la lista
+    expect(leerResumenDePedido(out.resumen)!.renglones?.[0]).toMatchObject({ nombre: 'Combo Picada Box (limón)' });
+  });
+
   it('la placa lee «Retira» como lee «Recibe»', () => {
     const r = leerResumenDePedido('• Combo Picada Box — 3 × $44.500 c/u = $133.500\nTotal: $133.500\nRetiro en la sucursal Saint Thomas. Retira Juan Pérez.\n¿Lo confirmo?')!;
     expect(r.entrega).toEqual({ titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning · retira Juan Pérez' });

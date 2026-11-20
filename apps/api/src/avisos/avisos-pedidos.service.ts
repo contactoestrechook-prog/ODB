@@ -11,6 +11,7 @@ import {
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
   textoDeAsignado, textoDelAviso, textoDePagado, textoDeSacado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
+import { aclaracionDe, aclaracionesDeNotas, sinAclaraciones } from '../comun/aclaraciones';
 
 // TODA CONFIRMACIÓN DE PEDIDO SALE AL TELÉFONO DE ADMINISTRACIÓN (regla de
 // Leandro, 3/10/2026). El 3/10 el bot confirmó PICKUP-5F2451C6C111 y no se le
@@ -159,7 +160,7 @@ export class AvisosPedidosService {
     const lineaWhatsapp = (bot as any)?.data?.linea ? await this.lineas.etiqueta(String((bot as any).data.linea)).catch(() => '') : '';
     return {
       id: (p as any).id, qr_retiro: (p as any).qr_retiro, canal: String((p as any).canal), estado: String((p as any).estado),
-      total: Number((p as any).total), creado_en: (p as any).creado_en, notas: (p as any).notas,
+      total: Number((p as any).total), creado_en: (p as any).creado_en,
       destino_direccion: (p as any).destino_direccion, entrega_fecha: (p as any).entrega_fecha, entrega_franja: (p as any).entrega_franja,
       pagado_en: (p as any).pagado_en, cliente, telefonoReal: await this.telefonoReal(cliente?.telefono), esDelBot: !!(bot as any)?.data,
       contacto: (p as any).contacto_nombre || (p as any).contacto_telefono ? { nombre: (p as any).contacto_nombre ?? null, telefono: (p as any).contacto_telefono ?? null } : null,
@@ -169,7 +170,14 @@ export class AvisosPedidosService {
       // confirmado por el comprobante de una transferencia: el aviso no dice «Se cobra al retirar» (5/10/2026)
       confirmadoPorComprobante: /^comprobante:/i.test(String((bot as any)?.data?.confirmacion ?? '')) ? String((bot as any).data.confirmacion) : null,
       lineaWhatsapp: lineaWhatsapp || null,
-      items: (((p as any).pedidos_items ?? []) as any[]).map((i) => ({ nombre: String(i.productos?.nombre ?? 'Producto'), cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) })),
+      // la aclaración del cliente va pegada al producto («Saphirus Textil VARIOS (limón)»), en
+      // el texto y en la tarjeta; de las notas sale (si no, estaría dos veces) (20/11/2026)
+      notas: sinAclaraciones((p as any).notas) || null,
+      items: (((p as any).pedidos_items ?? []) as any[]).map((i) => {
+        const nombre = String(i.productos?.nombre ?? 'Producto');
+        const ac = aclaracionDe(nombre, aclaracionesDeNotas((p as any).notas));
+        return { nombre: ac ? `${nombre} (${ac})` : nombre, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) };
+      }),
     };
   }
 

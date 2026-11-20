@@ -6,6 +6,7 @@ import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esProbador, esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono } from './pausa';
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
+import { aclaracionesPorSku, notasConAclaraciones, sinAclaraciones } from '../comun/aclaraciones';
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta, esTextoInterno } from './prolijo';
@@ -3251,7 +3252,10 @@ export class BotService {
     if (tipo === 'pickup' && !nombre) throw new BadRequestException('Para retiro falta el nombre de quien lo pasa a buscar. Preguntale SOLO eso, en una línea: «¿A nombre de quién lo retiran?», sin volver a mostrar la lista ni preguntar otra cosa. Con el nombre, llamá preparar_pedido con ese nombre.');
     const items = agruparItems(input.items ?? []);
     if (items.length > maxRenglonesBot() || items.reduce((n, i) => n + i.cantidad, 0) > maxUnidadesBot()) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo');
-    const todo = await this.cotizarPedido(items, telefono, { textoCliente });
+    // la aclaración de cada renglón («limón» del Saphirus VARIOS) llega a quien arma (20/11/2026)
+    const aclaraciones = aclaracionesPorSku(input.items);
+    const todoSinAclarar = await this.cotizarPedido(items, telefono, { textoCliente });
+    const todo = { ...todoSinAclarar, renglones: todoSinAclarar.renglones.map((r: any) => (aclaraciones.has(String(r.sku)) ? { ...r, aclaracion: aclaraciones.get(String(r.sku)) } : r)) };
     // SE ARMA CON LO QUE HAY (Leandro, 10/10/2026: el cliente dio el nombre y el bot lo pasó a
     // una persona porque en la lista había dos productos sin stock suficiente, que ya le había
     // dicho que no tenía). Lo que no alcanza, no tiene precio o no tiene la presentación
@@ -3295,20 +3299,21 @@ export class BotService {
     }
     const franja = ['mañana','tarde'].includes(input.entrega_franja) ? input.entrega_franja : null;
     const resumen = [
-      ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
+      ...cot.renglones.map((r: any) => `• ${r.nombre}${r.aclaracion ? ` (${r.aclaracion})` : ''} — ${r.renglon}`),
       `Total: $${pesos(cot.total)}`,
       (cot as any).totalEfectivo ? `Pagando en efectivo o transferencia: $${pesos((cot as any).totalEfectivo)} (${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO}).` : null,
       tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : `Retiro en la sucursal Saint Thomas. Retira ${nombre}.`,
       fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
       // la forma de pago queda en las notas para el local, pero no se le repite al cliente (10/10/2026)
-      notasParaElCliente(input.notas) ? `Indicaciones: ${notasParaElCliente(input.notas)}` : null,
+      notasParaElCliente(sinAclaraciones(input.notas)) ? `Indicaciones: ${notasParaElCliente(sinAclaraciones(input.notas))}` : null,
       sinDecir.length ? `Sin: ${sinDecir.join(', ')} (no hay ahora).` : null,
       '¿Lo confirmo?',
     ].filter(Boolean).join('\n');
     const { data, error } = await this.db.from('bot_cotizaciones').insert({
       linea, telefono, cliente_id: ident.clienteId ?? null, sucursal_id: cot.sucursalId,
       items: cot.renglones, total: cot.total, tipo, direccion: tipo === 'domicilio' ? direccion : null,
-      nombre, notas: String(input.notas ?? '').slice(0,300) || null,
+      // las aclaraciones van primero: las notas se cortan a 300
+      nombre, notas: notasConAclaraciones(input.notas, cot.renglones.filter((r: any) => r.aclaracion).map((r: any) => ({ nombre: String(r.nombre), texto: String(r.aclaracion) }))).slice(0,300) || null,
       entrega_fecha: fecha || null, entrega_franja: franja, resumen,
     }).select('id').single();
     if (error || !data?.id) {
@@ -3390,7 +3395,7 @@ export class BotService {
         const nueva: any = await this.prepararPedido(dto.telefono, lineaDelPedido, {
           tipo: q.tipo, nombre: q.nombre ?? '', direccion: q.direccion ?? '', notas: q.notas ?? '',
           entrega_fecha: q.entrega_fecha ?? '', entrega_franja: q.entrega_franja ?? '',
-          items: ((q.items ?? []) as any[]).map((r) => ({ sku: String(r.sku), cantidad: Number(r.cantidad) })),
+          items: ((q.items ?? []) as any[]).map((r) => ({ sku: String(r.sku), cantidad: Number(r.cantidad), ...(r.aclaracion ? { aclaracion: String(r.aclaracion) } : {}) })),
         });
         if (nueva.avisoFecha) throw new BadRequestException('NO se creó el pedido: la fecha de entrega ya pasó. Pedile otra fecha al cliente y volvé a preparar el pedido.');
         // lo que vio el cliente, renglón por renglón: producto, cantidad, precio, presentación y efectivo
