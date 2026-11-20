@@ -2930,10 +2930,14 @@ export class BotService {
     // solo se cuenta: cada fila vuelve a viajar en cada vuelta del modelo.
     const conStock = stock.filter((p: any) => Number(p.total) > 0);
     const sinStock = stock.filter((p: any) => !(Number(p.total) > 0));
+    // las variedades que se conocen de cada producto VARIOS (20/11/2026: las dice quien arma)
+    const conocidas: Map<string, string[]> = (await this.reemplazos?.variedadesDe((prods ?? []).map((p: any) => String(p.id))).catch(() => null)) ?? new Map<string, string[]>();
     const items = conStock.map((p: any) => {
       const prod = idPorSku.get(p.sku);
       const pr = prod ? precioPorId.get(prod.id) : null;
+      const variedades = prod ? conocidas.get(String(prod.id)) : undefined;
       return this.sinNulos({
+        ...(variedades?.length ? { variedades } : {}),
         sku: p.sku,
         nombre: p.nombre,
         precio: pr?.precio_final != null ? Number(pr.precio_final) : null,

@@ -36,7 +36,7 @@ export async function traerParecidos(pedidoId: string, productoId: string, falta
   return Array.isArray(d) ? d : [];
 }
 
-export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consultaQuienArma = false, conCliente = false, pedida = null }: {
+export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consultaQuienArma = false, conCliente = false, pedida = null, sugerencias = [] }: {
   item: RenglonFalta;
   onCerrar: () => void;
   onListo: (d: { hay: number; reemplazo: Reemplazo | null; cantidad: number | null; variedades?: string[]; avisar?: boolean }) => Promise<void>;
@@ -48,6 +48,8 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consu
   conCliente?: boolean;
   /** Lo que aclaró el cliente de ese renglón («limón»). */
   pedida?: string | null;
+  /** Las variedades que ya se conocen de ese producto (las dijo alguien al armar). */
+  sugerencias?: string[];
   /** Las sugerencias de «Tengo parecido» para lo que falta. */
   buscarParecidos?: (faltan: number) => Promise<Reemplazo[]>;
   /** Fiambrería: el parecido se lo consulta al cliente quien arma el pedido, no ella. */
@@ -110,9 +112,13 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consu
     return () => { vivo = false; clearTimeout(t); };
   }, [buscar, reemplazo, item.productoId]);
 
+  // lo escrito y no sumado TAMBIÉN cuenta (20/11/2026: escribieron «bebé», no
+  // tocaron Sumar y el botón quedó en «Sacar y avisarle»: salió del pedido)
+  const escrita = nuevaVariedad.trim();
+  const todas = escrita && !variedades.some((x) => x.toLowerCase() === escrita.toLowerCase()) ? [...variedades, escrita] : variedades;
   // la variedad solo cuando no hay nada de lo que pidió y no se eligió un parecido
-  const conVariedades = conCliente && !reemplazo && hayValido && nHay === 0 && variedades.length > 0;
-  const avisarAlCliente = conCliente && !reemplazo && hayValido && nHay === 0 && !variedades.length && avisar;
+  const conVariedades = conCliente && !reemplazo && hayValido && nHay === 0 && todas.length > 0;
+  const avisarAlCliente = conCliente && !reemplazo && hayValido && nHay === 0 && !todas.length && avisar;
   const sumarVariedad = () => {
     const v = nuevaVariedad.trim();
     if (v && !variedades.some((x) => x.toLowerCase() === v.toLowerCase())) setVariedades((xs) => [...xs, v].slice(0, 8));
@@ -125,7 +131,7 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consu
     try {
       await onListo({
         hay: nHay, reemplazo, cantidad: reemplazo ? nCant : null,
-        ...(conVariedades ? { variedades } : {}), ...(avisarAlCliente ? { avisar: true } : {}),
+        ...(conVariedades ? { variedades: todas } : {}), ...(avisarAlCliente ? { avisar: true } : {}),
       });
     }
     catch (e: any) { setError(String(e?.message ?? 'No se pudo cambiar el pedido')); setGuardando(false); }
@@ -184,17 +190,26 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consu
               ))}
             </ul>
           )}
+          {/* las que ya se conocen de este producto (las dijo alguien al armar): un toque */}
+          {sugerencias.filter((s) => !todas.some((x) => x.toLowerCase() === s.toLowerCase()) && s.toLowerCase() !== String(pedida ?? '').toLowerCase()).length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {sugerencias.filter((s) => !todas.some((x) => x.toLowerCase() === s.toLowerCase()) && s.toLowerCase() !== String(pedida ?? '').toLowerCase()).map((s) => (
+                <button key={s} type="button" onClick={() => setVariedades((xs) => [...xs, s].slice(0, 8))}
+                  className="rounded-full border border-dashed border-black/20 px-3 py-1 text-sm text-tinta/80 active:bg-crema-claro">+ {s}</button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Entrada value={nuevaVariedad} onChange={(e) => setNuevaVariedad(e.target.value)} aria-label="Otra variedad que hay"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sumarVariedad(); } }} className="flex-1" />
             <Boton tamano="chico" variante="secundario" onClick={sumarVariedad} disabled={!nuevaVariedad.trim()}>Sumar</Boton>
           </div>
           <p className="mt-2 text-xs text-tinta/70">
-            {variedades.length
-              ? <>Al cliente le llega «{pedida ? `de ${pedida} ` : ''}no hay. De ese tenemos: {variedades.join(', ')}. ¿Cuál querés?» cuando tocás <b className="font-semibold">Consultar al cliente</b>. Lo que elija te aparece acá.</>
-              : 'Escribí cada una y tocá Sumar. Si no hay ninguna, dejalo vacío.'}
+            {todas.length
+              ? <>Al cliente le llega «{pedida ? `de ${pedida} ` : ''}no hay. De ese tenemos: {todas.join(', ')}. ¿Cuál querés?» cuando tocás <b className="font-semibold">Consultar al cliente</b>. Lo que elija te aparece acá.</>
+              : 'Escribí cada una (o tocá las de arriba). Si no hay ninguna, dejalo vacío.'}
           </p>
-          {!variedades.length && (
+          {!todas.length && (
             <label className="mt-3 flex items-center gap-2 text-sm text-tinta">
               <input type="checkbox" checked={avisar} onChange={(e) => setAvisar(e.target.checked)} className="size-5 accent-marca" />
               Avisarle al cliente por WhatsApp que no hay
@@ -203,7 +218,7 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consu
         </div>
       )}
 
-      <div className={unir('mt-5 border-t border-black/[0.06] pt-4', variedades.length > 0 && 'hidden')}>
+      <div className={unir('mt-5 border-t border-black/[0.06] pt-4', conVariedades && 'hidden')}>
         <p className="mb-2 text-sm font-semibold text-tinta">¿Tenés algo parecido? <span className="font-normal text-tinta/50">(si no, dejalo vacío)</span></p>
         {reemplazo ? (
           <div className="rounded-xl bg-ok-suave/70 p-3">

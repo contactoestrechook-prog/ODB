@@ -606,12 +606,14 @@ export class SalonService {
     if (!pedidos.length) return [];
     const ids = pedidos.map((p) => p.id);
     const productos = [...new Set(pedidos.flatMap((p) => (p.items ?? []).map((i: any) => i.producto_id)))];
-    const [{ data: carro }, { data: lugares }, nombres, cambios] = await Promise.all([
+    const [{ data: carro }, { data: lugares }, nombres, cambios, conocidas] = await Promise.all([
       this.db.from('pedidos_carro').select('id, pedido_id, producto_id, cantidad, creado_en').in('pedido_id', ids).order('creado_en'),
       this.db.from('stock').select('producto_id, sucursal_id, ubicacion, cantidad').in('producto_id', productos),
       this.nombres(),
       // «Tengo parecido» (20/11/2026): lo propuesto, lo consultado y lo que contestó el cliente
       this.reemplazos.dePedidos(ids),
+      // las variedades que se conocen de cada producto (20/11/2026): el armado las sugiere
+      this.reemplazos.variedadesDe(productos.map(String)).catch(() => new Map<string, string[]>()),
     ]);
     const lugar = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, l.ubicacion]));
     // lo que dice el sistema que hay (20/11/2026): si no alcanza, el armado lo marca
@@ -627,6 +629,7 @@ export class SalonService {
           sku: i.producto?.sku ?? null,
           nombre: i.producto?.nombre ?? 'Producto',
           aclaracion: aclaracionDe(String(i.producto?.nombre ?? ''), aclaraciones),
+          variedades: conocidas.get(String(i.producto_id)) ?? [],
           cantidad: Number(i.cantidad),
           enCarro,
           ubicacion: lugar.get(`${i.producto_id}|${p.sucursal_id}`) ?? null,

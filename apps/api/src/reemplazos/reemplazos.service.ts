@@ -9,7 +9,7 @@ import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { linkDelSalon } from '../avisos/aviso-pedido';
 import {
   cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo, leerVariedad,
-  ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDeNoHay, textoDePregunta, textoParaQuienArma, variedadesLimpias,
+  ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDeNoHay, textoDePregunta, textoParaQuienArma, variedadesLimpias, claveVariedad,
 } from './reemplazos';
 import { aclaracionDe, aclaracionesDeNotas, cambiarAclaracion } from '../comun/aclaraciones';
 
@@ -188,7 +188,33 @@ export class ReemplazosService {
       tipo: 'variedad', pedida, variedades, creado_por: usuarioId ?? null, estado: 'propuesto', intentos: 0, creado_en: new Date().toISOString(),
     }).select('id').single();
     if (e) throw new BadRequestException(this.migracion(e.message));
+    // lo que quien arma dice que hay queda sabido de ese producto (20/11/2026)
+    await this.aprenderVariedades(dto.productoId, variedades, usuarioId);
     return { id: (data as any).id, falta: nombre, pedida, variedades, variedad: true };
+  }
+
+  /**
+   * LAS VARIEDADES QUE SE CONOCEN (Leandro, 20/11/2026: «el empleado aclara que hay
+   * sabor bebé: ustedes ya en el sistema tienen que figurar que existe ese
+   * sabor»). Se guardan con la última vez que se vieron; nunca frena el armado.
+   */
+  async aprenderVariedades(productoId: string, nombres: string[], usuarioId?: string | null) {
+    const ahora = new Date().toISOString();
+    const filas = variedadesLimpias(nombres).map((nombre) => ({ producto_id: productoId, nombre, clave: claveVariedad(nombre), visto_en: ahora, ...(usuarioId ? { creado_por: usuarioId } : {}) }));
+    if (!filas.length) return;
+    const { error } = await this.db.from('producto_variedades').upsert(filas, { onConflict: 'producto_id,clave' });
+    if (error) this.log.warn(`no pude guardar las variedades de ${productoId}: ${error.message}`);
+  }
+
+  /** Las variedades conocidas de cada producto, las vistas más recientemente primero. */
+  async variedadesDe(productoIds: string[]): Promise<Map<string, string[]>> {
+    const m = new Map<string, string[]>();
+    const ids = [...new Set(productoIds.filter(Boolean))];
+    if (!ids.length) return m;
+    const { data, error } = await this.db.from('producto_variedades').select('producto_id, nombre, visto_en').in('producto_id', ids).order('visto_en', { ascending: false });
+    if (error) return m;
+    for (const f of (data ?? []) as any[]) m.set(String(f.producto_id), [...(m.get(String(f.producto_id)) ?? []), String(f.nombre)]);
+    return m;
   }
 
   /**
@@ -495,6 +521,8 @@ export class ReemplazosService {
     if (error) throw new BadRequestException(this.migracion(error.message));
     if (!tomada?.length) return { estado: 'aceptado', yaEstaba: true };
     let fallo: string | null = null;
+    // la que eligió existe: queda sabida (y vista ahora)
+    await this.aprenderVariedades(f.producto_id, [final], o.usuarioId ?? null);
     const { error: eNotas } = await this.db.from('pedidos').update({ notas: cambiarAclaracion((ped as any)?.notas, f.nombre_falta, final) }).eq('id', f.pedido_id);
     if (eNotas) fallo = eNotas.message;
     await this.db.from('pedidos_historial').insert({

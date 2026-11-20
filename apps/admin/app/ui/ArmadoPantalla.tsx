@@ -15,7 +15,7 @@ import { cantidadDe, FaltaEnGondola, traerParecidos } from './FaltaEnGondola';
 // lo que ya está en el carro baja. Un escaneo cuenta UNO; tocar un producto
 // abre la cantidad (el total en el carro), que también sirve para corregir.
 
-export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null; /** lo que el sistema dice que hay para este pedido (20/11/2026) */ hayEnSistema?: number | null; /** lo que aclaró el cliente: «limón» del Saphirus VARIOS (20/11/2026) */ aclaracion?: string | null };
+export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null; /** lo que el sistema dice que hay para este pedido (20/11/2026) */ hayEnSistema?: number | null; /** lo que aclaró el cliente: «limón» del Saphirus VARIOS (20/11/2026) */ aclaracion?: string | null; /** las variedades que se conocen del producto (20/11/2026) */ variedades?: string[] };
 /** La aclaración del cliente, bien a la vista debajo del producto. */
 const Aclaracion = ({ texto }: { texto?: string | null }) => (texto ? <span className="mt-0.5 block text-sm font-bold text-marca-hondo">Pidió: {texto}</span> : null);
 export type CargaArmado = { id: number; productoId: string; cantidad: number; creadoEn: string };
@@ -597,7 +597,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
       {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
         onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
-      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} conCliente pedida={falta.aclaracion ?? null} />}
+      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} conCliente pedida={falta.aclaracion ?? null} sugerencias={falta.variedades ?? []} />}
       {desconocido && (
         <Modal abierto onCerrar={() => { callados.current.set(desconocido, Date.now() + 30_000); setDesconocido(null); }} ancho="chico" titulo="Ese código no está en el sistema"
           descripcion={`Leí ${desconocido}. Si es uno de estos, tocalo: va al carro y el código queda guardado para la próxima vez (y para la caja).`}

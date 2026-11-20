@@ -124,6 +124,9 @@ export function variedadesLimpias(xs: unknown): string[] {
   return salida.slice(0, 8);
 }
 
+/** La clave con que se guarda una variedad conocida: minúsculas y sin tildes («Bebé» = «bebe»). */
+export const claveVariedad = (t: string) => sinTildes(String(t ?? '')).toLowerCase().replace(/\s+/g, ' ').trim();
+
 /** «Saphirus Textil VARIOS de limón» o el nombre solo. */
 const conPedida = (c: CambioParaTexto) => `*${c.nombre_falta}*${c.pedida ? ` de *${c.pedida}*` : ''}`;
 
