@@ -13,7 +13,7 @@ function base(previo: any) {
   };
   return { db: { from: () => q } as any, escrituras };
 }
-const salon = (db: any) => new SalonService(db, {} as any, {} as any);
+const salon = (db: any) => new SalonService(db, {} as any, {} as any, {} as any);
 
 describe('el aviso a quien arma el pedido', () => {
   it('la primera vez se encola con quién es', async () => {

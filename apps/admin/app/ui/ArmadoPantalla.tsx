@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Aviso, Boton, Entrada, Modal, unir, useConfirmar } from './kit';
 import { numero, pesos } from '../lib/formato';
-import { FaltaEnGondola } from './FaltaEnGondola';
+import { cantidadDe, FaltaEnGondola, traerParecidos } from './FaltaEnGondola';
 
 // EL ARMADO A PANTALLA COMPLETA (Leandro, 5/11/2026: «una vez que tienen el
 // pedido se les abre en casi toda la pantalla; a medida que escanean se va
@@ -17,10 +17,21 @@ import { FaltaEnGondola } from './FaltaEnGondola';
 
 export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
 export type CargaArmado = { id: number; productoId: string; cantidad: number; creadoEn: string };
+/** Un «Tengo parecido» (20/11/2026): propuesto, consultado por WhatsApp y lo que contestó el cliente. */
+export type CambioArmado = {
+  id: string; productoId: string; falta: string; pide: number; hay: number; reemplazoId: string; reemplazo: string; cantidad: number; precio: number | null;
+  faltaPorPeso?: boolean; reemplazoPorPeso?: boolean;
+  estado: 'propuesto' | 'en_cola' | 'preguntado' | 'aceptado' | 'rechazado';
+  consultadoEn: string | null; preguntadoEn: string | null; respondidoEn: string | null; porWhatsapp: boolean;
+  error: string | null; ultimoError: string | null; otraRespuesta: string | null; otraRespuestaEn: string | null; cerradoEn: string | null;
+};
 export type PedidoArmado = {
   id: string; codigo: string; canal?: string | null; cliente: string | null; notas: string | null; sucursal: string | null;
-  asignadoEn: string; cargas: CargaArmado[]; items: ItemArmado[];
+  asignadoEn: string; cargas: CargaArmado[]; items: ItemArmado[]; cambios?: CambioArmado[];
 };
+const ABIERTO = ['propuesto', 'en_cola', 'preguntado'];
+/** «2 × Manteca x 100 gr», «Manteca x 100 gr», «250 g de Jamón». */
+const conCantidad = (n: number, nombre: string, porPeso?: boolean) => porPeso ? `${cantidadDe(n, true)} de ${nombre}` : n === 1 ? nombre : `${numero(n, 2)} × ${nombre}`;
 
 type Mensaje = { tono: 'ok' | 'error'; texto: string; vez: number };
 
@@ -143,6 +154,37 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   // lo que llega del servidor manda (otro aparato, el refresco de cada 8 s)
   useEffect(() => { setItems(p.items); setCargas(p.cargas); }, [p.items, p.cargas]);
 
+  // «Tengo parecido» (20/11/2026): lo propuesto, lo que espera al cliente y lo que contestó
+  const cambios = useMemo(() => p.cambios ?? [], [p.cambios]);
+  const cambioAbierto = new Map(cambios.filter((c) => ABIERTO.includes(c.estado)).map((c) => [c.productoId, c]));
+  const propuestos = cambios.filter((c) => c.estado === 'propuesto');
+  const esperando = cambios.filter((c) => c.estado === 'en_cola' || c.estado === 'preguntado');
+  const [consultando, setConsultando] = useState(false);
+  // el cliente no tiene WhatsApp: lo llama y anota lo que dijo en cada cambio
+  const [sinWhatsapp, setSinWhatsapp] = useState(false);
+  // cada respuesta del cliente se avisa (pitido y franja) apenas llega con el refresco
+  const estadosVistos = useRef<Map<string, string> | null>(null);
+  const otrasVistas = useRef(new Set<string>());
+  useEffect(() => {
+    const antes = estadosVistos.current;
+    estadosVistos.current = new Map(cambios.map((c) => [c.id, c.estado]));
+    if (!antes) return;
+    const nuevas = cambios.filter((c) => (c.estado === 'aceptado' || c.estado === 'rechazado') && c.porWhatsapp && antes.get(c.id) && antes.get(c.id) !== c.estado);
+    if (nuevas.length) {
+      const c = nuevas[nuevas.length - 1];
+      avisarRef.current('ok', c.estado === 'aceptado' ? `El cliente dijo SÍ: va ${conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso)}` : `El cliente dijo NO: ${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'}`);
+    }
+    // contestó otra cosa (preguntó algo): lo lee quien arma y anota lo que quiere
+    for (const c of cambios) {
+      if (!c.otraRespuestaEn || c.estado !== 'preguntado') continue;
+      const clave = `${c.id}|${c.otraRespuestaEn}`;
+      if (otrasVistas.current.has(clave)) continue;
+      otrasVistas.current.add(clave);
+      if (Date.now() - Date.parse(c.otraRespuestaEn) < 60_000) avisarRef.current('error', `El cliente escribió: «${c.otraRespuesta}». Leelo y anotá lo que quiere.`);
+    }
+  }, [cambios]);
+
+
   const faltan = items.filter((i) => i.enCarro < i.cantidad);
   const listos = items.filter((i) => i.enCarro >= i.cantidad);
   const unidadesTotal = items.reduce((a, i) => a + i.cantidad, 0);
@@ -153,6 +195,8 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     pitido(tono === 'ok');
     vibrar(tono === 'ok' ? 60 : [120, 80, 120]);
   }, []);
+  const avisarRef = useRef(avisar);
+  avisarRef.current = avisar;
 
   /** Suma al carro. Antes de ir al servidor ya se ve (y si falla, vuelve atrás). */
   const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number }): Promise<Resultado> => {
@@ -263,6 +307,12 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   async function resolverFalta(it: ItemArmado, d: { hay: number; reemplazo: { id: string; nombre: string } | null; cantidad: number | null }) {
     const r = await enviar({ accion: 'falta', pedidoId: p.id, productoId: it.productoId, hay: d.hay, reemplazoId: d.reemplazo?.id ?? null, cantidad: d.reemplazo ? d.cantidad : null });
     setFalta(null);
+    // «Tengo parecido»: queda para consultar; el pedido todavía no cambia
+    if (r?.propuesto) {
+      avisar('ok', `Guardado: ${it.nombre} → ${numero(Number(r.cantidad), 2)} × ${r.reemplazo}. Al terminar, consultale al cliente.`);
+      await onCambio();
+      return;
+    }
     const partes = [d.hay > 0 ? `${it.nombre}: quedan ${numero(d.hay, 2)}` : `${it.nombre} salió del pedido`];
     if (r?.puso) partes.push(`va ${numero(r.puso.cantidad, 2)} × ${r.puso.nombre}`);
     if (r?.totalAntes != null && r?.total != null && Number(r.totalAntes) !== Number(r.total)) partes.push(`total ${pesos(r.totalAntes)} → ${pesos(r.total)}`);
@@ -277,10 +327,46 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     }
   }
 
+  /** «Consultar al cliente»: sale el WhatsApp del primer cambio; los demás, de a uno, con cada respuesta. */
+  async function consultar() {
+    setConsultando(true);
+    try {
+      const r = await enviar({ accion: 'consultar', pedidoId: p.id });
+      if (r?.enviado) avisar('ok', `Le mandé la consulta por WhatsApp${r.cambios > 1 ? ` (de a uno, son ${r.cambios})` : ''}. Te aviso cuando conteste.`);
+      else avisar(r?.motivo ? 'error' : 'ok', r?.motivo ?? 'Quedó en cola para mandarle la consulta.');
+      await onCambio();
+    } catch (e: any) {
+      const texto = String(e?.message ?? 'No pude mandar la consulta');
+      if (/WhatsApp del cliente/.test(texto)) setSinWhatsapp(true);
+      avisar('error', texto);
+    }
+    finally { setConsultando(false); }
+  }
+
+  /** Lo que le dijo el cliente por otro lado (lo llamó, vino al local). */
+  async function anotar(c: CambioArmado, acepta: boolean) {
+    const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
+    if (!(await confirmar({
+      titulo: acepta ? '¿El cliente dijo que SÍ?' : '¿El cliente dijo que NO?',
+      texto: acepta ? `Entra ${va} en lugar de ${c.falta}.` : `${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'} y no va ${c.reemplazo}.`,
+      textoConfirmar: acepta ? 'Sí, dijo que sí' : 'Sí, dijo que no',
+    }))) return;
+    try {
+      const r = await enviar({ accion: 'decidir-cambio', pedidoId: p.id, cambioId: c.id, acepta });
+      avisar(r?.error ? 'error' : 'ok', r?.error ? `Anotado, pero no pude cambiar el pedido: ${r.error}` : acepta ? `Anotado: va ${va}` : `Anotado: no va ${c.reemplazo}`);
+      await onCambio();
+    } catch (e: any) { avisar('error', String(e?.message ?? 'No pude anotarlo')); }
+  }
+
+  async function quitar(c: CambioArmado) {
+    try { await enviar({ accion: 'anular-cambio', pedidoId: p.id, cambioId: c.id }); avisar('ok', `Saqué el parecido de ${c.falta}`); await onCambio(); }
+    catch (e: any) { avisar('error', String(e?.message ?? 'No pude sacarlo')); }
+  }
+
   async function terminar() {
     if (faltan.length && !(await confirmar({
       titulo: `Faltan ${faltan.length} producto${faltan.length === 1 ? '' : 's'}`,
-      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, tocá el producto y elegí «No hay en la góndola». ¿Lo finalizás igual?`,
+      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, tocá el producto y elegí «No hay en la góndola» (ahí podés ofrecer un parecido). ¿Lo finalizás igual?`,
       textoConfirmar: 'Finalizar igual',
     }))) return;
     setTerminando(true);
@@ -319,6 +405,9 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }
 
   const cerrado = !!manual || terminando || leyendoFoto;
+  // las sugerencias de «Tengo parecido» del producto que falta (una función estable: la ventanita las pide al abrir)
+  const faltaId = falta?.productoId ?? null;
+  const parecidosDeLaFalta = useMemo(() => (faltaId ? (faltan: number) => traerParecidos(p.id, faltaId, faltan) : undefined), [p.id, faltaId]);
   const enFranja = ultimo ? items.find((i) => i.productoId === ultimo) ?? null : null;
   // dónde queda: lo que se retira va a la mesa de retiro; un envío, a la salida
   const destino = p.canal === 'domicilio' ? 'Dejalo listo para salir con el envío' : 'Dejalo en la mesa de retiro';
@@ -404,6 +493,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       {/* lo que falta (tocar = carga manual) y lo que ya está */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {p.notas && <p className="mb-3 whitespace-pre-wrap rounded-lg bg-atencion-suave px-3 py-2 text-sm text-tinta"><b>Nota:</b> {p.notas}</p>}
+        {cambios.length > 0 && <CambiosConElCliente cambios={cambios} ahora={ahora} aMano={sinWhatsapp} onAnotar={anotar} onQuitar={quitar} />}
         <ul className="space-y-2">
           {faltan.map((i) => {
             const resto = i.cantidad - i.enCarro;
@@ -417,6 +507,14 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
                       {i.ubicacion ? <b className="font-semibold text-dato-3">{i.ubicacion}</b> : 'Sin lugar cargado'}
                       {i.enCarro > 0 && ` · llevás ${numero(i.enCarro, 2)} de ${numero(i.cantidad, 2)}`}
                     </span>
+                    {cambioAbierto.get(i.productoId) && (() => {
+                      const c = cambioAbierto.get(i.productoId)!;
+                      return (
+                        <span className="mt-1 block text-xs font-semibold text-dato-3">
+                          Parecido: {conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso)} · {c.estado === 'propuesto' ? 'para consultar' : 'esperando al cliente'}
+                        </span>
+                      );
+                    })()}
                   </span>
                   <span className="shrink-0 text-xs text-tinta/50">Tocar para<br />poner cantidad</span>
                 </button>
@@ -445,15 +543,88 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       </div>
 
       <div className="bg-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
-        <Boton variante={faltan.length ? 'secundario' : 'ok'} anchoCompleto onClick={terminar} cargando={terminando}>
-          {faltan.length ? `Finalizar (faltan ${faltan.length})` : p.canal === 'domicilio' ? 'Finalizar: listo para salir' : 'Finalizar: a la mesa de retiro'}
-        </Boton>
+        {propuestos.length > 0 ? (
+          <Boton anchoCompleto onClick={consultar} cargando={consultando}>
+            Consultar al cliente {propuestos.length === 1 ? 'el cambio' : `los ${propuestos.length} cambios`}
+          </Boton>
+        ) : esperando.length > 0 ? (
+          <Boton variante="secundario" anchoCompleto disabled>
+            Esperando que el cliente conteste ({cambios.filter((c) => c.consultadoEn && !c.cerradoEn && !ABIERTO.includes(c.estado)).length} de {cambios.filter((c) => c.consultadoEn && !c.cerradoEn).length})
+          </Boton>
+        ) : (
+          <Boton variante={faltan.length ? 'secundario' : 'ok'} anchoCompleto onClick={terminar} cargando={terminando}>
+            {faltan.length ? `Finalizar (faltan ${faltan.length})` : p.canal === 'domicilio' ? 'Finalizar: listo para salir' : 'Finalizar: a la mesa de retiro'}
+          </Boton>
+        )}
       </div>
 
       {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
         onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
-      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} />}
+      {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} />}
     </div>
+  );
+}
+
+/**
+ * Los cambios con el cliente (20/11/2026): cada parecido con su estado. Lo que
+ * espera respuesta se puede anotar a mano (el cliente llamó o vino al local);
+ * lo propuesto se puede sacar antes de consultar. Lo contestado queda en verde.
+ */
+function CambiosConElCliente({ cambios, ahora, aMano, onAnotar, onQuitar }: {
+  cambios: CambioArmado[]; ahora: number;
+  /** sin WhatsApp del cliente: lo propuesto también se anota a mano */
+  aMano: boolean;
+  onAnotar: (c: CambioArmado, acepta: boolean) => void; onQuitar: (c: CambioArmado) => void;
+}) {
+  const minutos = (desde: string | null) => desde ? Math.max(0, Math.floor((ahora - Date.parse(desde)) / 60_000)) : 0;
+  const respondidos = cambios.filter((c) => c.estado === 'aceptado' || c.estado === 'rechazado');
+  const todosContestados = respondidos.length === cambios.length;
+  return (
+    <section className={unir('mb-3 rounded-2xl border p-3', todosContestados ? 'border-ok/30 bg-ok-suave/60' : 'border-dato-3/25 bg-white')}>
+      <p className="text-sm font-bold text-tinta">
+        {todosContestados ? (respondidos.some((c) => c.porWhatsapp) ? 'El cliente contestó los cambios' : 'Cambios anotados') : 'Cambios con el cliente'}
+      </p>
+      <ul className="mt-2 space-y-2">
+        {cambios.map((c) => {
+          const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
+          const min = minutos(c.preguntadoEn);
+          return (
+            <li key={c.id} className="rounded-xl bg-crema-claro/70 px-3 py-2">
+              <p className="text-sm text-tinta">
+                {c.estado === 'aceptado' ? <b className="text-ok">✔ SÍ</b> : c.estado === 'rechazado' ? <b className="text-marca">✖ NO</b> : null}
+                {c.estado === 'aceptado' || c.estado === 'rechazado' ? ' · ' : ''}
+                <span className="font-semibold">{c.falta}</span> → {va}
+                {c.precio != null && <span className="importe text-tinta/60"> ({pesos(c.cantidad * c.precio)})</span>}
+              </p>
+              <p className="mt-0.5 text-xs text-tinta/70">
+                {c.estado === 'propuesto' && 'Para consultar'}
+                {c.estado === 'en_cola' && (c.ultimoError ? `Todavía no salió: ${c.ultimoError}` : c.consultadoEn ? 'Sale después de la respuesta anterior' : 'En cola')}
+                {c.estado === 'preguntado' && `Esperando respuesta · le escribí hace ${min} min${min >= 10 ? '. Si no contesta, llamalo.' : ''}`}
+                {c.estado === 'aceptado' && (c.porWhatsapp ? 'Lo aceptó por WhatsApp. Sumalo al carro.' : 'Anotado a mano. Sumalo al carro.')}
+                {c.estado === 'rechazado' && (c.hay > 0 ? `No lo quiso: queda en ${cantidadDe(c.hay, c.faltaPorPeso)}.` : 'No lo quiso: sale del pedido.')}
+              </p>
+              {c.error && <p className="mt-1 text-xs font-semibold text-marca">No pude cambiar el pedido: {c.error}. Avisale a la caja.</p>}
+              {c.estado === 'preguntado' && c.otraRespuesta && (
+                <p className="mt-1 rounded-lg bg-atencion-suave px-2 py-1 text-xs text-tinta">Escribió: «{c.otraRespuesta}»</p>
+              )}
+              {(c.estado === 'preguntado' || c.estado === 'en_cola') && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Boton tamano="chico" variante="secundario" onClick={() => onAnotar(c, true)}>Me dijo que sí</Boton>
+                  <Boton tamano="chico" variante="secundario" onClick={() => onAnotar(c, false)}>Me dijo que no</Boton>
+                </div>
+              )}
+              {c.estado === 'propuesto' && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {aMano && <Boton tamano="chico" variante="secundario" onClick={() => onAnotar(c, true)}>Me dijo que sí</Boton>}
+                  {aMano && <Boton tamano="chico" variante="secundario" onClick={() => onAnotar(c, false)}>Me dijo que no</Boton>}
+                  <Boton tamano="chico" variante="fantasma" onClick={() => onQuitar(c)}>Sacar el parecido</Boton>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

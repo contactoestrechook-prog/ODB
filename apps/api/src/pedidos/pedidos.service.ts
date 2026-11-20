@@ -826,6 +826,11 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: h.detalle?.repartidor ? `Repartidor: ${h.detalle.repartidor}` : 'Se sacó el repartidor', quien: quien(h.usuario_id), tono: 'neutro' });
       } else if (h.evento === 'productos') {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeProductos(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
+      } else if (h.evento === 'reemplazo') {
+        // «Tengo parecido» (20/11/2026): qué contestó el cliente (o lo que anotó quien arma)
+        const d = h.detalle ?? {};
+        const que = `${d.acepta ? 'Aceptó' : 'No quiso'} ${d.reemplazo ?? 'el parecido'} en lugar de ${d.falta ?? 'lo que faltaba'}${d.por_whatsapp ? ' (lo contestó el cliente por WhatsApp)' : ''}`;
+        lineas.push({ cuando: h.creado_en, que, quien: d.por_whatsapp ? null : quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
       } else if (h.evento === 'envio') {
@@ -835,8 +840,12 @@ export class PedidosService {
     const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
     for (const a of (avisos ?? []) as any[]) {
       // el aviso a quien lo arma va a su celular, no a administración (16/11/2026)
-      if (a.tipo === 'pedido_asignado') {
+      if (a.tipo === 'pedido_asignado' || a.tipo === 'cambios_respondidos') {
         const a_quien = a.detalle?.nombre ? String(a.detalle.nombre) : 'quien lo arma';
+        if (a.tipo === 'cambios_respondidos') {
+          if (a.entregado_en || a.enviado_en) lineas.push({ cuando: a.entregado_en ?? a.enviado_en, que: `Le llegaron por WhatsApp a ${a_quien} los cambios que confirmó el cliente`, quien: null, tono: 'neutro' });
+          continue;
+        }
         if (a.entregado_en) lineas.push({ cuando: a.entregado_en, que: `Le llegó el pedido por WhatsApp a ${a_quien}`, quien: null, tono: 'neutro' });
         else if (a.enviado_en) lineas.push({ cuando: a.enviado_en, que: `Salió el pedido por WhatsApp a ${a_quien}`, quien: null, tono: 'neutro' });
         continue;

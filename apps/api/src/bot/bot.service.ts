@@ -29,6 +29,7 @@ import { CatalogoService } from '../catalogo/catalogo.service';
 import { ListasService } from '../listas/listas.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
+import { ReemplazosService } from '../reemplazos/reemplazos.service';
 import {
   HERRAMIENTAS_PEDIDOS,
   HERRAMIENTAS_PROVEEDORES,
@@ -196,8 +197,12 @@ export class BotService {
     private readonly mercadopago: MercadoPagoService,
     // la respuesta de un proveedor a la fecha de entrega (23/10/2026); opcional en las pruebas
     @Optional() private readonly pedidosProveedor?: PedidosProveedorService,
+    // el sí o el no de un cliente a un «Tengo parecido» (20/11/2026); opcional en las pruebas
+    @Optional() private readonly reemplazos?: ReemplazosService,
   ) {
     this.lineas = new Lineas(db);
+    // lo que sale de la consulta (y lo que contesta el cliente) queda en RESPONDE como cualquier turno
+    if (reemplazos) reemplazos.registrarEnResponde = (waId, textoCliente, textoBot) => this.respondeRegistrar(waId, null, textoCliente, textoBot);
   }
 
   // --- El agente conversacional (cerebro de las dos líneas) ---
@@ -354,6 +359,17 @@ export class BotService {
     const sesion = (await this.lineas.fila(linea))?.waha_sesion || sesionPrincipal();
     const r = await this.pedidosProveedor!.respuestaDeProveedor({ candidatos, texto, sesion });
     return r ? { proveedor: true, ...r } : null;
+  }
+
+  // ¿Es un cliente contestando un «Tengo parecido» de su pedido (20/11/2026)?
+  // Mismo reconocimiento que el proveedor: la clave de la charla o su teléfono
+  // (con @lid, el real que ya se aprendió).
+  private async respuestaDeReemplazo(clave: string, real: string | null, esLid: boolean, linea: string, texto: string, ts?: unknown) {
+    if (!this.reemplazos) return null;
+    const { data: k } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', clave).maybeSingle();
+    const candidatos = this.candidatosDeTelefono(clave, real, (k as any)?.telefono_real);
+    const escritoEn = Number(ts) > 0 ? Number(ts) * 1000 : undefined;
+    return this.reemplazos.respuestaDelCliente({ linea, clave, candidatos, texto, escritoEn });
   }
 
   // Esto se resolvía comparando el número contra los teléfonos de usuarios,
@@ -5238,6 +5254,19 @@ export class BotService {
       if (rProv) return rProv;
     }
 
+    // UN CLIENTE CONTESTANDO UN CAMBIO DE SU PEDIDO (Leandro y Jaqui, 20/11/2026).
+    // Quien armó le ofreció un parecido («Manteca 200 g no hay. En su lugar va
+    // Manteca 100 g ×2. ¿Te sirve? Respondé SÍ o NO»): el sí o el no lo toma el
+    // circuito del armado (cambia el pedido y manda la pregunta siguiente), no
+    // la charla. Si contesta otra cosa (pregunta algo), sigue su camino y quien
+    // arma lo ve en su pantalla. Va antes de la pausa de RESPONDE: aunque una
+    // persona atienda la charla, la respuesta al cambio cuenta.
+    if (cuerpoProv && !conMediaProv && this.reemplazos) {
+      const rCambio = await this.respuestaDeReemplazo(clave, real?.numero ?? null, esLid, linea, cuerpoProv, p.timestamp ?? p._data?.messageTimestamp)
+        .catch((e) => { this.log.warn(`respuesta a un cambio del pedido: ${e?.message ?? e}`); return null; });
+      if (rCambio && 'respondido' in rCambio) return { contestado: true, motivo: 'respuesta a un cambio del pedido', ...rCambio };
+    }
+
     let texto = String(p.body ?? '').trim();
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();
     // Una línea por mensaje entrante: es lo único que permite arreglar el tema de
@@ -5337,6 +5366,9 @@ export class BotService {
         const dicho = await this.transcribirAudio(media.base64, media.mime);
         if (dicho) {
           this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
+          // también por audio se contesta un cambio del pedido («sí, dale»)
+          const rCambio = await this.respuestaDeReemplazo(clave, real?.numero ?? null, esLid, linea, dicho, p.timestamp ?? p._data?.messageTimestamp).catch(() => null);
+          if (rCambio && 'respondido' in rCambio) return { contestado: true, motivo: 'respuesta a un cambio del pedido (audio)', ...rCambio };
           if (await this.respondeModoHumano(waIdM, linea).catch(() => false)) {
             await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             await this.anotarEsperaEnPausa(linea, clave, `🎙️ ${dicho}`);

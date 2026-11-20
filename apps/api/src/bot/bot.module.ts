@@ -9,9 +9,10 @@ import { CatalogoModule } from '../catalogo/catalogo.module';
 import { ListasModule } from '../listas/listas.module';
 import { MercadoPagoModule } from '../mercadopago/mercadopago.module';
 import { PedidosProveedorModule } from '../pedidos-proveedor/pedidos-proveedor.module';
+import { ReemplazosModule } from '../reemplazos/reemplazos.module';
 
 @Module({
-  imports: [PedidosModule, CatalogoModule, ListasModule, MercadoPagoModule, PedidosProveedorModule],
+  imports: [PedidosModule, CatalogoModule, ListasModule, MercadoPagoModule, PedidosProveedorModule, ReemplazosModule],
   controllers: [BotController, BotPruebaController, RespondeAppController, MetaWebhookController],
   providers: [BotService, supabaseProvider],
 })

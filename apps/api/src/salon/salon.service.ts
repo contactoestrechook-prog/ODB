@@ -5,6 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { terminosDeBusqueda } from '../comun/busqueda';
 import { ComprasService } from '../compras/compras.service';
 import { PedidosService } from '../pedidos/pedidos.service';
+import { ReemplazosService } from '../reemplazos/reemplazos.service';
 import { tiemposPorPreparador } from './tiempos';
 import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
 
@@ -95,6 +96,8 @@ export class SalonService {
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly compras: ComprasService,
     private readonly pedidos: PedidosService,
+    // «Tengo parecido» y la consulta al cliente (20/11/2026)
+    private readonly reemplazos: ReemplazosService,
   ) {}
 
   private async sucursalDe(usuarioId?: string): Promise<string | null> {
@@ -492,11 +495,28 @@ export class SalonService {
     if (!Number.isFinite(hay) || hay < 0 || hay > 1000) throw new BadRequestException('Cantidad inválida');
     const cantidad = dto.cantidad == null || String(dto.cantidad) === '' ? null : Number(dto.cantidad);
     if (cantidad != null && (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 1000)) throw new BadRequestException('Cantidad inválida');
+    // con un parecido, se le consulta al cliente (20/11/2026): lo consulta quien arma el pedido
+    if (dto.reemplazoId) {
+      const r = await this.reemplazos.proponer(pedidoId, { productoId: dto.productoId, hay, reemplazoId: dto.reemplazoId, cantidad }, quien.sub ?? null);
+      return { ...(r as any), propuesto: true };
+    }
     const { data: r, error: e2 } = await this.db.rpc('resolver_falta_armado', {
-      p_pedido: pedidoId, p_producto: dto.productoId, p_hay: hay, p_reemplazo: dto.reemplazoId || null, p_cantidad: cantidad, p_usuario: quien.sub ?? null,
+      p_pedido: pedidoId, p_producto: dto.productoId, p_hay: hay, p_reemplazo: null, p_cantidad: null, p_usuario: quien.sub ?? null,
     });
     if (e2) throw new BadRequestException(this.faltaMigracion(e2.message));
     return r;
+  }
+
+  /** Los parecidos para «Tengo parecido» desde la ventana de fiambrería (mismos permisos que su «No hay»). */
+  async fiambreriaParecidos(pedidoId: string, productoId: string, faltan: number | undefined, quien: Usuario) {
+    const { data } = await this.db.from('pedidos').select('estado, sucursal_id, fiambreria_por').eq('id', pedidoId).maybeSingle();
+    if (!data) throw new BadRequestException('No existe el pedido');
+    if (!veTodoElArmado(quien)) {
+      const propia = deSuSucursal(quien.rol) ? await this.sucursalDe(quien.sub) : null;
+      if (propia && (data as any).sucursal_id && (data as any).sucursal_id !== propia) throw new ForbiddenException('Ese pedido es de otra sucursal');
+      if ((data as any).fiambreria_por && (data as any).fiambreria_por !== quien.sub) throw new ForbiddenException('Ese pedido lo está preparando otra persona de fiambrería');
+    }
+    return this.reemplazos.parecidos(pedidoId, productoId, faltan);
   }
 
   // ---------- 3. Armado de pedidos ----------
@@ -584,10 +604,12 @@ export class SalonService {
     if (!pedidos.length) return [];
     const ids = pedidos.map((p) => p.id);
     const productos = [...new Set(pedidos.flatMap((p) => (p.items ?? []).map((i: any) => i.producto_id)))];
-    const [{ data: carro }, { data: lugares }, nombres] = await Promise.all([
+    const [{ data: carro }, { data: lugares }, nombres, cambios] = await Promise.all([
       this.db.from('pedidos_carro').select('id, pedido_id, producto_id, cantidad, creado_en').in('pedido_id', ids).order('creado_en'),
       this.db.from('stock').select('producto_id, sucursal_id, ubicacion').in('producto_id', productos),
       this.nombres(),
+      // «Tengo parecido» (20/11/2026): lo propuesto, lo consultado y lo que contestó el cliente
+      this.reemplazos.dePedidos(ids),
     ]);
     const lugar = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, l.ubicacion]));
     return pedidos.map((p) => {
@@ -622,6 +644,7 @@ export class SalonService {
         ultimaCarga: cargas[cargas.length - 1]?.creado_en ?? null,
         cargas: cargas.map((c) => ({ id: c.id, productoId: c.producto_id, cantidad: Number(c.cantidad), creadoEn: c.creado_en })),
         items,
+        cambios: cambios.get(p.id) ?? [],
       };
     });
   }
@@ -680,16 +703,47 @@ export class SalonService {
     if (!Number.isFinite(hay) || hay < 0 || hay > 1000) throw new BadRequestException('Cantidad inválida');
     const cantidad = dto.cantidad == null || String(dto.cantidad) === '' ? null : Number(dto.cantidad);
     if (cantidad != null && (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 1000)) throw new BadRequestException('Cantidad inválida');
+    // «TENGO PARECIDO» (Leandro y Jaqui, 20/11/2026): el parecido no entra
+    // solo; queda propuesto y se le consulta al cliente al terminar.
+    if (dto.reemplazoId) {
+      const r = await this.reemplazos.proponer(pedidoId, { productoId: dto.productoId, hay, reemplazoId: dto.reemplazoId, cantidad }, quien.sub ?? null);
+      return { ...(r as any), propuesto: true };
+    }
     const { data, error } = await this.db.rpc('resolver_falta_armado', {
       p_pedido: pedidoId,
       p_producto: dto.productoId,
       p_hay: hay,
-      p_reemplazo: dto.reemplazoId || null,
-      p_cantidad: cantidad,
+      p_reemplazo: null,
+      p_cantidad: null,
       p_usuario: quien.sub ?? null,
     });
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     return data;
+  }
+
+  /** Lo que se parece al que falta y hay en la sucursal (con su precio en este pedido). */
+  async parecidos(pedidoId: string, productoId: string, faltan: number | undefined, quien: Usuario) {
+    await this.pedidoDelArmado(pedidoId, quien);
+    if (!productoId) throw new BadRequestException('Falta decir qué producto');
+    return this.reemplazos.parecidos(pedidoId, productoId, faltan);
+  }
+
+  /** «Consultar al cliente»: sale el WhatsApp del primer cambio (los demás, de a uno, con cada respuesta). */
+  async consultarCambios(pedidoId: string, quien: Usuario) {
+    await this.pedidoDelArmado(pedidoId, quien);
+    return this.reemplazos.consultar(pedidoId, quien.sub ?? null);
+  }
+
+  /** «Lo llamé y dijo que sí / que no»: lo anota quien arma, sin esperar el WhatsApp. */
+  async decidirCambio(pedidoId: string, cambioId: string, acepta: boolean, quien: Usuario) {
+    await this.pedidoDelArmado(pedidoId, quien);
+    return this.reemplazos.decidir(cambioId, acepta, { usuarioId: quien.sub ?? null, pedidoId, texto: `Lo anotó quien arma: ${acepta ? 'sí' : 'no'}` });
+  }
+
+  /** Se arrepintió del parecido antes de consultar. */
+  async anularCambio(pedidoId: string, cambioId: string, quien: Usuario) {
+    await this.pedidoDelArmado(pedidoId, quien);
+    return this.reemplazos.anular(pedidoId, cambioId);
   }
 
   /** «Me equivoqué»: saca la última carga de ese producto. */
@@ -703,6 +757,10 @@ export class SalonService {
   /** «Terminé»: queda la hora y el pedido pasa a listo. */
   async terminar(pedidoId: string, quien: Usuario) {
     const p = await this.pedidoDelArmado(pedidoId, quien);
+    // con cambios sin contestar, el pedido todavía puede cambiar (20/11/2026)
+    const abiertos = ((await this.reemplazos.dePedidos([pedidoId])).get(pedidoId) ?? []).filter((c: any) => ['propuesto', 'en_cola', 'preguntado'].includes(c.estado));
+    if (abiertos.some((c: any) => c.estado === 'propuesto')) throw new BadRequestException('Antes de terminar, consultale al cliente los cambios (o anotá lo que te dijo)');
+    if (abiertos.length) throw new BadRequestException(`Falta que el cliente conteste ${abiertos.length === 1 ? 'un cambio' : `${abiertos.length} cambios`}. Si te contestó por otro lado, anotalo en cada uno.`);
     const ahora = new Date().toISOString();
     const { error } = await this.db.from('pedidos').update({ armado_terminado_en: ahora }).eq('id', pedidoId);
     if (error) throw new BadRequestException(error.message);

@@ -7,7 +7,7 @@ import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrad
 import { cuandoLegible } from '../comun/cuando';
 import { hayWhatsapp, Lineas, sesionDeAvisos, wahaUrlDe } from '../comun/lineas';
 import {
-  codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
+  A_QUIEN_ARMA, codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
   textoDeAsignado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
@@ -188,7 +188,7 @@ export class AvisosPedidosService {
     return { telefono, telefonoReal: await this.telefonoReal(telefono), nombre: (k as any)?.nombre ?? (k as any)?.nombre_wa ?? null, nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso, lineaWhatsapp: lineaWhatsapp || null };
   }
 
-  /** El celular de quien arma el pedido (Usuarios), para el aviso pedido_asignado. */
+  /** El celular de quien arma el pedido (Usuarios), para pedido_asignado y cambios_respondidos. */
   private async telefonoDeQuienArma(a: FilaAviso): Promise<string | null> {
     const id = String(a.detalle?.usuario_id ?? '');
     if (!id) return null;
@@ -198,7 +198,7 @@ export class AvisosPedidosService {
   }
 
   private async enviar(a: FilaAviso) {
-    const aQuienArma = a.tipo === 'pedido_asignado';
+    const aQuienArma = A_QUIEN_ARMA.includes(a.tipo);
     const destino = aQuienArma ? await this.telefonoDeQuienArma(a) : await this.telefonoAdministracion();
     if (!destino) {
       return aQuienArma
@@ -223,7 +223,11 @@ export class AvisosPedidosService {
       const pedido = a.pedido_id ? await this.pedidoParaAviso(a.pedido_id) : null;
       if (!pedido) return this.fallo(a, 'no encontré el pedido', false);
       cabeza = encabezado(a.tipo, codigoDe(pedido));
-      if (aQuienArma) {
+      if (a.tipo === 'cambios_respondidos') {
+        // lo que contestó el cliente a los «Tengo parecido» (20/11/2026): el texto viene armado
+        if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);
+        texto = String(a.detalle?.texto ?? '').trim() || `${cabeza}\nEl cliente contestó los cambios: miralos en el sistema.`;
+      } else if (aQuienArma) {
         // entre que se asignó y que sale, se pudo cancelar, entregar o pasar a otra persona
         if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);
         const { data: asig } = await this.db.from('pedidos').select('asignado_a').eq('id', pedido.id).maybeSingle();
@@ -451,7 +455,7 @@ export class AvisosPedidosService {
       ack: null, escalar_intentos: 0, escalar_proximo: null,
       ...extra,
     });
-    this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado ${a.tipo === 'pedido_asignado' ? 'a quien lo arma' : 'a administración'} (${destino})${nota ? `: ${nota}` : ''}`);
+    this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado ${A_QUIEN_ARMA.includes(a.tipo) ? 'a quien lo arma' : 'a administración'} (${destino})${nota ? `: ${nota}` : ''}`);
   }
 
   private async omitir(a: FilaAviso, motivo: string) {
@@ -570,7 +574,7 @@ export class AvisosPedidosService {
       if (a.visto_en) continue;
       // el aviso a quien arma no se escala a los dueños ni pone la franja roja:
       // tiene la comanda en la mano y el pedido en el sistema (16/11/2026)
-      if (a.tipo === 'pedido_asignado') continue;
+      if (A_QUIEN_ARMA.includes(a.tipo)) continue;
       if (a.tipo === 'pedido_nuevo' && ['cancelado', 'entregado'].includes(String(a.pedidos?.estado ?? ''))) continue;
       const codigo = a.pedidos?.qr_retiro ? String(a.pedidos.qr_retiro) : a.detalle?.telefono ? `chat ${telefonoLegible(a.detalle.telefono) ?? a.detalle.telefono}` : String(a.id).slice(0, 8);
       if (a.estado === 'pendiente') {

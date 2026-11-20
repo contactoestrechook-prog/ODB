@@ -110,6 +110,31 @@ export class SalonController {
     return this.salon.faltaEnArmado(id, dto ?? {}, req.usuario ?? {});
   }
 
+  // «Tengo parecido» y la consulta al cliente (Leandro y Jaqui, 20/11/2026)
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')
+  @Get('pedidos/:id/parecidos')
+  parecidos(@Param('id') id: string, @Query('productoId') productoId: string, @Query('faltan') faltan: string, @Req() req: any) {
+    return this.salon.parecidos(id, productoId, faltan ? Number(faltan) : undefined, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')
+  @Post('pedidos/:id/consultar')
+  consultar(@Param('id') id: string, @Req() req: any) {
+    return this.salon.consultarCambios(id, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')
+  @Post('pedidos/:id/cambios/:cambio/decidir')
+  decidir(@Param('id') id: string, @Param('cambio') cambio: string, @Body() dto: { acepta?: boolean }, @Req() req: any) {
+    return this.salon.decidirCambio(id, cambio, dto?.acepta === true, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno', 'fiambreria')
+  @Delete('pedidos/:id/cambios/:cambio')
+  anularCambio(@Param('id') id: string, @Param('cambio') cambio: string, @Req() req: any) {
+    return this.salon.anularCambio(id, cambio, req.usuario ?? {});
+  }
+
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Post('pedidos/:id/terminar')
   terminar(@Param('id') id: string, @Req() req: any) {
@@ -134,6 +159,12 @@ export class SalonController {
   @Post('fiambreria/:id/falta')
   fiambreriaFalta(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
     return this.salon.fiambreriaFalta(id, dto ?? {}, req.usuario ?? {});
+  }
+
+  @Roles('fiambreria', 'gerente', 'dueno')
+  @Get('fiambreria/:id/parecidos')
+  fiambreriaParecidos(@Param('id') id: string, @Query('productoId') productoId: string, @Query('faltan') faltan: string, @Req() req: any) {
+    return this.salon.fiambreriaParecidos(id, productoId, faltan ? Number(faltan) : undefined, req.usuario ?? {});
   }
 
   @Roles('gerente', 'dueno')

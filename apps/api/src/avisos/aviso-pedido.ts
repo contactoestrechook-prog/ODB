@@ -12,7 +12,9 @@ import { sinRestosDeMarcado } from '../comun/texto-limpio';
 
 // pedido_asignado es el único que NO va a administración: va al celular de quien
 // lo arma (16/11/2026, ver textoDeAsignado)
-export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado';
+export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado' | 'cambios_respondidos';
+/** Los que van al celular de quien arma, no a administración (ver telefonoDeQuienArma). */
+export const A_QUIEN_ARMA: readonly TipoAviso[] = ['pedido_asignado', 'cambios_respondidos'];
 
 export type PedidoParaAviso = {
   id: string;
@@ -115,6 +117,8 @@ const TITULOS: Record<TipoAviso, string> = {
   pedido_sin_cargar: 'PEDIDO CONFIRMADO SIN CARGAR',
   pedido_sin_tomar: 'PEDIDO SIN TOMAR',
   pedido_asignado: 'PEDIDO PARA ARMAR',
+  // el cliente contestó los «Tengo parecido» (20/11/2026): el texto lo arma reemplazos.ts
+  cambios_respondidos: 'CAMBIOS CONFIRMADOS',
 };
 
 /** El link al pedido en el panel: tocándolo desde el WhatsApp se abre con el botón "Lo tomo". */

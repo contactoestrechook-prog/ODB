@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { cantidadLegible, haceCuanto } from '../lib/pedidos';
 import { llevaFlotantes } from '../lib/rutas';
 import { alCambiarAudio, audioActivo, esperaDe, nivelDe, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
 import { Boton, FOCO, IconoCerrar, unir } from './kit';
 import { pesos } from '../lib/formato';
-import { FaltaEnGondola, cantidadDe, type Reemplazo } from './FaltaEnGondola';
+import { FaltaEnGondola, cantidadDe, traerParecidos, type Reemplazo } from './FaltaEnGondola';
 
 // PEDIDO CON FIAMBRERÍA (Leandro, 19/11/2026: «que a las cajas les salga el pop
 // up cada vez que hay un pedido, también a fiambrería si es que hay algo de
@@ -55,6 +55,13 @@ export function AvisoFiambreria() {
   const [pospuestos, setPospuestos] = useState<Record<string, number>>({});
   const [listos, setListos] = useState<Record<string, number>>({});
   const [falta, setFalta] = useState<{ pedido: Parte; item: Parte['items'][number] } | null>(null);
+  // «Tengo parecido» (20/11/2026): las sugerencias del producto que falta (función estable)
+  const faltaPedido = falta?.pedido.id ?? null;
+  const faltaProducto = falta?.item.productoId ? String(falta.item.productoId) : null;
+  const parecidosFiambreria = useMemo(
+    () => (faltaPedido && faltaProducto ? (faltan: number) => traerParecidos(faltaPedido, faltaProducto, faltan, true) : undefined),
+    [faltaPedido, faltaProducto],
+  );
   const [tomando, setTomando] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<{ texto: string; ok: boolean } | null>(null);
   const [sinSonido, setSinSonido] = useState(false);
@@ -152,6 +159,13 @@ export function AvisoFiambreria() {
     const res = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(res?.message ?? 'No se pudo cambiar el pedido');
     setFalta(null);
+    // «Tengo parecido» (20/11/2026): queda para que quien arma se lo consulte al cliente
+    if (res?.propuesto) {
+      setMensaje({ texto: `Guardado: ${it.nombre} → ${res.reemplazo}. Se lo consulta al cliente quien arma el pedido.`, ok: true });
+      setTimeout(() => setMensaje(null), 9000);
+      await mirar();
+      return;
+    }
     const partesTexto = [d.hay > 0 ? `${it.nombre}: quedan ${cantidadDe(d.hay, it.porPeso)}` : `${it.nombre} salió del pedido`];
     if (res?.puso) partesTexto.push(`va ${cantidadDe(Number(res.puso.cantidad), it.porPeso)} de ${res.puso.nombre}`);
     if (res?.totalAntes != null && res?.total != null && Number(res.totalAntes) !== Number(res.total)) partesTexto.push(`total ${pesos(res.totalAntes)} → ${pesos(res.total)}`);
@@ -174,6 +188,7 @@ export function AvisoFiambreria() {
         item={{ productoId: String(falta.item.productoId), nombre: falta.item.nombre, cantidad: falta.item.cantidad, enCarro: 0, ubicacion: null, porPeso: falta.item.porPeso }}
         onCerrar={() => setFalta(null)}
         onListo={(d) => corregir(falta.pedido, falta.item, d)}
+        buscarParecidos={parecidosFiambreria}
       />
     );
   }

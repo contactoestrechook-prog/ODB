@@ -15,7 +15,7 @@ async function reenviar(ruta: string, init: RequestInit = {}) {
 const id = (v: unknown) => encodeURIComponent(String(v ?? ''));
 
 // Op salón (5/11/2026). GET ?recurso=stock&q=… | lugares[&sucursalId] | sinlugar&sucursalId[&categoriaId] | codigo&codigo=… | ingresos&estado=… |
-// preparadores | pedidos[&todos=1] | tiempos&dias=7
+// preparadores | pedidos[&todos=1] | tiempos&dias=7 | parecidos&pedidoId&productoId[&faltan][&fiambreria=1]
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   switch (q.get('recurso')) {
@@ -30,6 +30,8 @@ export async function GET(req: Request) {
     case 'pedidos': return reenviar(`/salon/pedidos${q.get('todos') === '1' ? '?todos=1' : ''}`);
     // fiambrería (19/11/2026): los pedidos con algo para preparar
     case 'fiambreria': return reenviar('/salon/fiambreria');
+    // «Tengo parecido» (20/11/2026): lo que se parece al que falta, con stock y precio
+    case 'parecidos': return reenviar(`/salon/${q.get('fiambreria') === '1' ? 'fiambreria' : 'pedidos'}/${id(q.get('pedidoId'))}/parecidos?productoId=${id(q.get('productoId'))}${q.get('faltan') ? `&faltan=${id(q.get('faltan'))}` : ''}`);
     default: return NextResponse.json({ message: 'Recurso desconocido' }, { status: 400 });
   }
 }
@@ -50,6 +52,10 @@ export async function POST(req: Request) {
     case 'terminar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/terminar`, cuerpo({}));
     // falta stock al armar (19/11/2026)
     case 'falta': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad }));
+    // «Tengo parecido» y la consulta al cliente (20/11/2026)
+    case 'consultar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/consultar`, cuerpo({}));
+    case 'decidir-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}/decidir`, cuerpo({ acepta: b.acepta === true }));
+    case 'anular-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}`, { method: 'DELETE' });
     case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     // «No hay» desde la ventana de fiambrería (19/11/2026)
     case 'fiambreria-falta': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad }));

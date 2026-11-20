@@ -314,9 +314,12 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'ojo',
         puntos: [
-          'Si falta un producto mientras armás: tocalo y elegí «No hay en la góndola (o hay menos)». Poné cuánto hay (0 si no hay nada) y, si va otro en su lugar, buscalo por nombre o código. El pedido y su total se corrigen solos, y en el historial queda cuánto había y cuánto decía el sistema. Si el cliente ya pagó, avisa para que se lo digas a la caja.',
+          'Si falta un producto mientras armás: tocalo y elegí «No hay en la góndola (o hay menos)». Poné cuánto hay (0 si no hay nada). Si no ofrecés nada en su lugar, el pedido y su total se corrigen solos, y en el historial queda cuánto había y cuánto decía el sistema. Si el cliente ya pagó, avisa para que se lo digas a la caja.',
+          '«¿Tenés algo parecido?»: el sistema te sugiere lo que se parece y hay en la sucursal, con su precio y cuántos equivalen (si falta una manteca de 200 g, sugiere 2 de 100 g). Elegís uno (o buscás otro) y queda «Para consultar»: el pedido todavía no cambia.',
+          'Cuando terminaste de recorrer el pedido, tocá «Consultar al cliente»: le llega un WhatsApp por cada cambio, de a uno («Manteca 200 g no hay. En su lugar va 2 × Manteca 100 g. ¿Te sirve? Respondé SÍ o NO»), al mismo chat donde pidió. Con el SÍ entra el parecido; con el NO sale lo que falta. Cada respuesta te aparece en la pantalla, y al final te llega un WhatsApp con los cambios confirmados y el total nuevo. Sumá al carro lo que entró y finalizá.',
+          'Si el cliente pregunta algo en vez de contestar sí o no, lo ves en la pantalla («Escribió: …») y el bot le contesta. Si te contesta por teléfono o no tiene WhatsApp, anotá su respuesta con «Me dijo que sí» o «Me dijo que no». De 22 a 8 no sale ningún mensaje: la consulta queda en cola y sale a las 8.',
           'Un pedido incompleto marcado como listo llega mal al cliente y vuelve como reclamo: lo que no hay se corrige antes de finalizar.',
-          'En fiambrería, la ventana del pedido tiene «No hay» en cada renglón (mismo funcionamiento: cuánto hay, en kilos, y si va otro en su lugar). El pedido que tomaste con «Lo preparo» queda en la ventana en verde, «Lo estás preparando», sin sonar, hasta que tocás «Listo, ya está».',
+          'En fiambrería, la ventana del pedido tiene «No hay» en cada renglón (mismo funcionamiento: cuánto hay, en kilos, y si tenés algo parecido; el parecido se lo consulta al cliente quien arma el pedido). El pedido que tomaste con «Lo preparo» queda en la ventana en verde, «Lo estás preparando», sin sonar, hasta que tocás «Listo, ya está».',
         ],
       },
     ],

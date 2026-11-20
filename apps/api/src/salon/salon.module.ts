@@ -4,10 +4,11 @@ import { SalonService } from './salon.service';
 import { supabaseProvider } from '../supabase.provider';
 import { ComprasModule } from '../compras/compras.module';
 import { PedidosModule } from '../pedidos/pedidos.module';
+import { ReemplazosModule } from '../reemplazos/reemplazos.module';
 
 // Op salón: stock con ubicación, puerta de depósito y armado de pedidos (5/11/2026)
 @Module({
-  imports: [ComprasModule, PedidosModule],
+  imports: [ComprasModule, PedidosModule, ReemplazosModule],
   controllers: [SalonController],
   providers: [SalonService, supabaseProvider],
 })
