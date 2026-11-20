@@ -803,6 +803,40 @@ describe('el pedido asignado sale al celular de quien lo arma', () => {
     expect(imagen).not.toHaveBeenCalled();
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido', motivo: 'la persona asignada no tiene un celular cargado en Usuarios' });
   });
+
+  // YA NO LO ARMÁS (20/11/2026): le asignaron el de prueba a Alexis, lo pasaron a
+  // Melina a los 7 segundos y a él no le llegó nada
+  const SACADO = { ...FILA, tipo: 'armado_sacado' as const, detalle: { usuario_id: 'u-alexis', nombre: 'Alexis luna', motivo: 'reasignado', nuevo_id: 'u-melina', nuevo_nombre: 'Orsi Melina' } };
+  const enviarSacado = (db: any, fila: any = SACADO) => (new AvisosPedidosService(db) as any).enviar(fila);
+
+  it('al que le sacan el pedido le llega a SU celular quién lo arma ahora, como texto', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'S1' });
+    const db = conAsignado('u-melina');
+    await enviarSacado(db);
+    expect(imagen).not.toHaveBeenCalled();
+    expect(texto).toHaveBeenCalledWith(db, '5491155551326', expect.stringMatching(/^YA NO LO ARMÁS · PICKUP-5F2451C6C111\nAlexis, este pedido ahora lo arma Orsi Melina: no lo armes\.\nSi ya juntaste algo, dáselo a Orsi Melina o devolvelo a la góndola\./), 'aviso-pedido', expect.any(String));
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', destino: '5491155551326', waha_id: 'S1' });
+  });
+
+  it('si antes de salir se lo devolvieron a él, no sale', async () => {
+    const db = conAsignado('u-alexis');
+    await enviarSacado(db);
+    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido', motivo: 'se lo volvieron a asignar a la misma persona' });
+  });
+
+  it('si el pedido se canceló, le dice que se canceló', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'S2' });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado', asignado_a: 'u-alexis' } }, usuarios: { data: { telefono: '5491155551326' } } });
+    await enviarSacado(db, { ...SACADO, detalle: { usuario_id: 'u-alexis', nombre: 'Alexis luna', motivo: 'cancelado' } });
+    expect(texto.mock.calls[0][2]).toMatch(/^YA NO LO ARMÁS · PICKUP-5F2451C6C111\nAlexis, este pedido se canceló: no lo armes\.\nSi ya juntaste algo, devolvelo a la góndola\./);
+  });
+
+  it('tampoco se escala a los dueños', async () => {
+    const hace1h = new Date(Date.now() - 60 * 60_000).toISOString();
+    const fila = { id: 'a1', pedido_id: 'p1', detalle: null, estado: 'pendiente', pendiente_desde: hace1h, creado_en: hace1h, pedidos: { qr_retiro: 'PICKUP-X', estado: 'en_preparacion' }, tipo: 'armado_sacado' };
+    expect(await new AvisosPedidosService(baseFalsa({ avisos_pedidos: { data: [fila], error: null } })).problemas()).toEqual([]);
+  });
 });
 
 describe('el texto para quien lo arma', () => {

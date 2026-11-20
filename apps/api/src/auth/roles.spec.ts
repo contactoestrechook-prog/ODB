@@ -2,7 +2,34 @@ import { ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from './auth.guard';
 import { ROLES, SIN_HERENCIA } from './decorators';
-import { estaEncerrado, normalizarRoles, rolQueEntra, rolesDe } from './roles';
+import { estaEncerrado, loQueVeElQueArma, normalizarRoles, rolQueEntra, rolesDe, soloArma } from './roles';
+
+// EL QUE SOLO ARMA ve lo suyo (20/11/2026: «vos le asignás un pedido a fulanito y
+// menganito en su celular veía el pedido que estaba armando fulanito»)
+describe('el que solo arma ve sus pedidos', () => {
+  it('depósito, salón y fiambrería solos (aunque repartan) ven lo suyo; caja, gerencia, administración y dueños, todo', () => {
+    expect(soloArma({ rol: 'deposito', roles: ['deposito', 'repartidor'] })).toBe(true); // Pablo
+    expect(soloArma({ rol: 'deposito', roles: ['deposito'] })).toBe(true); // Luka, Pedro
+    expect(soloArma({ rol: 'op_salon', roles: ['op_salon'] })).toBe(true);
+    expect(soloArma({ rol: 'fiambreria', roles: ['fiambreria'] })).toBe(true);
+    expect(soloArma({ rol: 'cajero', roles: ['cajero', 'op_salon'] })).toBe(false); // Alexis: en la caja ve todo
+    expect(soloArma({ rol: 'administrativo', roles: ['administrativo', 'cajero'] })).toBe(false);
+    expect(soloArma({ rol: 'dueno' })).toBe(false);
+    expect(soloArma({ rol: 'gerente', roles: ['gerente', 'deposito'] })).toBe(false);
+    expect(soloArma({ rol: 'repartidor', roles: ['repartidor'] })).toBe(false);
+    expect(soloArma(null)).toBe(false);
+  });
+  it('de la cola le queda lo asignado a él y abierto: ni lo de otro, ni lo sin asignar, ni lo que ya terminó', () => {
+    const cola = [
+      { id: 'mio', asignado_a: 'u-pablo', estado: 'en_preparacion' },
+      { id: 'de-luka', asignado_a: 'u-luka', estado: 'en_preparacion' },
+      { id: 'sin-asignar', asignado_a: null, estado: 'recibido' },
+      { id: 'mio-terminado', asignado_a: 'u-pablo', estado: 'listo' },
+    ];
+    expect(loQueVeElQueArma(cola, 'u-pablo').map((p) => p.id)).toEqual(['mio']);
+    expect(loQueVeElQueArma(cola, null)).toEqual([]);
+  });
+});
 
 // Varios roles por persona (Leandro, 19/11/2026, planilla de St Thomas y Santa Inés)
 async function entrar(meta: Record<string, unknown>, usuario: Record<string, unknown>) {
