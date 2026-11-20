@@ -13,6 +13,7 @@ function armar(rpcs: Record<string, any>, pedido: any = { id: 'p-1', estado: 'li
     select: () => q, eq: () => q,
     single: () => Promise.resolve({ data: pedido, error: null }),
     maybeSingle: () => Promise.resolve({ data: { id: 'prod-reemplazo' }, error: null }),
+    insert: () => Promise.resolve({ error: null }),
   };
   const db: any = {
     from: () => q,
@@ -37,12 +38,16 @@ describe('entregar con faltantes', () => {
     expect(llamadas.find((l) => l.name === 'entregar_pedido')).toBeUndefined();
   });
 
-  it('un pedido de prueba (botón «Pedido de prueba») no se entrega: dice que se cancela', async () => {
-    // 16/11/2026: Juan Pablo quiso cerrar uno y el sistema decía que no había la cerveza de prueba
-    const { svc, llamadas } = armar({}, { id: 'p-1', estado: 'listo', origen: 'simulador', items: [], cliente: null });
-    const err = await svc.avanzar('p-1', 'entregado').catch((e) => e);
-    expect(err.message).toBe('Es un pedido de prueba (botón «Pedido de prueba»): no se entrega porque no es una venta. Cancelalo.');
-    expect(llamadas).toEqual([]);
+  it('«Entregar» un pedido de prueba lo cierra: sin venta ni stock, sin WhatsApp, y sale de la pantalla', async () => {
+    // 16/11/2026: Juan Pablo quiso cerrar uno y el sistema decía que no había la cerveza de prueba.
+    // 20/11/2026, Leandro: «lo marco como entregado… me advierte pero no lo saca. quiero que lo saque»
+    const { svc, llamadas } = armar({}, { id: 'p-1', estado: 'listo', origen: 'simulador', qr_retiro: 'PICKUP-18DC9EAE2F47', items: [], cliente: null });
+    const notificar = jest.spyOn(svc as any, 'notificarWhatsApp');
+    await expect(svc.avanzar('p-1', 'entregado')).resolves.toEqual({
+      estado: 'cancelado', venta: null, prueba: true, mensaje: 'Era un pedido de prueba: se cerró sin cobrar ni descontar stock.',
+    });
+    expect(llamadas.map((l) => l.name)).toEqual(['cancelar_pedido']);
+    expect(notificar).not.toHaveBeenCalled();
   });
 
   it('sin faltantes entrega como siempre', async () => {

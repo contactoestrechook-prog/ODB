@@ -899,15 +899,18 @@ export class PedidosService {
       .eq('id', pedidoId)
       .single();
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
+
+    // UN PEDIDO DE PRUEBA NO ES UNA VENTA (16/11/2026: Juan Pablo quiso cerrar uno
+    // del botón «Simular PedidosYa» y el sistema le decía que no había la cerveza
+    // de prueba). Hasta el 20/11 «Entregar» lo frenaba con «Cancelalo» y el pedido
+    // seguía en la pantalla. Leandro, 20/11/2026: «lo marco como entregado por el
+    // simple hecho de no tenerlo más ahí… me advierte pero no lo saca. quiero que
+    // lo saque». Ahora «Entregar» una prueba la cierra (ver cerrarPrueba).
+    if (estado === 'entregado' && pedido.origen === ORIGEN_PRUEBA && !['entregado', 'cancelado'].includes(pedido.estado)) {
+      return this.cerrarPrueba(pedido, usuarioId);
+    }
     if (!transicionValida(pedido.estado, estado)) {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
-    }
-
-    // UN PEDIDO DE PRUEBA NO ES UNA VENTA (16/11/2026). Juan Pablo quiso cerrar
-    // un pedido del botón «Simular PedidosYa» y el sistema le decía que no había
-    // la cerveza: era el artículo de prueba, dado de baja. Una prueba se cancela.
-    if (estado === 'entregado' && pedido.origen === ORIGEN_PRUEBA) {
-      throw new BadRequestException('Es un pedido de prueba (botón «Pedido de prueba»): no se entrega porque no es una venta. Cancelalo.');
     }
 
     // Un envío a domicilio se entrega DESPUÉS de salir (revisión del 21/10/2026).
@@ -1005,6 +1008,24 @@ export class PedidosService {
     }
 
     return { estado, venta };
+  }
+
+  /**
+   * «Entregar» un pedido de prueba lo cierra (20/11/2026): sale de todas las
+   * pantallas, no se cobra, no hay venta y no se descuenta stock (se libera lo
+   * reservado, como al cancelar). No sale ningún WhatsApp: ni al cliente (era
+   * el celular de quien probaba) ni la BAJA a administración.
+   */
+  private async cerrarPrueba(pedido: any, usuarioId?: string) {
+    // la baja a administración queda anotada como omitida ANTES de cancelar: la
+    // base no encola otra encima (avisos_pedidos es una por pedido y tipo)
+    await this.db.from('avisos_pedidos')
+      .insert({ pedido_id: pedido.id, tipo: 'pedido_cancelado', estado: 'omitido', motivo: 'era un pedido de prueba: se cerró al entregarlo' })
+      .then(() => null, () => null);
+    const { error } = await this.db.rpc('cancelar_pedido', { p_pedido: pedido.id, p_usuario: usuarioId ?? null });
+    if (error) throw new BadRequestException(error.message);
+    this.log.log(`pedido de prueba ${pedido.qr_retiro ?? pedido.id} cerrado al entregarlo (sin venta ni stock)`);
+    return { estado: 'cancelado', venta: null, prueba: true, mensaje: 'Era un pedido de prueba: se cerró sin cobrar ni descontar stock.' };
   }
 
   // «¿Se entregó o se cancela?» → «Se entregó» (21/10/2026). Para los envíos

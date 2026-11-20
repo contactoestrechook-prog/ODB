@@ -85,6 +85,8 @@ export function ColaDeposito({ puedeCargarRepartidor = false, miId = null, veTod
     const fs = !res.ok && estado === 'entregado' ? faltaDeStock(pedido.id, res.status, datos) : null;
     if (fs) setFalta({ datos: fs, pedido });
     else if (!res.ok) setAviso(datos.message ?? 'No se pudo avanzar el pedido');
+    // una prueba «entregada» se cierra sin venta (20/11/2026)
+    else if (datos.prueba && datos.mensaje) setAviso(String(datos.mensaje));
     else if (estado === 'entregado' && datos.venta) {
       setAviso(`Pedido entregado: venta registrada por ${pesos(datos.venta.total)}`);
     }
