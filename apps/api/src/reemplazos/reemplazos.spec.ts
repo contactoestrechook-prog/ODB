@@ -1,5 +1,5 @@
 import {
-  cantidadEquivalente, enHorarioDeMensajes, leerSiNo, ordenarParecidos, puntajeParecido, textoDeCierre, textoDePregunta, textoParaQuienArma,
+  cantidadEquivalente, conCantidad, enHorarioDeMensajes, leerSiNo, sePesa, soloCortesia, ordenarParecidos, puntajeParecido, textoDeCierre, textoDePregunta, textoParaQuienArma,
 } from './reemplazos';
 
 // «Tengo parecido» y la consulta al cliente (Leandro y Jaqui, 20/11/2026).
@@ -8,7 +8,7 @@ describe('el sí o el no del cliente', () => {
   it.each([
     'Si', 'sí', 'SII', 'Siii dale', 'si dale', 'Sí, gracias', 'Dale', 'dalee', 'ok', 'Okey', 'Perfecto', 'Bueno', 'joya', 'de una',
     'Está bien', 'si si', 'Sí, me sirve', 'si mandalo', 'Hola, sí', 'Buenas! dale gracias', '👍', 'Si 👍', 'no hay problema', 'No pasa nada, mandalo',
-    'listo', 'claro', 'genial gracias!!', 'Sí por favor',
+    'listo', 'claro', 'genial gracias!!', 'Sí por favor', 'No tengo drama', 'ningún problema', 'si mandame la de 100', 'Si 😊',
   ])('«%s» es SÍ', (t) => expect(leerSiNo(t)).toBe('si'));
 
   it.each([
@@ -20,7 +20,13 @@ describe('el sí o el no del cliente', () => {
     '¿Y cuánto sale?', 'si pero mandame 3', 'no tenés la de 200?', 'sí, no', 'no, dale', 'Mejor otra marca',
     'Si hay de la otra mandame esa', 'No sé', 'Hola', 'te llamo', '',
     'si me lo pueden mandar mañana a la tarde también estaría bien porque hoy no estoy en casa',
+    'No, está bien', 'no sé', 'gracias', 'Hola buenas tardes', 'Ok pero sin sal',
   ])('«%s» no se decide solo', (t) => expect(leerSiNo(t)).toBeNull());
+});
+
+describe('solo un saludo o un gracias', () => {
+  it.each(['gracias', 'Muchas gracias!', 'Hola', 'buen día', '🙏', 'de nada'])('«%s» no contesta la pregunta', (t) => expect(soloCortesia(t)).toBe(true));
+  it.each(['si', 'ok gracias', 'no gracias', '¿cuánto sale?', 'hola, sí'])('«%s» dice algo', (t) => expect(soloCortesia(t)).toBe(false));
 });
 
 const manteca = { nombre_falta: 'Manteca La Serenisima 200 gr', pide: 1, hay: 0, nombre_reemplazo: 'Manteca La Serenisima x 100 gr', cantidad: 2, precio: 3000 };
@@ -29,6 +35,12 @@ describe('lo que le llega al cliente', () => {
   it('la pregunta de Jaqui: no hay, en su lugar va, sí o no', () => {
     const t = textoDePregunta(manteca, { cliente: 'andrea chagas', codigo: 'DOM-87B017B4EA14', numero: 1, total: 1 });
     expect(t).toBe('Hola Andrea, te escribimos de ODB por tu pedido DOM-87B017B4EA14.\n\n*Manteca La Serenisima 200 gr* no hay. En su lugar va *2 × Manteca La Serenisima x 100 gr* ($6.000).\n\n¿Te sirve? Respondé *SÍ* o *NO*.');
+  });
+
+  it('un nombre que no es un nombre no se usa para saludar', () => {
+    expect(textoDePregunta(manteca, { cliente: 'Cliente PedidosYa', codigo: 'X', numero: 1, total: 1 }).startsWith('Hola, te escribimos')).toBe(true);
+    expect(textoDePregunta(manteca, { cliente: 'Sra. Gómez', codigo: 'X', numero: 1, total: 1 }).startsWith('Hola, te escribimos')).toBe(true);
+    expect(textoDePregunta(manteca, { cliente: 'jaqueline', codigo: 'X', numero: 1, total: 1 }).startsWith('Hola Jaqueline,')).toBe(true);
   });
 
   it('con varios: la primera dice cuántos son, las siguientes arrancan con «Anotado»', () => {
@@ -76,13 +88,65 @@ describe('lo que le llega al cliente', () => {
 });
 
 describe('qué se parece', () => {
-  it('1 de 200 g son 2 de 100 g; 2 de 200 g son 1 de 400 g; si no da justo, la misma cantidad', () => {
+  it('solo cuentas naturales: 1 de 200 g son 2 de 100 g; 2 de 500 g, 1 de 1 kg; si es raro, la misma cantidad', () => {
     expect(cantidadEquivalente(1, 'Manteca La Serenisima 200 gr', 'Manteca La Serenisima x 100 gr')).toBe(2);
     expect(cantidadEquivalente(2, 'Yerba x 500g', 'Yerba x 1 kg')).toBe(1);
     expect(cantidadEquivalente(1, 'Yerba x 500g', 'Yerba x 1 kg')).toBe(1);
-    expect(cantidadEquivalente(3, 'Coca Cola 1,5 L', 'Coca Cola 2,25 L')).toBe(2);
+    expect(cantidadEquivalente(1, 'Jugo Citric de naranja x 3 LT', 'Jugo Citric Naranja x  1l')).toBe(3);
     expect(cantidadEquivalente(1, 'Fernet Branca 750 ml', 'Fernet Branca 1 L')).toBe(1);
     expect(cantidadEquivalente(6, 'Quilmes lata 473', 'Brahma lata 473')).toBe(6);
+    // casos reales del 20/11: daban 70 botellitas y 15 cajitas
+    expect(cantidadEquivalente(24, 'Coca Cola Zero x1.75L', 'Coca Cola Zero botella x 600cc')).toBe(24);
+    expect(cantidadEquivalente(3, 'Leche Cindor x 1lt', 'Leche Cindor x 200 cc')).toBe(3);
+    expect(cantidadEquivalente(12, 'Villavicencio Con Gas Gas 1.5L x6un', 'Villavicencio sin gas x2lt')).toBe(12);
+  });
+
+  it('entre lo que se pesa y lo que va por unidad, por los gramos', () => {
+    expect(cantidadEquivalente(0.3, { nombre: 'Mortadela Bocatti con pistacho', porPeso: true }, { nombre: 'Mini Mortadela con pistacho Cagnoli x 250grs' })).toBe(1);
+    expect(cantidadEquivalente(0.5, { nombre: 'Jamón cocido', porPeso: true }, { nombre: 'Jamón cocido feteado x 250 g' })).toBe(2);
+    expect(cantidadEquivalente(0.3, { nombre: 'Lomo ahumado', porPeso: true }, { nombre: 'Panceta 214 Ahumada' })).toBe(0.3);
+    expect(cantidadEquivalente(2, { nombre: 'Queso Muzzarella La Tarantela  x 1kg' }, { nombre: 'Queso Muzzarella La Tarantela x fracccion', porPeso: true })).toBe(2);
+    expect(cantidadEquivalente(4, { nombre: 'Queso Adler Jamon x 100g' }, { nombre: 'Queso de máquina', porPeso: true })).toBe(0.4);
+    expect(cantidadEquivalente(0.25, { nombre: 'Jamón crudo', porPeso: true }, { nombre: 'Jamón crudo Parma', porPeso: true })).toBe(0.25);
+  });
+
+  it('pesa más lo que dice qué es que la marca o la góndola (casos reales del 20/11)', () => {
+    const muzza = ordenarParecidos('Queso Muzzarella La Tarantela  x 1kg', [
+      { id: 'cremon', nombre: 'Queso Cremoso Cremon LS  x 500g', stock: 64, vendidas: 900, mismaCategoria: true },
+      { id: 'barraza', nombre: 'Queso Muzzarella Barraza  x 1klg', stock: 1, mismaCategoria: true },
+      { id: 'taran', nombre: 'Queso Muzzarella La Tarantela x fracccion', stock: 40, mismaCategoria: false },
+    ]);
+    expect(muzza.slice(0, 2).map((x) => x.id).sort()).toEqual(['barraza', 'taran']);
+    expect(muzza[2].id).toBe('cremon');
+    const cheddar = ordenarParecidos('Queso Cheddar La Serenisima Finlandia x Fraccion', [
+      { id: 'danbo', nombre: 'Queso Danbo La Serenisima x fraccion', stock: 10, vendidas: 500, mismaCategoria: true },
+      { id: 'milkaut', nombre: 'Queso Cheddar  fetas Milkaut x fraccion', stock: 12, mismaCategoria: true },
+    ]);
+    expect(cheddar[0].id).toBe('milkaut');
+    // otro fiambre de la misma góndola que solo comparte la marca no es parecido
+    expect(ordenarParecidos('Panceta Ahumada Calchaqui x Fraccion', [{ id: 'm', nombre: 'Mortadela bocha Calchaqui x fraccion', stock: 100, mismaCategoria: true }])).toEqual([]);
+  });
+
+  it('lo que se pesa aunque no esté marcado: por el nombre o por los decimales', () => {
+    expect(sePesa('Jamon Crudo Paladini Parma x fraccion', false)).toBe(true);
+    expect(sePesa('Panceta 214 Ahumada', false, 0.2)).toBe(true);
+    expect(sePesa('Manteca La Serenisima x 100 gr', false, 2)).toBe(false);
+    expect(conCantidad(0.2, 'Panceta 214 Ahumada')).toBe('200 g de Panceta 214 Ahumada');
+  });
+
+  it('de otra góndola, solo lo que empieza igual (por la panceta, no las papas sabor panceta)', () => {
+    const lista = ordenarParecidos('Panceta Ahumada Calchaqui x Fraccion', [
+      { id: 'lays', nombre: 'Papas Fritas Lays Panceta x 77gr', stock: 3, mismaCategoria: false },
+      { id: 'luv', nombre: 'Panceta Ahumada Luvianka', stock: 3.6, mismaCategoria: true },
+      { id: '214', nombre: 'Panceta 214 Ahumada', stock: 3.2, mismaCategoria: true },
+    ]);
+    expect(lista.map((x) => x.id)).toEqual(['luv', '214']);
+    const lomo = ordenarParecidos('Lomo ahumado Tronconi x fraccion', [
+      { id: 'mila', nombre: 'Milanesa Pane de lomo x 1 K', stock: 22, mismaCategoria: false },
+      { id: 'atun', nombre: 'Lomo de Atun Bahia en Aceite x 170grs', stock: 4, mismaCategoria: false },
+      { id: 'boc', nombre: 'Lomo Bocatti con hierbas', stock: 57, mismaCategoria: true },
+    ]);
+    expect(lomo.map((x) => x.id)).toEqual(['boc', 'atun']);
   });
 
   it('para la manteca de 200: primero las mantecas, nunca el papel manteca ni los pochoclos', () => {

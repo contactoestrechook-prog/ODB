@@ -189,6 +189,7 @@ export function AvisoFiambreria() {
         onCerrar={() => setFalta(null)}
         onListo={(d) => corregir(falta.pedido, falta.item, d)}
         buscarParecidos={parecidosFiambreria}
+        consultaQuienArma
       />
     );
   }

@@ -36,12 +36,14 @@ export async function traerParecidos(pedidoId: string, productoId: string, falta
   return Array.isArray(d) ? d : [];
 }
 
-export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos }: {
+export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos, consultaQuienArma = false }: {
   item: RenglonFalta;
   onCerrar: () => void;
   onListo: (d: { hay: number; reemplazo: Reemplazo | null; cantidad: number | null }) => Promise<void>;
   /** Las sugerencias de «Tengo parecido» para lo que falta. */
   buscarParecidos?: (faltan: number) => Promise<Reemplazo[]>;
+  /** Fiambrería: el parecido se lo consulta al cliente quien arma el pedido, no ella. */
+  consultaQuienArma?: boolean;
 }) {
   const entero = Number.isInteger(item.cantidad);
   const [hay, setHay] = useState(numero(item.enCarro, 3).replace(/\./g, ''));
@@ -147,13 +149,18 @@ export function FaltaEnGondola({ item, onCerrar, onListo, buscarParecidos }: {
               <Boton tamano="chico" variante="fantasma" onClick={() => { setReemplazo(null); setCant(''); }}>Cambiar</Boton>
             </div>
             <label className="mt-2 flex items-center gap-2 text-sm text-tinta/70">
-              Cantidad
+              {reemplazo.porPeso ? 'Kilos' : 'Cantidad'}
               <Entrada inputMode="decimal" value={cant === '' ? numero(sugerida, 3).replace(/\./g, '') : cant} onChange={(e) => setCant(e.target.value.replace(/[^\d.,]/g, ''))}
                 aria-label={`Cantidad de ${reemplazo.nombre}`} className="importe w-24 text-center font-bold" />
               {reemplazo.precio != null && cantValida && <span className="importe text-tinta/60">{pesos(nCant * reemplazo.precio)}</span>}
             </label>
             {!cantValida && <Aviso tono="atencion" className="mt-2">Poné una cantidad mayor que 0.</Aviso>}
-            <p className="mt-2 text-xs text-tinta/70">No entra al pedido todavía: cuando termines, tocá <b className="font-semibold">Consultar al cliente</b> y le llega por WhatsApp para que diga sí o no.</p>
+            {reemplazo.porPeso && cantValida && <p className="mt-1 text-xs text-tinta/60">Son {cantidadDe(nCant, true)}.</p>}
+            <p className="mt-2 text-xs text-tinta/70">
+              {consultaQuienArma
+                ? <>No entra al pedido todavía: quien arma el pedido se lo consulta al cliente por WhatsApp.</>
+                : <>No entra al pedido todavía: cuando termines, tocá <b className="font-semibold">Consultar al cliente</b> y le llega por WhatsApp para que diga sí o no.</>}
+            </p>
           </div>
         ) : (
           <>

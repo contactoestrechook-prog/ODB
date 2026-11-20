@@ -9,7 +9,7 @@ import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { linkDelSalon } from '../avisos/aviso-pedido';
 import {
   cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo,
-  ordenarParecidos, palabrasDe, textoDeCierre, textoDePregunta, textoParaQuienArma,
+  ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDePregunta, textoParaQuienArma,
 } from './reemplazos';
 
 // «TENGO PARECIDO» Y LA CONSULTA AL CLIENTE (Leandro y Jaqui, 20/11/2026):
@@ -47,7 +47,8 @@ const ABIERTOS_PEDIDO = ['recibido', 'pagado', 'en_preparacion', 'listo'];
 const paraTexto = (f: Fila): CambioParaTexto => ({
   nombre_falta: f.nombre_falta, pide: Number(f.pide), hay: Number(f.hay), nombre_reemplazo: f.nombre_reemplazo,
   cantidad: Number(f.cantidad), precio: f.precio == null ? null : Number(f.precio),
-  faltaPorPeso: f.falta?.vendido_por_peso === true, reemplazoPorPeso: f.parecido?.vendido_por_peso === true,
+  faltaPorPeso: sePesa(f.nombre_falta, f.falta?.vendido_por_peso === true, Number(f.pide)),
+  reemplazoPorPeso: sePesa(f.nombre_reemplazo, f.parecido?.vendido_por_peso === true, Number(f.cantidad)),
 });
 const respondido = (f: Fila): CambioRespondido => ({ ...paraTexto(f), estado: f.estado as 'aceptado' | 'rechazado', error: f.error });
 const digitos = (t: unknown) => String(t ?? '').replace(/\D/g, '');
@@ -103,7 +104,11 @@ export class ReemplazosService {
         const ya = juntar.get(p.id);
         const stock = Number(f.cantidad) || 0;
         if (ya) ya.stock += stock;
-        else juntar.set(p.id, { id: p.id, nombre: String(p.nombre), stock, vendidas: Number(p.unidades_vendidas) || 0, porPeso: p.vendido_por_peso === true });
+        else juntar.set(p.id, {
+          id: p.id, nombre: String(p.nombre), stock, vendidas: Number(p.unidades_vendidas) || 0, porPeso: sePesa(String(p.nombre), p.vendido_por_peso === true),
+          // la misma góndola (sin categoría cargada, no se sabe: cuenta como otra)
+          mismaCategoria: !!item.producto?.categoria_id && p.categoria_id === item.producto.categoria_id,
+        });
       }
     };
     const base = () => {
@@ -130,7 +135,7 @@ export class ReemplazosService {
       id: m.id, nombre: m.nombre, stock: m.stock, precio: precio.get(m.id) ?? null,
       porPeso: juntar.get(m.id)?.porPeso ?? false,
       yaEnElPedido: enPedido.has(m.id),
-      cantidadSugerida: cantidadEquivalente(resto, nombre, m.nombre),
+      cantidadSugerida: cantidadEquivalente(resto, { nombre, porPeso: sePesa(nombre, item.producto?.vendido_por_peso === true, Number(item.cantidad)) }, { nombre: m.nombre, porPeso: juntar.get(m.id)?.porPeso ?? false }),
     }));
   }
 
@@ -172,7 +177,8 @@ export class ReemplazosService {
       porPedido.set(f.pedido_id, [...(porPedido.get(f.pedido_id) ?? []), {
         id: f.id, productoId: f.producto_id, falta: f.nombre_falta, pide: Number(f.pide), hay: Number(f.hay),
         reemplazoId: f.reemplazo_id, reemplazo: f.nombre_reemplazo, cantidad: Number(f.cantidad), precio: f.precio == null ? null : Number(f.precio),
-        faltaPorPeso: f.falta?.vendido_por_peso === true, reemplazoPorPeso: f.parecido?.vendido_por_peso === true,
+        faltaPorPeso: sePesa(f.nombre_falta, f.falta?.vendido_por_peso === true, Number(f.pide)),
+        reemplazoPorPeso: sePesa(f.nombre_reemplazo, f.parecido?.vendido_por_peso === true, Number(f.cantidad)),
         estado: f.estado, consultadoEn: f.consultado_en, preguntadoEn: f.preguntado_en, respondidoEn: f.respondido_en,
         respuesta: f.respuesta, porWhatsapp: !!f.respondido_en && !f.decidido_por, error: f.error, ultimoError: f.ultimo_error,
         otraRespuesta: f.otra_respuesta, otraRespuestaEn: f.otra_respuesta_en, cerradoEn: f.cerrado_en,
@@ -249,6 +255,8 @@ export class ReemplazosService {
       if (tanda.some((f) => f.estado === 'preguntado')) return { enviado: false, esperando: true };
       const cola = tanda.filter((f) => f.estado === 'en_cola');
       if (!cola.length) {
+        // el resumen al cliente y el aviso a quien arma, también de 8 a 22 (la pantalla ya muestra cada respuesta)
+        if (!enHorarioDeMensajes()) return { enviado: false, motivo: 'Son más de las 22: el resumen sale a las 8.' };
         const cerrado = await this.cerrar(pedidoId);
         return { enviado: false, cerrado };
       }
@@ -300,19 +308,41 @@ export class ReemplazosService {
    * algo, pone una condición): lo atiende el bot como siempre y quien arma lo
    * ve en su pantalla.
    */
-  async respuestaDelCliente(p: { linea: string; clave: string; candidatos: string[]; texto: string; escritoEn?: number }) {
+  async respuestaDelCliente(p: {
+    linea: string; clave: string; texto: string; escritoEn?: number;
+    /** Sus teléfonos (últimos 10). Se piden solo si hay una pregunta esperando; con `buscar`, se le pregunta a WhatsApp por el de un @lid. */
+    candidatos: string[] | ((buscar: boolean) => Promise<string[]>);
+  }) {
     const texto = String(p.texto ?? '').trim();
     if (!texto) return null;
+    // primero lo barato: ¿hay alguna pregunta esperando en esta línea? (casi siempre no)
     const desde = new Date(Date.now() - DIAS_ESPERA * 86_400_000).toISOString();
     const { data, error } = await this.db.from('pedidos_reemplazos').select(COLUMNAS)
       .eq('estado', 'preguntado').eq('linea', p.linea).gte('preguntado_en', desde).order('preguntado_en', { ascending: false }).limit(20);
     if (error || !data?.length) return null;
-    const f = ((data ?? []) as Fila[]).find((x) => (x.chat_clave && x.chat_clave === p.clave) || (x.telefono && p.candidatos.includes(x.telefono)));
+    const filas = (data ?? []) as Fila[];
+    let f = filas.find((x) => x.chat_clave && x.chat_clave === p.clave);
+    if (!f && filas.some((x) => x.telefono)) {
+      // pidió por la web o la app y contesta desde un @lid: se lo reconoce por su teléfono
+      const tels = async (buscar: boolean) => (typeof p.candidatos === 'function' ? await p.candidatos(buscar) : p.candidatos);
+      const de = (c: string[]) => filas.find((x) => x.telefono && c.includes(x.telefono));
+      f = de(await tels(false));
+      if (!f && typeof p.candidatos === 'function') f = de(await tels(true));
+    }
     if (!f) return null;
-    // lo que escribió ANTES de que saliera la pregunta no la contesta (un «sí» a otra cosa, un mensaje que llegó tarde)
-    if (p.escritoEn && f.preguntado_en && p.escritoEn < Date.parse(f.preguntado_en) - 2000) return null;
+    // lo que escribió ANTES de que saliera la pregunta no la contesta (un «sí» a otra cosa, un mensaje que
+    // llegó tarde). WhatsApp da la hora en segundos: un segundo de tolerancia.
+    if (p.escritoEn && f.preguntado_en && p.escritoEn + 1000 < Date.parse(f.preguntado_en)) return null;
+    // el pedido ya no se arma (lo cancelaron, lo entregaron): la pregunta ya no vale
+    const { data: ped } = await this.db.from('pedidos').select('estado').eq('id', f.pedido_id).maybeSingle();
+    if (!ped || !ABIERTOS_PEDIDO.includes(String((ped as any).estado))) {
+      await this.db.from('pedidos_reemplazos').update({ estado: 'anulado', ultimo_error: `el pedido ya está ${(ped as any)?.estado ?? 'borrado'}` }).eq('id', f.id).eq('estado', 'preguntado');
+      return null;
+    }
 
     let lectura: 'si' | 'no' | 'otra' | null = leerSiNo(texto);
+    // un «gracias» o un saludo solo no contesta (sin gastar IA)
+    if (!lectura && soloCortesia(texto)) lectura = 'otra';
     if (!lectura && texto.length <= 400) lectura = await this.leerConIA(texto, paraTexto(f)).catch((e) => { this.log.warn(`no pude leer la respuesta con IA: ${e?.message ?? e}`); return null; });
     if (lectura !== 'si' && lectura !== 'no') {
       await this.db.from('pedidos_reemplazos').update({ otra_respuesta: texto.slice(0, 500), otra_respuesta_en: new Date().toISOString() }).eq('id', f.id);
@@ -354,7 +384,7 @@ export class ReemplazosService {
       system: [
         'Un almacén le preguntó a un cliente por WhatsApp si acepta un reemplazo en su pedido, y que responda SÍ o NO.',
         'Decidí qué contestó: "si" si acepta el reemplazo, "no" si no lo quiere (que lo saquen, que no le manden nada en su lugar),',
-        '"otra" si pregunta algo, pone una condición, pide otra cosa distinta o no se entiende. Ante la duda, "otra".',
+        '"otra" si pregunta algo, pone una condición, pide otra cosa distinta, solo saluda o agradece, o no se entiende. Ante la duda, "otra".',
       ].join(' '),
       messages: [{ role: 'user', content: `Pregunta: «${c.nombre_falta} no hay. En su lugar va ${c.cantidad} × ${c.nombre_reemplazo}. ¿Te sirve?»\nRespuesta del cliente: «${texto.slice(0, 400)}»` }],
       output_config: {
@@ -401,9 +431,9 @@ export class ReemplazosService {
       } else this.log.warn(`pedido ${codigo}: el resumen al cliente no salió (${r.motivo ?? 'sin motivo'})`);
     }
 
-    // a quien arma (o a quien consultó)
+    // a quien arma (o a quien consultó). Si todo lo anotó él mismo, ya lo sabe: no hace falta el WhatsApp.
     const usuarioId = (ped as any)?.asignado_a || cambios.find((f) => f.consultado_por)?.consultado_por || null;
-    if (usuarioId) {
+    if (usuarioId && cambios.some((f) => f.respondido_en && !f.decidido_por)) {
       const { data: u } = await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle();
       const texto = textoParaQuienArma(cambios.map(respondido), { cliente, codigo, total, totalAntes, pagado, link: linkDelSalon() });
       await this.encolarAvisoAQuienArma(pedidoId, usuarioId, (u as any)?.nombre ?? null, texto)

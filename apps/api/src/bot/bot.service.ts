@@ -366,8 +366,13 @@ export class BotService {
   // (con @lid, el real que ya se aprendió).
   private async respuestaDeReemplazo(clave: string, real: string | null, esLid: boolean, linea: string, texto: string, ts?: unknown) {
     if (!this.reemplazos) return null;
-    const { data: k } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', clave).maybeSingle();
-    const candidatos = this.candidatosDeTelefono(clave, real, (k as any)?.telefono_real);
+    // los teléfonos se buscan solo si hay una pregunta esperando (casi nunca): con un
+    // @lid nuevo, el real todavía no se aprendió y se le pregunta a WhatsApp
+    const leerReal = async () => ((await this.db.from('bot_contactos').select('telefono_real').eq('telefono', clave).maybeSingle()).data as any)?.telefono_real ?? null;
+    const candidatos = async (buscar: boolean) => {
+      if (buscar && esLid) await this.resolverContactoWaha(clave, true, linea).catch(() => null);
+      return this.candidatosDeTelefono(clave, real, await leerReal());
+    };
     const escritoEn = Number(ts) > 0 ? Number(ts) * 1000 : undefined;
     return this.reemplazos.respuestaDelCliente({ linea, clave, candidatos, texto, escritoEn });
   }

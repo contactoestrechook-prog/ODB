@@ -154,6 +154,19 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   // lo que llega del servidor manda (otro aparato, el refresco de cada 8 s)
   useEffect(() => { setItems(p.items); setCargas(p.cargas); }, [p.items, p.cargas]);
 
+  const faltan = items.filter((i) => i.enCarro < i.cantidad);
+  const listos = items.filter((i) => i.enCarro >= i.cantidad);
+  const unidadesTotal = items.reduce((a, i) => a + i.cantidad, 0);
+  const unidadesCarro = items.reduce((a, i) => a + Math.min(i.enCarro, i.cantidad), 0);
+
+  const avisar = useCallback((tono: Mensaje['tono'], texto: string) => {
+    setMsg({ tono, texto, vez: Date.now() });
+    pitido(tono === 'ok');
+    vibrar(tono === 'ok' ? 60 : [120, 80, 120]);
+  }, []);
+  const avisarRef = useRef(avisar);
+  avisarRef.current = avisar;
+
   // «Tengo parecido» (20/11/2026): lo propuesto, lo que espera al cliente y lo que contestó
   const cambios = useMemo(() => p.cambios ?? [], [p.cambios]);
   const cambioAbierto = new Map(cambios.filter((c) => ABIERTO.includes(c.estado)).map((c) => [c.productoId, c]));
@@ -185,18 +198,6 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }, [cambios]);
 
 
-  const faltan = items.filter((i) => i.enCarro < i.cantidad);
-  const listos = items.filter((i) => i.enCarro >= i.cantidad);
-  const unidadesTotal = items.reduce((a, i) => a + i.cantidad, 0);
-  const unidadesCarro = items.reduce((a, i) => a + Math.min(i.enCarro, i.cantidad), 0);
-
-  const avisar = useCallback((tono: Mensaje['tono'], texto: string) => {
-    setMsg({ tono, texto, vez: Date.now() });
-    pitido(tono === 'ok');
-    vibrar(tono === 'ok' ? 60 : [120, 80, 120]);
-  }, []);
-  const avisarRef = useRef(avisar);
-  avisarRef.current = avisar;
 
   /** Suma al carro. Antes de ir al servidor ya se ve (y si falla, vuelve atrás). */
   const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number }): Promise<Resultado> => {
@@ -333,7 +334,9 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     try {
       const r = await enviar({ accion: 'consultar', pedidoId: p.id });
       if (r?.enviado) avisar('ok', `Le mandé la consulta por WhatsApp${r.cambios > 1 ? ` (de a uno, son ${r.cambios})` : ''}. Te aviso cuando conteste.`);
-      else avisar(r?.motivo ? 'error' : 'ok', r?.motivo ?? 'Quedó en cola para mandarle la consulta.');
+      // de noche queda en cola y sale a las 8: no es un error
+      else if (!r?.motivo || /a las 8/.test(String(r.motivo))) avisar('ok', r?.motivo ?? 'Quedó en cola para mandarle la consulta.');
+      else avisar('error', String(r.motivo));
       await onCambio();
     } catch (e: any) {
       const texto = String(e?.message ?? 'No pude mandar la consulta');
@@ -348,7 +351,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     const va = conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso);
     if (!(await confirmar({
       titulo: acepta ? '¿El cliente dijo que SÍ?' : '¿El cliente dijo que NO?',
-      texto: acepta ? `Entra ${va} en lugar de ${c.falta}.` : `${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'} y no va ${c.reemplazo}.`,
+      texto: acepta ? `Entra ${va} en lugar de ${c.hay > 0 ? `lo que falta de ${c.falta} (queda en ${cantidadDe(c.hay, c.faltaPorPeso)})` : c.falta}.` : `${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'} y no va ${c.reemplazo}.`,
       textoConfirmar: acepta ? 'Sí, dijo que sí' : 'Sí, dijo que no',
     }))) return;
     try {
@@ -578,6 +581,10 @@ function CambiosConElCliente({ cambios, ahora, aMano, onAnotar, onQuitar }: {
 }) {
   const minutos = (desde: string | null) => desde ? Math.max(0, Math.floor((ahora - Date.parse(desde)) / 60_000)) : 0;
   const respondidos = cambios.filter((c) => c.estado === 'aceptado' || c.estado === 'rechazado');
+  const hayPreguntado = cambios.some((c) => c.estado === 'preguntado');
+  // de 22 a 8 no se le escribe a nadie (hora de Buenos Aires)
+  const hora = Number(new Date(ahora).toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' })) % 24;
+  const deNoche = hora >= 22 || hora < 8;
   const todosContestados = respondidos.length === cambios.length;
   return (
     <section className={unir('mb-3 rounded-2xl border p-3', todosContestados ? 'border-ok/30 bg-ok-suave/60' : 'border-dato-3/25 bg-white')}>
@@ -598,7 +605,7 @@ function CambiosConElCliente({ cambios, ahora, aMano, onAnotar, onQuitar }: {
               </p>
               <p className="mt-0.5 text-xs text-tinta/70">
                 {c.estado === 'propuesto' && 'Para consultar'}
-                {c.estado === 'en_cola' && (c.ultimoError ? `Todavía no salió: ${c.ultimoError}` : c.consultadoEn ? 'Sale después de la respuesta anterior' : 'En cola')}
+                {c.estado === 'en_cola' && (c.ultimoError ? `Todavía no salió: ${c.ultimoError}` : hayPreguntado ? 'Sale después de la respuesta anterior' : deNoche ? 'Le sale a las 8: de noche no se le escribe a nadie' : 'Saliendo por WhatsApp…')}
                 {c.estado === 'preguntado' && `Esperando respuesta · le escribí hace ${min} min${min >= 10 ? '. Si no contesta, llamalo.' : ''}`}
                 {c.estado === 'aceptado' && (c.porWhatsapp ? 'Lo aceptó por WhatsApp. Sumalo al carro.' : 'Anotado a mano. Sumalo al carro.')}
                 {c.estado === 'rechazado' && (c.hay > 0 ? `No lo quiso: queda en ${cantidadDe(c.hay, c.faltaPorPeso)}.` : 'No lo quiso: sale del pedido.')}

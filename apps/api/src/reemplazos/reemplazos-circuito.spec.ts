@@ -199,6 +199,68 @@ describe('consultar al cliente los cambios', () => {
     expect(tablas.pedidos_reemplazos[0].estado).toBe('preguntado');
   });
 
+  it('pidió por la web: contesta desde un @lid y se lo reconoce por su teléfono (preguntándole a WhatsApp si hace falta)', async () => {
+    const { s, tablas } = armar();
+    tablas.bot_cotizaciones.length = 0;
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await s.consultar('P1', 'U-PABLO');
+    expect(enviados[0].to).toBe('5491157239794');
+    const pedidas: boolean[] = [];
+    const r = await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, texto: 'si', candidatos: async (buscar) => { pedidas.push(buscar); return buscar ? ['1157239794'] : []; } });
+    expect(r).toMatchObject({ respondido: true, acepta: true });
+    expect(pedidas).toEqual([false, true]);
+  });
+
+  it('sin pregunta esperando no se busca nada (cada mensaje del bot pasa por acá)', async () => {
+    const { s } = armar();
+    let buscadas = 0;
+    expect(await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, texto: 'si', candidatos: async () => { buscadas++; return []; } })).toBeNull();
+    expect(buscadas).toBe(0);
+  });
+
+  it('si el pedido se canceló, la respuesta ya no cambia nada', async () => {
+    const { s, tablas } = armar();
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await s.consultar('P1', 'U-PABLO');
+    tablas.pedidos[0].estado = 'cancelado';
+    expect(await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'si' })).toBeNull();
+    expect(tablas.pedidos_reemplazos[0].estado).toBe('anulado');
+  });
+
+  it('«gracias» solo no contesta ni gasta IA', async () => {
+    const { s, tablas } = armar();
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await s.consultar('P1', 'U-PABLO');
+    expect(await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'Gracias!!' })).toMatchObject({ otra: true });
+    expect(leidas).toHaveLength(0);
+    expect(tablas.pedidos_reemplazos[0].estado).toBe('preguntado');
+  });
+
+  it('si contesta la última de noche, el resumen y el aviso salen a las 8', async () => {
+    const { s, tablas } = armar();
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await s.consultar('P1', 'U-PABLO');
+    jest.setSystemTime(new Date('2026-11-20T22:30:00-03:00'));
+    expect(await s.respuestaDelCliente({ linea: 'pedidos', clave: LID, candidatos: [], texto: 'si' })).toMatchObject({ respondido: true });
+    expect(enviados).toHaveLength(1);
+    expect(tablas.avisos_pedidos).toHaveLength(0);
+    expect(tablas.pedidos_reemplazos[0].cerrado_en ?? null).toBeNull();
+    jest.setSystemTime(new Date('2026-11-21T08:00:30-03:00'));
+    await s.vuelta();
+    expect(enviados).toHaveLength(2);
+    expect(enviados[1].text).toContain('Tu pedido DOM-87B017B4EA14 queda así');
+    expect(tablas.avisos_pedidos).toHaveLength(1);
+  });
+
+  it('si todo lo anotó quien arma, no se le manda el WhatsApp de lo que él mismo anotó', async () => {
+    const { s, tablas } = armar();
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await s.consultar('P1', 'U-PABLO');
+    await s.decidir('R-MANTECA', false, { usuarioId: 'U-PABLO', pedidoId: 'P1' });
+    expect(enviados).toHaveLength(2); // la pregunta y el resumen al cliente
+    expect(tablas.avisos_pedidos).toHaveLength(0);
+  });
+
   it('lo que anota quien arma sin haber consultado no le manda nada al cliente', async () => {
     const { s, tablas } = armar();
     await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
