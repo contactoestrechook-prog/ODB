@@ -234,10 +234,17 @@ export class AvisosPedidosService {
         const cancelado = pedido.estado === 'cancelado';
         if (!cancelado && String((asig as any)?.asignado_a ?? '') === String(a.detalle?.usuario_id ?? '')) return this.omitir(a, 'se lo volvieron a asignar a la misma persona');
         if (pedido.estado === 'entregado') return this.omitir(a, 'el pedido ya se entregó');
+        // quién lo arma AHORA (si lo pasaron dos veces seguidas, el último)
+        const ahoraId = String((asig as any)?.asignado_a ?? '');
+        let nuevoNombre: string | null = a.detalle?.nuevo_nombre ? String(a.detalle.nuevo_nombre) : null;
+        if (!cancelado && ahoraId && ahoraId !== String(a.detalle?.nuevo_id ?? '')) {
+          const { data: u } = await this.db.from('usuarios').select('nombre').eq('id', ahoraId).maybeSingle();
+          nuevoNombre = (u as any)?.nombre ? String((u as any).nombre) : null;
+        }
         texto = textoDeSacado(pedido, {
           nombre: a.detalle?.nombre ? String(a.detalle.nombre) : null,
-          motivo: cancelado ? 'cancelado' : String(a.detalle?.motivo ?? 'reasignado'),
-          nuevoNombre: a.detalle?.nuevo_nombre ? String(a.detalle.nuevo_nombre) : null,
+          motivo: cancelado ? 'cancelado' : ahoraId ? 'reasignado' : 'sin_asignar',
+          nuevoNombre: ahoraId ? nuevoNombre : null,
         });
       } else if (aQuienArma) {
         // entre que se asignó y que sale, se pudo cancelar, entregar o pasar a otra persona
