@@ -89,7 +89,15 @@ describe('una derivación entra al vigilante', () => {
   });
 });
 
-import { esSilenciado } from './pausa';
+import { esProbador, esSilenciado } from './pausa';
+describe('probador (20/11/2026)', () => {
+  it('solo la etiqueta «probador», sin importar mayúsculas', () => {
+    expect(esProbador(['probador'])).toBe(true);
+    expect(esProbador(['cliente', 'Probador'])).toBe(true);
+    expect(esProbador(['silenciado'])).toBe(false);
+    expect(esProbador(null)).toBe(false);
+  });
+});
 describe('contactos silenciados', () => {
   it('reconoce la etiqueta', () => {
     expect(esSilenciado(['silenciado'])).toBe(true);

@@ -4,7 +4,7 @@ import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entreg
 import { esContestadorAutomatico } from './contestador';
 import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
-import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono } from './pausa';
+import { esProbador, esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono } from './pausa';
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
@@ -386,8 +386,11 @@ export class BotService {
   //   3. el identificador, por si todavía llega como número.
   private async esNumeroDelEquipo(identidad: string, telefonoReal?: string): Promise<boolean> {
     const { data: contacto } = await this.db
-      .from('bot_contactos').select('es_equipo, telefono_real').eq('telefono', identidad).maybeSingle();
-    if ((contacto as any)?.es_equipo) return true;
+      .from('bot_contactos').select('es_equipo, telefono_real, etiquetas').eq('telefono', identidad).maybeSingle();
+    // un probador (20/11/2026) se atiende como cliente aunque sea de la casa;
+    // las líneas y las áreas, nunca (abajo)
+    const probador = esProbador((contacto as any)?.etiquetas);
+    if (!probador && (contacto as any)?.es_equipo) return true;
 
     if (!this.equipoCache || this.equipoCache.hasta < Date.now()) {
       const { data } = await this.db.from('usuarios').select('telefono').eq('activo', true);
@@ -399,7 +402,7 @@ export class BotService {
       this.equipoCache = { hasta: Date.now() + 10 * 60_000, tels };
     }
     const candidatos = this.candidatosDeTelefono(identidad, telefonoReal, (contacto as any)?.telefono_real);
-    if (candidatos.some((d) => this.equipoCache!.tels.has(d))) return true;
+    if (!probador && candidatos.some((d) => this.equipoCache!.tels.has(d))) return true;
     // las líneas de la casa y las áreas también son de la casa (revisión 6/10/2026)
     const casa = await this.numerosDeLaCasa();
     return candidatos.some((d) => casa.lineas.has(d) || casa.areas.has(d));

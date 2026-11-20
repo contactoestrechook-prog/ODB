@@ -751,6 +751,25 @@ describe('Revisión 3 y 6: las líneas de la casa no se atienden entre sí', () 
     expect(await s.esNumeroDelEquipo(CLIENTE)).toBe(false);
   });
 
+  it('PROBADOR (20/11/2026): el celular de un usuario con la etiqueta «probador» se atiende como cliente; una línea de la casa, nunca', async () => {
+    const MIO = '5491151775014';
+    const LID = '39101482930202';
+    const base = (etiquetas: string[]) => baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      usuarios: [{ id: 'u1', telefono: '1151775014', activo: true }],
+      bot_contactos: [
+        { telefono: LID, telefono_real: MIO, es_equipo: false, etiquetas },
+        { telefono: OTRO_SECTOR, es_equipo: true, etiquetas: ['probador'] },
+      ],
+    });
+    // sin la marca, el teléfono de un usuario es del equipo (por el @lid y por el número)
+    expect(await servicio(base([])).esNumeroDelEquipo(LID)).toBe(true);
+    // con la marca, el bot lo atiende
+    expect(await servicio(base(['probador'])).esNumeroDelEquipo(LID)).toBe(false);
+    // la marca no saca a otra línea de la casa del silencio
+    expect(await servicio(base(['probador'])).esNumeroDelEquipo(OTRO_SECTOR)).toBe(true);
+  });
+
   it('una difusión no sale a los números de las líneas de la casa', async () => {
     wahaFalso();
     const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });

@@ -100,6 +100,19 @@ export function esSilenciado(etiquetas: unknown): boolean {
   return Array.isArray(etiquetas) && etiquetas.some((e) => String(e).toLowerCase() === 'silenciado');
 }
 
+/**
+ * PROBADOR (Leandro, 20/11/2026: «quiero que me conteste el bot, soy yo desde mi
+ * otro celular»). El bot no atiende a los teléfonos de los usuarios activos
+ * (número del equipo), así que un simulacro desde un celular de la casa nunca
+ * tenía respuesta. Con la etiqueta `probador` en bot_contactos, ese contacto se
+ * atiende como un cliente aunque sea de un usuario o esté marcado es_equipo.
+ * Las líneas de la casa y las áreas siguen calladas siempre (se hablarían
+ * entre bots).
+ */
+export function esProbador(etiquetas: unknown): boolean {
+  return Array.isArray(etiquetas) && etiquetas.some((e) => String(e).toLowerCase() === 'probador');
+}
+
 // ¿Las charlas pausadas que esperan respuesta avisan por WhatsApp a
 // administración? APAGADO desde el 1/10/2026, pedido del dueño: "desactivar
 // alertar por WhatsApp sobre las charlas que están pausadas". La espera igual
