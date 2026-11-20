@@ -9,7 +9,7 @@ import { hayWhatsapp, Lineas, sesionDeAvisos, wahaUrlDe } from '../comun/lineas'
 import {
   A_QUIEN_ARMA, codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
-  textoDeAsignado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
+  textoDeAsignado, textoDelAviso, textoDePagado, textoDeSacado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
 
 // TODA CONFIRMACIÓN DE PEDIDO SALE AL TELÉFONO DE ADMINISTRACIÓN (regla de
@@ -227,6 +227,18 @@ export class AvisosPedidosService {
         // lo que contestó el cliente a los «Tengo parecido» (20/11/2026): el texto viene armado
         if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);
         texto = String(a.detalle?.texto ?? '').trim() || `${cabeza}\nEl cliente contestó los cambios: miralos en el sistema.`;
+      } else if (a.tipo === 'armado_sacado') {
+        // al que le sacaron el pedido (20/11/2026): si mientras tanto se lo
+        // devolvieron, o ya se entregó, no hay nada que avisar
+        const { data: asig } = await this.db.from('pedidos').select('asignado_a').eq('id', pedido.id).maybeSingle();
+        const cancelado = pedido.estado === 'cancelado';
+        if (!cancelado && String((asig as any)?.asignado_a ?? '') === String(a.detalle?.usuario_id ?? '')) return this.omitir(a, 'se lo volvieron a asignar a la misma persona');
+        if (pedido.estado === 'entregado') return this.omitir(a, 'el pedido ya se entregó');
+        texto = textoDeSacado(pedido, {
+          nombre: a.detalle?.nombre ? String(a.detalle.nombre) : null,
+          motivo: cancelado ? 'cancelado' : String(a.detalle?.motivo ?? 'reasignado'),
+          nuevoNombre: a.detalle?.nuevo_nombre ? String(a.detalle.nuevo_nombre) : null,
+        });
       } else if (aQuienArma) {
         // entre que se asignó y que sale, se pudo cancelar, entregar o pasar a otra persona
         if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);

@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
 import { Publico, Roles, SinHerencia } from '../auth/decorators';
+import { loQueVeElQueArma, soloArma } from '../auth/roles';
 import { LimitadorTasa } from '../comun/limitador';
 import { MEDIOS_AL_ENTREGAR } from './envios';
 
@@ -115,14 +116,19 @@ export class PedidosController {
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('pedidos')
-  cola() {
-    return this.pedidos.cola();
+  async cola(@Req() req: any) {
+    const lista = await this.pedidos.cola();
+    // el que solo arma ve lo suyo (20/11/2026): Depósito, Pedidos y la ventana
+    // «Llegó un pedido» leen de acá
+    return soloArma(req.usuario) ? loQueVeElQueArma(lista, req.usuario?.sub) : lista;
   }
 
   // Entregados, en camino y cancelados de los últimos días (6/10/2026: el panel no tenía historial).
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('pedidos/terminados')
-  terminados(@Query('dias') dias?: string) {
+  terminados(@Query('dias') dias?: string, @Req() req?: any) {
+    // lo terminado sale de la pantalla del que arma (20/11/2026)
+    if (soloArma(req?.usuario)) return [];
     return this.pedidos.terminados(Number(dias) || 7);
   }
 

@@ -41,6 +41,21 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
   // los que cerró a mano no se le vuelven a abrir solos
   const cerrados = useRef(new Set<string>());
   const [finalizado, setFinalizado] = useState<string | null>(null);
+  // terminado el pedido, la pantalla vuelve a quedar libre (Leandro, 20/11/2026:
+  // «que le salga de su pantalla, que le quede libre de vuelta, que no le quede cargada»)
+  useEffect(() => {
+    if (!finalizado) return;
+    const t = setTimeout(() => setFinalizado(null), 12_000);
+    return () => clearTimeout(t);
+  }, [finalizado]);
+  // LOS QUE LE SACARON (20/11/2026: «lo cambié pero a él no le llegó una alerta
+  // de que ese pedido fue reasignado; le quedaron los dos pedidos para armar»).
+  // Un pedido suyo que desaparece sin que lo haya terminado él: se lo pasaron a
+  // otra persona o se canceló. Antes se iba sin decir nada (y si lo tenía
+  // abierto, se le cerraba la pantalla de golpe).
+  const propiosAntes = useRef<Map<string, string> | null>(null);
+  const terminados = useRef(new Set<string>());
+  const [sacados, setSacados] = useState<string[]>([]);
   const ahora = useAhora();
 
   const cargar = useCallback(async () => {
@@ -53,6 +68,16 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
       // los que están a SU nombre (19/11/2026: a Pablo Avalos, de depósito, le
       // asignaron uno y no lo veía: quedaba abajo de los que esperan armador)
       const propios = verTodos ? d.filter((p) => !!miId && p.asignadoA === miId) : d;
+      const antes = propiosAntes.current;
+      if (antes) {
+        const ids = new Set(propios.map((p) => p.id));
+        const idos = [...antes].filter(([id]) => !ids.has(id) && !terminados.current.has(id)).map(([, codigo]) => codigo);
+        if (idos.length) {
+          setSacados((s) => [...new Set([...s, ...idos])]);
+          try { navigator.vibrate?.([300, 100, 300]); } catch { /* sin vibración */ }
+        }
+      }
+      propiosAntes.current = new Map(propios.map((p) => [p.id, p.codigo]));
       setAbierto((ya) => {
         if (ya && d.some((p) => p.id === ya)) return ya;
         const nuevo = propios.find((p) => !cerrados.current.has(p.id));
@@ -72,16 +97,23 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
       p={actual}
       ahora={ahora}
       onVolver={() => { cerrados.current.add(actual.id); setAbierto(null); }}
-      onTerminado={(texto) => { cerrados.current.add(actual.id); setAbierto(null); setFinalizado(texto); }}
+      onTerminado={(texto) => { cerrados.current.add(actual.id); terminados.current.add(actual.id); setAbierto(null); setFinalizado(texto); }}
       onCambio={cargar}
       enviar={(cuerpo) => api('POST', cuerpo)}
     />
+  );
+  const avisoSacados = sacados.length > 0 && (
+    <Aviso tono="atencion" titulo={sacados.length === 1 ? `Ya no armás el ${sacados[0]}` : `Ya no armás ${sacados.length} pedidos: ${sacados.join(', ')}`}
+      accion={<Boton tamano="chico" variante="secundario" onClick={() => setSacados([])}>Entendido</Boton>}>
+      Se lo pasaron a otra persona o se canceló: no lo armes. Si ya juntaste algo, devolvelo a la góndola o dáselo a quien lo arma ahora.
+    </Aviso>
   );
 
   if (!verTodos) {
     return (
       <div className="space-y-3">
         {pantalla}
+        {avisoSacados}
         {finalizado && <Aviso tono="ok" titulo="¡Listo!">{finalizado}</Aviso>}
         {error && <Aviso tono="error">{error}</Aviso>}
         {pedidos === null && !error && <p className="text-sm text-tinta/60">Buscando tus pedidos…</p>}
@@ -107,6 +139,7 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
   return (
     <>
       {pantalla}
+      {avisoSacados}
       {/* lo que tiene a su nombre va primero, antes que la sala de control */}
       {mios.length > 0 && (
         <Seccion id="salon-mios" color="dato-3" titulo={mios.length === 1 ? 'Te toca armar este pedido' : 'Te toca armar estos pedidos'} cuenta={mios.length}

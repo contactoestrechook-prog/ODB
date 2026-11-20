@@ -37,6 +37,27 @@ export function implicados(rol: string): string[] {
   return ROLES_IMPLICADOS[rol] ?? [rol];
 }
 
+/**
+ * EL QUE SOLO ARMA (Leandro, 20/11/2026: «vos le asignás un pedido a fulanito y
+ * menganito en su celular veía el pedido que estaba armando fulanito. Eso no
+ * tiene que pasar… cada uno tiene que ver su pedido», y que los de depósito
+ * queden como los del salón). Arma (salón, depósito, fiambrería) y no tiene un
+ * rol que maneje los pedidos de todos (dueño, gerente, administración, compras,
+ * caja): de los pedidos ve solo los que le asignaron, mientras están abiertos.
+ * Repartidor no cuenta: sus entregas van por /repartidor/mis-entregas.
+ */
+const ROLES_ARMAN = ['op_salon', 'deposito', 'fiambreria'];
+const VEN_TODOS_LOS_PEDIDOS = ['dueno', 'gerente', 'administrativo', 'comprador', 'cajero'];
+export function soloArma(u: { rol?: string | null; roles?: unknown } | null | undefined): boolean {
+  const r = rolesDe(u);
+  return r.some((x) => ROLES_ARMAN.includes(x)) && !r.some((x) => VEN_TODOS_LOS_PEDIDOS.includes(x));
+}
+/** Lo que ve de la cola de pedidos el que solo arma: lo suyo y abierto. */
+export function loQueVeElQueArma<T extends { asignado_a?: unknown; estado?: unknown }>(lista: T[], usuarioId: string | null | undefined): T[] {
+  if (!usuarioId) return [];
+  return lista.filter((p) => String(p.asignado_a ?? '') === String(usuarioId) && ['recibido', 'pagado', 'en_preparacion'].includes(String(p.estado ?? '')));
+}
+
 /** Encerrado solo si TODOS sus roles lo son (op salón que también es cajero, no). */
 export function estaEncerrado(roles: string[]): boolean {
   return roles.length > 0 && roles.every((r) => ROLES_ENCERRADOS.includes(r));

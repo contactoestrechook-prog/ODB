@@ -12,9 +12,9 @@ import { sinRestosDeMarcado } from '../comun/texto-limpio';
 
 // pedido_asignado es el único que NO va a administración: va al celular de quien
 // lo arma (16/11/2026, ver textoDeAsignado)
-export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado' | 'cambios_respondidos';
+export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado' | 'cambios_respondidos' | 'armado_sacado';
 /** Los que van al celular de quien arma, no a administración (ver telefonoDeQuienArma). */
-export const A_QUIEN_ARMA: readonly TipoAviso[] = ['pedido_asignado', 'cambios_respondidos'];
+export const A_QUIEN_ARMA: readonly TipoAviso[] = ['pedido_asignado', 'cambios_respondidos', 'armado_sacado'];
 
 export type PedidoParaAviso = {
   id: string;
@@ -119,6 +119,8 @@ const TITULOS: Record<TipoAviso, string> = {
   pedido_asignado: 'PEDIDO PARA ARMAR',
   // el cliente contestó los «Tengo parecido» (20/11/2026): el texto lo arma reemplazos.ts
   cambios_respondidos: 'CAMBIOS CONFIRMADOS',
+  // al que le sacan un pedido que ya le había llegado (20/11/2026, ver textoDeSacado)
+  armado_sacado: 'YA NO LO ARMÁS',
 };
 
 /** El link al pedido en el panel: tocándolo desde el WhatsApp se abre con el botón "Lo tomo". */
@@ -193,6 +195,32 @@ export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: bool
 /** La pantalla donde quien arma ve sus pedidos, con el lugar de cada producto. */
 export function linkDelSalon(): string {
   return `${(process.env.ADMIN_URL ?? 'https://odb-admin-production.up.railway.app').replace(/\/$/, '')}/salon`;
+}
+
+/**
+ * AL QUE LE SACAN UN PEDIDO (Leandro, 20/11/2026: «le designé el pedido a Alexis
+ * y me equivoqué… lo cambié pero a él no le llegó una alerta de que ese pedido
+ * fue reasignado a otro compañero; le quedaron los dos pedidos para armar»).
+ * Sale solo si a esa persona ya le había llegado el PEDIDO PARA ARMAR (la base
+ * lo encola: db/migracion-armado-sacado.sql). Motivo: se lo pasaron a otra
+ * persona o el pedido se canceló.
+ */
+export function textoDeSacado(p: PedidoParaAviso, opciones: { nombre?: string | null; motivo?: string | null; nuevoNombre?: string | null }): string {
+  const nombre = String(opciones.nombre ?? '').trim().split(/\s+/)[0];
+  const nuevo = String(opciones.nuevoNombre ?? '').trim().split(/\s+/).slice(0, 2).join(' ');
+  const cancelado = opciones.motivo === 'cancelado' || p.estado === 'cancelado';
+  const a = nombre ? `${nombre}, ` : '';
+  const queda = cancelado || !nuevo;
+  return [
+    encabezado('armado_sacado', codigoDe(p)),
+    cancelado
+      ? `${a}este pedido se canceló: no lo armes.`
+      : nuevo ? `${a}este pedido ahora lo arma ${nuevo}: no lo armes.` : `${a}este pedido ya no está a tu nombre: no lo armes.`,
+    queda
+      ? 'Si ya juntaste algo, devolvelo a la góndola.'
+      : `Si ya juntaste algo, dáselo a ${nuevo} o devolvelo a la góndola.`,
+    clienteDe(p) ? `Era de: ${clienteDe(p)}` : null,
+  ].filter(Boolean).join('\n');
 }
 
 /**

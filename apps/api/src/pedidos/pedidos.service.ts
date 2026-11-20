@@ -854,8 +854,12 @@ export class PedidosService {
     const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
     for (const a of (avisos ?? []) as any[]) {
       // el aviso a quien lo arma va a su celular, no a administración (16/11/2026)
-      if (a.tipo === 'pedido_asignado' || a.tipo === 'cambios_respondidos') {
+      if (a.tipo === 'pedido_asignado' || a.tipo === 'cambios_respondidos' || a.tipo === 'armado_sacado') {
         const a_quien = a.detalle?.nombre ? String(a.detalle.nombre) : 'quien lo arma';
+        if (a.tipo === 'armado_sacado') {
+          if (a.entregado_en || a.enviado_en) lineas.push({ cuando: a.entregado_en ?? a.enviado_en, que: `Le llegó por WhatsApp a ${a_quien} que ya no lo arma`, quien: null, tono: 'neutro' });
+          continue;
+        }
         if (a.tipo === 'cambios_respondidos') {
           if (a.entregado_en || a.enviado_en) lineas.push({ cuando: a.entregado_en ?? a.enviado_en, que: `Le llegaron por WhatsApp a ${a_quien} los cambios que confirmó el cliente`, quien: null, tono: 'neutro' });
           continue;
