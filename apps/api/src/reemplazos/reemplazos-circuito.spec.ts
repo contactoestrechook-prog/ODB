@@ -279,4 +279,16 @@ describe('consultar al cliente los cambios', () => {
     await expect(s.consultar('P1', 'U-PABLO')).rejects.toThrow('No tengo el WhatsApp del cliente');
     expect(tablas.pedidos_reemplazos[0].estado).toBe('propuesto');
   });
+
+  it('PRUEBA de un celular probador (tiene su charla): se le consulta como a cualquiera; la del botón «Pedido de prueba» (sin charla), no', async () => {
+    // 20/11/2026: Leandro prueba por WhatsApp que el bot le ofrezca alternativas
+    const { s, tablas } = armar();
+    tablas.pedidos[0].origen = 'simulador';
+    await expect(s.destinoDelPedido('P1')).resolves.toMatchObject({ chat: `${LID}@lid`, linea: 'pedidos' });
+    await s.proponer('P1', { productoId: 'MANTECA', hay: 0, reemplazoId: 'LS100', cantidad: 2 }, 'U-PABLO');
+    await expect(s.consultar('P1', 'U-PABLO')).resolves.toMatchObject({ ok: true, enviado: true });
+    // la del botón: cliente inventado, sin charla del bot
+    tablas.bot_cotizaciones.length = 0;
+    await expect(s.destinoDelPedido('P1')).resolves.toBeNull();
+  });
 });

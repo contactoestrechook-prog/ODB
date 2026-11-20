@@ -192,12 +192,17 @@ export class ReemplazosService {
   /** A dónde se le escribe: al chat donde pidió (por esa línea) o, si no, a su teléfono por la general. */
   async destinoDelPedido(pedidoId: string): Promise<Destino | null> {
     const { data: p } = await this.db.from('pedidos').select('contacto_telefono, origen, cliente:clientes(telefono)').eq('id', pedidoId).maybeSingle();
-    if (!p || (p as any).origen === 'simulador') return null;
+    if (!p) return null;
     const tel = celularWhatsapp(String((p as any).cliente?.telefono || (p as any).contacto_telefono || ''));
     const telValido = tel.length >= 12 && tel.length <= 13 ? tel : null;
     const { data: cot } = await this.db.from('bot_cotizaciones').select('telefono, linea').eq('pedido_id', pedidoId)
       .order('creada_en', { ascending: false }).limit(1).maybeSingle();
     const claveBot = digitos((cot as any)?.telefono);
+    // Un pedido de prueba no tiene a quién consultarle si es del botón «Pedido de
+    // prueba» (cliente inventado, sin charla). El de un celular probador
+    // (20/11/2026: Leandro prueba por WhatsApp que el bot le ofrezca
+    // alternativas) sí tiene su charla: a ese se le consulta como a cualquiera.
+    if ((p as any).origen === 'simulador' && !claveBot) return null;
     let chat: string; let chatClave: string; let linea: string;
     if (claveBot) {
       chatClave = claveBot;
