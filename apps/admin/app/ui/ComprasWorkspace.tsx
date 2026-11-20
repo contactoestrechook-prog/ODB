@@ -110,11 +110,15 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
   const [modal, setModal] = useState<any>(provAbrir ? { tipo: 'proveedor', prov: provAbrir } : null); // {tipo, ...}
   // «Cargar por foto» desde Facturas de compra (3/11/2026): llega con ?foto=1 y
   // abre la entrada por foto; el parámetro se saca para que un recargar no la reabra
+  // «Corregir en la carga» desde una factura ya registrada (20/11/2026): llega con
+  // ?lectura=<id> y abre esa lectura, aunque ya no esté en la bandeja
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.get('foto') !== '1') return;
-    setModal({ tipo: 'entradaFoto' });
+    const lectura = url.searchParams.get('lectura');
+    if (url.searchParams.get('foto') !== '1' && !lectura) return;
+    setModal(lectura ? { tipo: 'entradaFoto', lecturaId: lectura } : { tipo: 'entradaFoto' });
     url.searchParams.delete('foto');
+    url.searchParams.delete('lectura');
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
   }, []);
   const [deuda, setDeuda] = useState<any[] | null>(null);
@@ -2604,7 +2608,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   })();
   const faltanEntrada = faltaParaEntrada({
     proveedor: !!f.proveedorId,
-    sucursal: !!f.sucursalId,
+    // al corregir una ya registrada (20/11/2026) el stock se acomoda donde entró: no hace falta elegirla
+    sucursal: !!f.sucursalId || !!registrada,
     tildadosConProducto: fotoItems.filter((i) => i.incluir && i.sku).length,
     tildadosSinProducto: fotoItems.flatMap((i, k) => (i.incluir && !i.sku ? [k] : [])),
     renglonIncompleto,
@@ -2650,6 +2655,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
             cerrar={cerrar}
             okLabel={esNotaCredito ? (foto.ncPara ? `Registrar nota de crédito y liberar la factura ${foto.ncPara.numero}` : 'Registrar nota de crédito') : 'Registrar factura para conciliar'}
             faltan={faltanConciliar}
+            // ya registrada (20/11/2026): no se registra dos veces; se corrige desde Facturas de compra
+            disabled={!esNotaCredito && !!registrada}
             ir={irA}
             info={esNotaCredito ? null : remitoAplicado
               ? 'La mercadería ya entró con su remito: la factura queda cruzada con él.'
@@ -2684,7 +2691,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         <Acciones
           cerrar={cerrar}
           okLabel={registrada ? 'Corregir la factura registrada' : `Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
-          faltan={faltanEntrada}
+          faltan={registrada ? faltanEntrada.map((x) => ({ ...x, texto: x.texto.replace('Antes de registrar', 'Antes de corregir') })) : faltanEntrada}
+          prefijo={registrada ? 'Para corregir' : undefined}
           disabled={!!registrada && !registrada.corregible}
           ir={irA}
           info={registrada ? (registrada.corregible ? `Ya está registrada: se corrige con lo que dice esta carga.` : registrada.motivo) : entraEn}
@@ -3942,10 +3950,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
 
               {/* YA REGISTRADA (20/11/2026): se corrige con esta carga en vez de registrarla dos veces */}
               {registrada && (
-                <Aviso tono={registrada.corregible ? 'atencion' : 'error'} titulo={`Esta factura ya está registrada${registrada.cargadaPor ? ` (la cargó ${registrada.cargadaPor}` : ' ('}${registrada.creadoEn ? `${registrada.cargadaPor ? ', ' : ''}el ${new Date(registrada.creadoEn).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}` : ''})`}>
-                  {registrada.corregible
-                    ? <>Si encontraste un error, corregí acá lo que haga falta (cajas, unidades, precios, el producto) y tocá <b>Corregir la factura registrada</b>. Antes de aplicar te muestro qué cambia; el stock, el costo y el precio de venta se acomodan solos.</>
-                    : <>{registrada.motivo}</>}
+                <Aviso tono={registrada.corregible ? 'atencion' : 'error'} titulo={`Esta factura ya está registrada${registrada.cargadaPor ? ` (la cargó ${registrada.cargadaPor}` : ' ('}${registrada.creadoEn ? `${registrada.cargadaPor ? ', ' : ''}el ${new Date(registrada.creadoEn).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' })}` : ''})`}>
+                  {soloLaFactura
+                    ? <>No se carga dos veces. Si tiene un error, corregila desde Facturas de compra.</>
+                    : registrada.corregible
+                      ? <>Si encontraste un error, corregí acá lo que haga falta (cajas, unidades, precios, el producto) y tocá <b>Corregir la factura registrada</b>. Antes de aplicar te muestro qué cambia; el stock, el costo y el precio de venta se acomodan solos.</>
+                      : <>{registrada.motivo}</>}
                 </Aviso>
               )}
 
@@ -3965,7 +3975,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
 
               {revisionPendiente.length > 0 && (
                 <div id="registro-antes-de-registrar" className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
-                  <p className="font-semibold text-atencion">Antes de registrar, mirá {revisionPendiente.length === 1 ? 'esto' : `estas ${revisionPendiente.length} cosas`}</p>
+                  <p className="font-semibold text-atencion">Antes de {registrada ? 'corregir' : 'registrar'}, mirá {revisionPendiente.length === 1 ? 'esto' : `estas ${revisionPendiente.length} cosas`}</p>
                   <ul className="mt-2 space-y-2">
                     {revisionPendiente.map((a) => (
                       <li key={a.texto} className="flex flex-wrap items-start gap-2">
@@ -3975,7 +3985,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-tinta/60">Si no está bien, corregilo en el renglón o pedíselo al chat. Mientras tanto no se puede registrar.</p>
+                  <p className="mt-2 text-xs text-tinta/60">Si no está bien, corregilo en el renglón o pedíselo al chat. Mientras tanto no se puede {registrada ? 'corregir' : 'registrar'}.</p>
                 </div>
               )}
 
@@ -4647,7 +4657,7 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
 // `faltan`: lo que falta para registrar (lib/motivo-registro.ts). Con algo, el
 // botón se apaga y al lado dice qué es; tocarlo lleva a donde se arregla.
 // `info`: con todo en orden, qué va a pasar (dónde entra la mercadería).
-function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario', faltan, ir, info }: any) {
+function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario', faltan, ir, info, prefijo = 'Para registrar' }: any) {
   const [cargando, setCargando] = useState(false);
   const lista: Falta[] = faltan ?? [];
   const apagado = !!disabled || lista.length > 0;
@@ -4655,7 +4665,7 @@ function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario', falt
     <>
       {lista.length ? (
         <p role="status" className="min-w-0 basis-full text-sm text-atencion sm:flex-1 sm:basis-0">
-          <span className="font-semibold">Para registrar: </span>
+          <span className="font-semibold">{prefijo}: </span>
           {lista.map((x, k) => (
             <span key={x.texto}>
               {k > 0 && ' · '}

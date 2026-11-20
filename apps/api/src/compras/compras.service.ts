@@ -1223,7 +1223,14 @@ export class ComprasService {
         }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     }
-    return { ...f, items, renglones, corregible };
+    // la lectura con la que se cargó (mismo archivo): «Corregir en la carga», aunque ya no esté en la bandeja (20/11/2026)
+    let lecturaId: string | null = null;
+    if (corregible && f.archivo_url) {
+      const { data: lec } = await this.db.from('lecturas_comprobante').select('id')
+        .eq('resultado->>archivoUrl', f.archivo_url).eq('estado', 'listo').order('creado_en', { ascending: false }).limit(1).maybeSingle();
+      lecturaId = (lec as any)?.id ?? null;
+    }
+    return { ...f, items, renglones, corregible, lecturaId };
   }
 
   // Carga manual completa: facturas de mercadería, GASTOS (sin stock, con
@@ -1613,7 +1620,7 @@ export class ComprasService {
    */
   async corregirConCarga(facturaId: string, dto: EntradaDirectaDto & { soloVer?: boolean }, usuario: { sub?: string; rol?: string; roles?: unknown } = {}) {
     const { data: fd } = await this.db.from('facturas_proveedor')
-      .select('id, numero, proveedor_id, oc_id, estado, compra_eventual, monto, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, letra, fecha_emision, condicion_venta')
+      .select('id, numero, proveedor_id, oc_id, estado, compra_eventual, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, letra, fecha_emision, condicion_venta')
       .eq('id', facturaId).maybeSingle();
     const f = fd as any;
     if (!f) throw new BadRequestException('No existe la factura');
@@ -1652,6 +1659,10 @@ export class ComprasService {
       })),
     );
     const enc = diferenciasDeEncabezado(f, dto.factura as any);
+    // con pagos (o en una orden de pago) el total no se cambia desde acá: quedaría distinto de lo pagado
+    if ('monto' in enc.cambios && (Number(f.monto_pagado) > 0 || f.estado === 'en_pago' || f.estado === 'pagada')) {
+      throw new BadRequestException(`La factura ya tiene pagos${f.estado === 'en_pago' ? ' (está en una orden de pago)' : ''}: el total no se cambia desde la carga. Corregí todo lo demás con el total de antes (${'$' + Number(f.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}) o pedile a un dueño que lo arregle desde Facturas.`);
+    }
     const resumen = { renglones: renglones.map((r) => r.detalle), encabezado: enc.detalle };
     if (dto.soloVer) return { ...resumen, nada: !renglones.length && !enc.detalle.length };
     if (!renglones.length && !enc.detalle.length) throw new BadRequestException('No cambió nada respecto de lo que se registró');

@@ -790,7 +790,13 @@ function RenglonesFactura({ d, editable, editaDirecto, listo, proveedorFactura }
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold text-tinta">Lo que entró con esta factura</p>
         {editable && !editando && (
-          <Boton variante="secundario" tamano="chico" onClick={empezar}>{editaDirecto ? 'Corregir renglones' : 'Pedir corrección de renglones'}</Boton>
+          <div className="flex flex-wrap gap-2">
+            {/* con el papel a la vista, como se cargó (20/11/2026): cajas, U×B, precios */}
+            {d.lecturaId && (
+              <BotonLink href={`/compras?lectura=${encodeURIComponent(d.lecturaId)}`} variante="secundario" tamano="chico">Corregir en la carga</BotonLink>
+            )}
+            <Boton variante="secundario" tamano="chico" onClick={empezar}>{editaDirecto ? 'Corregir renglones' : 'Pedir corrección de renglones'}</Boton>
+          </div>
         )}
       </div>
 
