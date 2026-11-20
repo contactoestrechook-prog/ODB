@@ -133,6 +133,8 @@ export function notasDelPedido(p: {
   sinMatch?: string[];
   preciosDichos?: { producto: string; dicho: number; sistema: number | null }[];
   sinReserva?: boolean;
+  /** «Queso Adler Salame x 100g (pide 4, hay 1)» (20/11/2026) */
+  sinStock?: string[];
 }): string {
   const pesos = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
   return [
@@ -140,6 +142,7 @@ export function notasDelPedido(p: {
     p.notas ?? null,
     p.sinMatch?.length ? `No encontrado en el catálogo: ${p.sinMatch.join(', ')}` : null,
     ...(p.preciosDichos ?? []).map((x) => `En la charla se dijo ${pesos(x.dicho)} por ${x.producto}${x.sistema != null ? ` (sistema ${pesos(x.sistema)})` : ''}`),
+    p.sinStock?.length ? `Sin stock en el sistema al cargarlo: ${p.sinStock.join('; ')}. Si no están, «No hay» y ofrecé un parecido` : null,
     p.sinReserva ? 'Sin reserva de stock: no alcanzaba al cargarlo' : null,
   ].filter(Boolean).join(' · ').slice(0, 1000);
 }

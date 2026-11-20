@@ -108,9 +108,9 @@ export function CharlasDeWhatsapp({ charlas, error, recargar, onCreado, onVerPed
         <PasarAPedido
           charla={abierta}
           onCerrar={() => setAbierta(null)}
-          onCreado={(codigo, sinReserva) => {
+          onCreado={(codigo, sinReserva, sinStock) => {
             setAbierta(null);
-            setHecho(`Pedido ${codigo} creado: ya suena en las cajas.${sinReserva ? ' No alcanzaba el stock para reservarlo y quedó anotado en el pedido.' : ''}`);
+            setHecho(`Pedido ${codigo} creado: ya suena en las cajas.${sinStock.length ? ` Sin stock en el sistema: ${sinStock.join(', ')} (la caja y quien lo arme lo ven marcado).` : sinReserva ? ' No alcanzaba el stock para reservarlo y quedó anotado en el pedido.' : ''}`);
             recargar();
             onCreado();
           }}
@@ -156,7 +156,7 @@ function TarjetaCharla({ c, onPasar, onVerPedido }: { c: Charla; onPasar: () => 
   );
 }
 
-type Renglon = { producto_id: string; cantidad: number; pedido: string; match: string; sku: string; precio: number | null; precioDicho: number | null; precioDistinto: boolean };
+type Renglon = { producto_id: string; cantidad: number; pedido: string; match: string; sku: string; precio: number | null; precioDicho: number | null; precioDistinto: boolean; /** lo que hay en la sucursal (20/11/2026) */ hay?: number | null };
 type Armado = {
   linea: string; telefono: string; telefonoReal: string | null;
   nombre: string | null; tipo: 'retiro' | 'envio' | null; direccion: string | null; entregaFecha: string | null; franja: string | null;
@@ -172,7 +172,7 @@ const FORMAS = [
   { valor: 'mercadopago', etiqueta: 'Mercado Pago' },
 ];
 
-function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar: () => void; onCreado: (codigo: string, sinReserva: boolean) => void }) {
+function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar: () => void; onCreado: (codigo: string, sinReserva: boolean, sinStock: string[]) => void }) {
   const [armado, setArmado] = useState<Armado | null>(null);
   const [leyendo, setLeyendo] = useState(true);
   const [creando, setCreando] = useState(false);
@@ -198,6 +198,8 @@ function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar
   const items = armado?.items ?? [];
   const total = items.length > 0 && items.every((i) => i.precio != null) ? items.reduce((t, i) => t + (Number(i.cantidad) || 0) * (i.precio ?? 0), 0) : null;
   const faltaDireccion = armado?.tipo === 'envio' && !String(armado.direccion ?? '').trim();
+  // lo que el sistema da sin stock (20/11/2026): se ve antes de crear, no en la góndola
+  const sinStock = items.filter((i) => i.hay != null && (Number(i.cantidad) || 0) > (i.hay ?? 0));
   const puedeCrear = !!armado && items.length > 0 && items.every((i) => Number(i.cantidad) > 0) && !faltaDireccion && !creando;
 
   async function crear() {
@@ -217,7 +219,7 @@ function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d?.message ?? 'No se pudo crear el pedido.'); return; }
-      onCreado(String(d.codigo ?? ''), !!d.sinReserva);
+      onCreado(String(d.codigo ?? ''), !!d.sinReserva, Array.isArray(d.sinStock) ? d.sinStock.map((f: any) => String(f.nombre)) : []);
     } catch {
       setError('Sin conexión. Probá de nuevo.');
     } finally {
@@ -254,6 +256,12 @@ function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar
                 <ul className="list-disc space-y-0.5 pl-4">{armado.dudas.map((d, i) => <li key={i}>{d}</li>)}</ul>
               </Aviso>
             )}
+            {sinStock.length > 0 && (
+              <Aviso tono="atencion" titulo={`${sinStock.length === 1 ? 'Un producto' : `${sinStock.length} productos`} sin stock en el sistema`}>
+                <ul className="list-disc space-y-0.5 pl-4">{sinStock.map((i) => <li key={i.producto_id}>{i.match}: pide {numero(Number(i.cantidad) || 0, 2)}, hay {numero(i.hay ?? 0, 2)}</li>)}</ul>
+                <p className="mt-1">Si podés, decíselo al cliente en la charla o cambialo antes de crear. Si lo creás igual, la caja y quien lo arme lo ven marcado.</p>
+              </Aviso>
+            )}
             {items.length > 0 ? (
               <PlacaRoja
                 titulo="PEDIDO"
@@ -263,7 +271,10 @@ function PasarAPedido({ charla, onCerrar, onCreado }: { charla: Charla; onCerrar
                   cantidad: Number(it.cantidad) || 0,
                   nombre: it.match,
                   detalle: [`en la charla: ${it.pedido}`, it.precio != null ? `${numero(Number(it.cantidad) || 0, 2)} × ${pesos(it.precio)}` : 'sin precio en el sistema'].join(' · '),
-                  destacado: it.precioDistinto && it.precioDicho != null ? `En la charla se dijo ${pesos(it.precioDicho)} · el sistema cobra ${pesos(it.precio ?? 0)}` : undefined,
+                  destacado: [
+                    it.hay != null && (Number(it.cantidad) || 0) > it.hay ? `Sin stock en el sistema: hay ${numero(it.hay, 2)}` : null,
+                    it.precioDistinto && it.precioDicho != null ? `En la charla se dijo ${pesos(it.precioDicho)} · el sistema cobra ${pesos(it.precio ?? 0)}` : null,
+                  ].filter(Boolean).join(' · ') || undefined,
                   importe: it.precio != null ? pesos((Number(it.cantidad) || 0) * it.precio) : undefined,
                   acciones: (
                     <div className="flex items-center gap-2">

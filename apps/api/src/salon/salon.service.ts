@@ -591,7 +591,7 @@ export class SalonService {
   async misPedidos(quien: Usuario, todos = false) {
     let q = this.db
       .from('pedidos')
-      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, asignado_a, asignado_en, sucursal_id, contacto_nombre,
+      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, asignado_a, asignado_en, sucursal_id, contacto_nombre, reserva_stock,
         cliente:clientes(nombre), sucursal:sucursales(nombre),
         items:pedidos_items(producto_id, cantidad, producto:productos(sku, nombre))`)
       .in('estado', ESTADOS_ABIERTOS)
@@ -606,12 +606,14 @@ export class SalonService {
     const productos = [...new Set(pedidos.flatMap((p) => (p.items ?? []).map((i: any) => i.producto_id)))];
     const [{ data: carro }, { data: lugares }, nombres, cambios] = await Promise.all([
       this.db.from('pedidos_carro').select('id, pedido_id, producto_id, cantidad, creado_en').in('pedido_id', ids).order('creado_en'),
-      this.db.from('stock').select('producto_id, sucursal_id, ubicacion').in('producto_id', productos),
+      this.db.from('stock').select('producto_id, sucursal_id, ubicacion, cantidad').in('producto_id', productos),
       this.nombres(),
       // «Tengo parecido» (20/11/2026): lo propuesto, lo consultado y lo que contestó el cliente
       this.reemplazos.dePedidos(ids),
     ]);
     const lugar = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, l.ubicacion]));
+    // lo que dice el sistema que hay (20/11/2026): si no alcanza, el armado lo marca
+    const enSistema = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, Number(l.cantidad) || 0]));
     return pedidos.map((p) => {
       const cargas = ((carro ?? []) as any[]).filter((c) => c.pedido_id === p.id);
       const items = ((p.items ?? []) as any[]).map((i) => {
@@ -623,6 +625,8 @@ export class SalonService {
           cantidad: Number(i.cantidad),
           enCarro,
           ubicacion: lugar.get(`${i.producto_id}|${p.sucursal_id}`) ?? null,
+          // lo que el sistema da para este pedido (si reservó, lo suyo ya está descontado)
+          hayEnSistema: Math.max(0, (enSistema.get(`${i.producto_id}|${p.sucursal_id}`) ?? 0) + (p.reserva_stock ? Number(i.cantidad) : 0)),
         };
       });
       // en el orden de recorrido: por lugar (lo sin lugar al final)

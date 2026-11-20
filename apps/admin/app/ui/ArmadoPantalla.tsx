@@ -15,7 +15,7 @@ import { cantidadDe, FaltaEnGondola, traerParecidos } from './FaltaEnGondola';
 // lo que ya está en el carro baja. Un escaneo cuenta UNO; tocar un producto
 // abre la cantidad (el total en el carro), que también sirve para corregir.
 
-export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
+export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null; /** lo que el sistema dice que hay para este pedido (20/11/2026) */ hayEnSistema?: number | null };
 export type CargaArmado = { id: number; productoId: string; cantidad: number; creadoEn: string };
 /** Un «Tengo parecido» (20/11/2026): propuesto, consultado por WhatsApp y lo que contestó el cliente. */
 export type CambioArmado = {
@@ -510,6 +510,11 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
                       {i.ubicacion ? <b className="font-semibold text-dato-3">{i.ubicacion}</b> : 'Sin lugar cargado'}
                       {i.enCarro > 0 && ` · llevás ${numero(i.enCarro, 2)} de ${numero(i.cantidad, 2)}`}
                     </span>
+                    {!cambioAbierto.get(i.productoId) && i.hayEnSistema != null && i.hayEnSistema < i.cantidad && (
+                      <span className="mt-1 block text-xs font-semibold text-marca">
+                        {i.hayEnSistema > 0 ? `El sistema dice que hay ${numero(i.hayEnSistema, 2)}` : 'El sistema dice que no hay'}: fijate y, si no está, «No hay»
+                      </span>
+                    )}
                     {cambioAbierto.get(i.productoId) && (() => {
                       const c = cambioAbierto.get(i.productoId)!;
                       return (

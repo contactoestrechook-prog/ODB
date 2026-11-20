@@ -6,6 +6,7 @@ import { SUPABASE } from '../supabase.provider';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { conRelevo, relevoMs } from '../comun/relevo-ia';
 import { PedidosService } from './pedidos.service';
+import { faltasEnSistema, lineaDeFalta, stockDe } from './sin-stock';
 import {
   autorDe, codigoDePedido, fechaValida, normalizarArmado, notasDelPedido, precioDistinto, resumenDeCharla, textoDelMensaje, transcripcion,
   type ArmadoDeCharla, type MensajeCharla,
@@ -171,9 +172,13 @@ export class CharlaAPedidoService {
     const armado: ArmadoDeCharla = normalizarArmado(jsonDe(r, 'El pedido de la charla'));
     const { matched, sinMatch } = await this.pedidos.matchearRenglones(armado.items.map((i) => ({ name: i.producto, quantity: i.cantidad })));
     const dichoDe = new Map(armado.items.map((i) => [i.producto, i.precioDicho]));
+    // cuánto hay en la sucursal del retiro (20/11/2026): lo que no alcanza se ve antes de crear
+    const suc: any = await this.pedidos.sucursalPickup().catch(() => null);
+    const stock = suc?.id ? await stockDe(this.db, matched.map((m: any) => String(m.producto_id))).catch(() => null) : null;
     const items = matched.map((m: any) => {
       const precioDicho = dichoDe.get(m.pedido) ?? null;
-      return { ...m, precioDicho, precioDistinto: precioDistinto(precioDicho, m.precio) };
+      const hay = stock ? stock.get(`${m.producto_id}|${suc.id}`) ?? 0 : null;
+      return { ...m, precioDicho, precioDistinto: precioDistinto(precioDicho, m.precio), hay };
     });
     const u: any = r?.usage ?? {};
     this.log.log(`charla ${linea}/${telefono} leída en ${((Date.now() - t0) / 1000).toFixed(1)} s · ${items.length} productos · ${sinMatch.length} sin encontrar · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}`);
@@ -223,8 +228,14 @@ export class CharlaAPedidoService {
     const preciosDichos = items
       .filter((i) => precioDistinto(i.precioDicho ?? null, i.precio ?? null))
       .map((i) => ({ producto: String(i.nombre ?? 'un producto'), dicho: Number(i.precioDicho), sistema: i.precio ?? null }));
+    // qué no alcanza, con nombre (antes decía solo «no alcanzaba» y nadie sabía qué)
+    const stock = await stockDe(this.db, items.map((i) => i.producto_id)).catch(() => null);
+    const sinStock = stock
+      ? faltasEnSistema(items.map((i) => ({ productoId: i.producto_id, nombre: String(i.nombre ?? 'un producto'), cantidad: i.cantidad })), (pid) => stock.get(`${pid}|${suc.id}`) ?? 0)
+      : [];
     const armarNotas = (sinReserva: boolean) => notasDelPedido({
       recibe: b.recibe ?? null, notas: b.notas ?? null, sinMatch: (b.sinMatch ?? []).map(String).slice(0, 10), preciosDichos, sinReserva,
+      sinStock: sinStock.map(lineaDeFalta),
     });
     const canal = tipo === 'envio' ? 'domicilio' : 'pickup';
     const renglones = items.map((i) => ({ producto_id: i.producto_id, cantidad: i.cantidad }));
@@ -270,6 +281,6 @@ export class CharlaAPedidoService {
     if (eEnlace) this.log.warn(`el pedido ${codigo} quedó creado pero sin enlace a la charla ${linea}/${telefono}: ${eEnlace.message}`);
     this.memo = null;
     this.log.log(`charla ${linea}/${telefono} pasada a pedido ${codigo}${sinReserva ? ' (sin reserva de stock)' : ''}${usuario.nombre ? ` por ${usuario.nombre}` : ''}`);
-    return { pedidoId, codigo, sinReserva };
+    return { pedidoId, codigo, sinReserva, sinStock };
   }
 }

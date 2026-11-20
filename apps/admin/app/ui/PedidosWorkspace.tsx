@@ -454,6 +454,12 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }
           {(p.items ?? []).length > 3 && ` +${(p.items ?? []).length - 3}`}
         </p>
       </button>
+      {/* lo que el sistema da sin stock (20/11/2026): se ve ANTES de mandarlo a armar */}
+      {seArma && (p.sinStock?.length ?? 0) > 0 && (
+        <p className="mt-2 rounded-lg bg-marca-suave px-2.5 py-1.5 text-xs leading-snug text-marca-hondo">
+          <b className="font-semibold">Sin stock en el sistema:</b> {p.sinStock!.map((f) => `${f.nombre} (pide ${cantidadLegible(f.pide)}, hay ${cantidadLegible(f.hay)})`).join(' · ')}
+        </p>
+      )}
       {/* quién lo arma: se elige acá mismo (op salón, 5/11/2026) */}
       {seArma && (
         <button type="button" onClick={onAsignar} className={unir('mt-3 flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors', p.asignadoNombre ? 'border-ok/30 bg-ok-suave/60 hover:bg-ok-suave' : 'border-dashed border-marca/40 bg-marca-suave/40 hover:bg-marca-suave', FOCO)}>
@@ -545,6 +551,13 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           {textoVisible(p.notas) && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{textoVisible(p.notas)}</dd></div>}
         </dl>
 
+        {/* lo que el sistema da sin stock (20/11/2026): quien arma lo va a ver marcado */}
+        {['recibido', 'pagado', 'en_preparacion'].includes(p.estado) && (p.sinStock?.length ?? 0) > 0 && (
+          <Aviso tono="atencion" titulo={`${p.sinStock!.length === 1 ? 'Un producto' : `${p.sinStock!.length} productos`} sin stock en el sistema`}>
+            <ul className="list-disc space-y-0.5 pl-4">{p.sinStock!.map((f) => <li key={f.productoId}>{f.nombre}: pide {cantidadLegible(f.pide)}, el sistema dice que hay {cantidadLegible(f.hay)}</li>)}</ul>
+            <p className="mt-1">Quien lo arme lo ve marcado. Si en la góndola no está, toca «No hay» y le ofrece un parecido al cliente.</p>
+          </Aviso>
+        )}
         {/* op salón (5/11/2026): a quién se le da la comanda para armarlo */}
         {['recibido', 'pagado', 'en_preparacion'].includes(p.estado) && <AsignarArmado key={`${p.id}|${p.asignado_a ?? ''}`} p={p} onAsignado={onAsignado} />}
 

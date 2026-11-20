@@ -38,6 +38,8 @@ export type PedidoCola = {
   minutos?: number;
   /** De qué sucursal sale (la central para el bot, la web y la app). */
   sucursal_id?: string | null;
+  /** Lo que el sistema da sin stock en su sucursal (20/11/2026): se ve antes de mandarlo a armar. */
+  sinStock?: { productoId: string; nombre: string; pide: number; hay: number }[];
   items?: { cantidad: number | string; precio_unitario?: number | string | null; producto?: { sku?: string; nombre?: string } | null }[];
 };
 

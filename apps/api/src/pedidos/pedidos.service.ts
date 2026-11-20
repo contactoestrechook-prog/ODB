@@ -11,6 +11,7 @@ import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { sinRestosDeMarcado, textoONulo, unirLimpio } from '../comun/texto-limpio';
+import { faltasEnSistema, stockDe } from './sin-stock';
 import {
   armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
   ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
@@ -746,10 +747,10 @@ export class PedidosService {
       .from('pedidos')
       .select(
         `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja, sucursal_id,
-         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en,
+         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en, reserva_stock,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),
-         items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
+         items:pedidos_items(producto_id, cantidad, precio_unitario, producto:productos(sku, nombre))`,
       )
       .in('estado', estados);
     if (desde) q = q.gte('creado_en', desde);
@@ -757,8 +758,19 @@ export class PedidosService {
     if (error) throw new BadRequestException(error.message);
     // "hoy" en Buenos Aires: después de las 21 h, toISOString() ya da mañana
     const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
+    // LO QUE EL SISTEMA DA SIN STOCK, en los que todavía se arman (20/11/2026): la
+    // caja lo ve antes de mandarlo a armar. Si no se puede leer el stock, sin marca.
+    const seArman = ((data ?? []) as any[]).filter((p) => ['recibido', 'pagado', 'en_preparacion'].includes(p.estado));
+    const stock = seArman.length
+      ? await stockDe(this.db, seArman.flatMap((p) => ((p.items ?? []) as any[]).map((i) => String(i.producto_id)))).catch(() => null)
+      : null;
+    const sinStockDe = (p: any) => stock && seArman.includes(p)
+      ? faltasEnSistema(((p.items ?? []) as any[]).map((i) => ({ productoId: String(i.producto_id), nombre: String(i.producto?.nombre ?? 'Producto'), cantidad: Number(i.cantidad) })),
+        (id) => stock.get(`${id}|${p.sucursal_id}`) ?? 0, p.reserva_stock === true)
+      : [];
     return (data ?? []).map((p: any) => ({
       ...p,
+      sinStock: sinStockDe(p),
       // sin restos de marcado (21/10/2026): la nota de DOM-YD5GNY se veía en
       // Pedidos, Depósito y Envíos con la sintaxis del bot adentro
       notas: sinRestosDeMarcado(p.notas) || null,
