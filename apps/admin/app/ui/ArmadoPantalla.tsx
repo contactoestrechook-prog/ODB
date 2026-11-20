@@ -73,21 +73,34 @@ function pitido(bien: boolean) {
   } catch { /* sin audio */ }
 }
 
-async function lectorDeCodigos(): Promise<any | null> {
+/**
+ * El lector de códigos. En iPhone es el de respaldo (barcode-detector + zxing-wasm,
+ * que baja su motor de internet la primera vez). Con `reiniciar` se vuelve a
+ * cargar de cero (20/11/2026, simulacro: a la hora de armar, en el iPhone de
+ * prueba, fallaban la cámara en vivo Y la foto: el motor había quedado roto —sin
+ * memoria o con la descarga cortada— y solo recargando la página volvía).
+ */
+async function lectorDeCodigos(reiniciar = false): Promise<any | null> {
   const w = globalThis as any;
+  if (reiniciar && w.__odbLectorRespaldo) { try { delete w.BarcodeDetector; } catch { w.BarcodeDetector = undefined; } }
   if (!w.BarcodeDetector) {
     await new Promise<void>((ok) => {
       const s = document.createElement('script');
-      s.src = RESPALDO_LECTOR;
+      // al reiniciar, otra dirección: el navegador lo vuelve a correr entero (motor nuevo)
+      s.src = reiniciar ? `${RESPALDO_LECTOR}?r=${Date.now()}` : RESPALDO_LECTOR;
       s.async = true;
       s.onload = () => ok();
       s.onerror = () => ok();
       document.head.appendChild(s);
     });
+    if (w.BarcodeDetector) w.__odbLectorRespaldo = true;
   }
   if (!w.BarcodeDetector) return null;
   try { return new w.BarcodeDetector({ formats: FORMATOS }); } catch { return new w.BarcodeDetector(); }
 }
+
+/** El motivo de un error, corto, para mostrarlo (y saber qué pasó). */
+const motivoDe = (e: any) => String(e?.message ?? e ?? '').replace(/\s+/g, ' ').trim().slice(0, 90);
 
 function reloj(desde: string, ahora: number) {
   const s = Math.max(0, Math.floor((ahora - new Date(desde).getTime()) / 1000));
@@ -426,7 +439,11 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       const c = await codigoDeFoto(archivo);
       if (c) await sumar({ codigo: c, cantidad: 1 });
       else avisar('error', 'No encontré el código en la foto. Sacala de más cerca, con luz y con el código derecho.');
-    } catch { avisar('error', 'No pude leer la foto. Probá de nuevo.'); }
+    } catch (e) {
+      // con el motivo a la vista: si se repite, se sabe qué es (20/11/2026)
+      avisar('error', `No pude leer la foto (${motivoDe(e) || 'sin detalle'}). Probá de nuevo o tocá «Recargar».`);
+      console.warn('lector de códigos, foto:', e);
+    }
     finally {
       setLeyendoFoto(false);
       if (campoFoto.current) campoFoto.current.value = '';
@@ -767,30 +784,42 @@ function CantidadEnCarro({ item, onCerrar, onFijar, onFalta }: { item: ItemArmad
  *  «no lee el código desde iphone»: la cámara del navegador no enfoca de cerca;
  *  la del iPhone sí). Se achica a 2000 px para que el lector no tarde. */
 async function codigoDeFoto(archivo: File): Promise<string | null> {
-  const det = await lectorDeCodigos();
-  if (!det) return null;
-  let fuente: { ancho: number; alto: number; dibujar: (c: CanvasRenderingContext2D, w: number, h: number) => void; soltar: () => void };
-  if (typeof createImageBitmap === 'function') {
+  let det = await lectorDeCodigos();
+  if (!det) throw new Error('no cargó el lector de códigos (¿sin internet?)');
+  type Fuente = { ancho: number; alto: number; dibujar: (c: CanvasRenderingContext2D, w: number, h: number) => void; soltar: () => void };
+  const conImagen = async (): Promise<Fuente> => {
+    const url = URL.createObjectURL(archivo);
+    const img = await new Promise<HTMLImageElement>((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => mal(new Error('no pude abrir la foto')); i.src = url; });
+    return { ancho: img.naturalWidth, alto: img.naturalHeight, dibujar: (c, w, h) => c.drawImage(img, 0, 0, w, h), soltar: () => URL.revokeObjectURL(url) };
+  };
+  let fuente: Fuente;
+  // si la foto no se abre de una forma (HEIC del iPhone, por ejemplo), se prueba la otra
+  try {
+    if (typeof createImageBitmap !== 'function') throw new Error('sin createImageBitmap');
     const bmp = await createImageBitmap(archivo);
     fuente = { ancho: bmp.width, alto: bmp.height, dibujar: (c, w, h) => c.drawImage(bmp, 0, 0, w, h), soltar: () => bmp.close?.() };
-  } else {
-    const url = URL.createObjectURL(archivo);
-    const img = await new Promise<HTMLImageElement>((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
-    fuente = { ancho: img.naturalWidth, alto: img.naturalHeight, dibujar: (c, w, h) => c.drawImage(img, 0, 0, w, h), soltar: () => URL.revokeObjectURL(url) };
-  }
+  } catch { fuente = await conImagen(); }
   const escala = Math.min(1, 2000 / Math.max(fuente.ancho, fuente.alto, 1));
   const lienzo = document.createElement('canvas');
   lienzo.width = Math.max(1, Math.round(fuente.ancho * escala));
   lienzo.height = Math.max(1, Math.round(fuente.alto * escala));
   fuente.dibujar(lienzo.getContext('2d')!, lienzo.width, lienzo.height);
   fuente.soltar();
-  const r = await det.detect(lienzo);
+  // si el lector falla, se reinicia una vez y se vuelve a probar (el motor pudo haber quedado roto)
+  let r: any;
+  try { r = await det.detect(lienzo); }
+  catch {
+    det = await lectorDeCodigos(true);
+    if (!det) throw new Error('no cargó el lector de códigos (¿sin internet?)');
+    r = await det.detect(lienzo);
+  }
   return r?.[0]?.rawValue ? String(r[0].rawValue) : null;
 }
 
 function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCodigo: (c: string) => void; onError: () => void; onFoto: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [estado, setEstado] = useState<'abriendo' | 'leyendo' | 'sin-lector' | 'sin-permiso'>('abriendo');
+  const [motivo, setMotivo] = useState('');
   const pausadaRef = useRef(pausada);
   pausadaRef.current = pausada;
   const onCodigoRef = useRef(onCodigo);
@@ -801,9 +830,10 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
     let vivo = true;
     let t: any;
     (async () => {
-      const det = await lectorDeCodigos();
+      let det = await lectorDeCodigos();
       if (!vivo) return;
-      if (!det) { setEstado('sin-lector'); return; }
+      if (!det) { setMotivo('no cargó el lector de códigos (¿sin internet?)'); setEstado('sin-lector'); return; }
+      let reiniciado = false;
       try {
         // 1920: el iPhone no enfoca de cerca y hay que alejarlo; con 1280 un código
         // chico no se lee y con 1920 sí (medido el 19/11/2026: 0/4 contra 4/4)
@@ -848,8 +878,14 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
               // avisa cada lectura: si cuenta o no lo decide la pantalla (nunca dos veces el mismo)
               if (c) onCodigoRef.current(c);
               fallas = 0;
-            } catch {
-              if (++fallas >= 25) { setEstado('sin-lector'); return; }
+            } catch (e) {
+              if (++fallas >= 25) {
+                // antes de rendirse, el lector se vuelve a cargar de cero una vez (20/11/2026)
+                const nuevo = !reiniciado ? await lectorDeCodigos(true).catch(() => null) : null;
+                if (!vivo) return;
+                if (nuevo) { det = nuevo; reiniciado = true; fallas = 0; }
+                else { setMotivo(motivoDe(e)); console.warn('lector de códigos, cámara:', e); setEstado('sin-lector'); return; }
+              }
             }
           }
           t = setTimeout(mirar, 90);
@@ -866,11 +902,13 @@ function Camara({ pausada, onCodigo, onError, onFoto }: { pausada: boolean; onCo
     return (
       <Aviso tono="atencion" accion={<>
         <Boton tamano="chico" onClick={onFoto}>Sacar foto del código</Boton>
+        {/* recargar arranca el lector de cero (lo cargado en el carro no se pierde) */}
+        {estado === 'sin-lector' && <Boton tamano="chico" variante="secundario" onClick={() => window.location.reload()}>Recargar</Boton>}
         <Boton tamano="chico" variante="secundario" onClick={onError}>Cerrar</Boton>
       </>}>
         {estado === 'sin-permiso'
           ? 'No pude abrir la cámara en vivo. Sacale una foto al código y lo leo de la foto, o dale permiso de cámara a esta página.'
-          : 'La cámara en vivo no lee en este celular. Sacale una foto al código y lo leo de la foto.'}
+          : <>El lector de códigos se trabó. Tocá <b>Recargar</b> (lo que está en el carro no se pierde) o sacale una foto al código.{motivo ? <span className="mt-1 block text-xs text-tinta/60">Motivo: {motivo}</span> : null}</>}
       </Aviso>
     );
   }
