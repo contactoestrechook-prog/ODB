@@ -112,6 +112,11 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   const [manual, setManual] = useState<ItemArmado | null>(null);
   // falta en la góndola (19/11/2026): el que arma corrige el pedido
   const [falta, setFalta] = useState<ItemArmado | null>(null);
+  // un código que el sistema no conoce (20/11/2026: el Saphirus de fragancia bebé):
+  // quien arma dice cuál del pedido es y queda aprendido
+  const [desconocido, setDesconocido] = useState<string | null>(null);
+  const desconocidoRef = useRef<string | null>(null);
+  desconocidoRef.current = desconocido;
   const [verCarro, setVerCarro] = useState(false);
   const [terminando, setTerminando] = useState(false);
   const [camara, setCamara] = useState(true);
@@ -204,8 +209,10 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
 
   /** Suma al carro. Antes de ir al servidor ya se ve (y si falla, vuelve atrás). */
-  const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number }): Promise<Resultado> => {
+  const sumar = useCallback(async (datos: { codigo?: string; productoId?: string; cantidad: number; aprender?: boolean }): Promise<Resultado> => {
     if (ocupado.current) return 'ocupado';
+    // con la pregunta del código desconocido abierta, la cámara no manda nada más
+    if (desconocidoRef.current && datos.codigo && !datos.aprender) return 'ocupado';
     const conocido = datos.productoId ?? (datos.codigo ? productoDe.current.get(datos.codigo) : undefined);
     let item = conocido ? items.find((i) => i.productoId === conocido) : undefined;
     // ya está completo: ni se manda (antes se cargaba y se borraba, una y otra vez)
@@ -236,6 +243,12 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       return 'sumado';
     } catch (e: any) {
       if (datos.productoId) setItems((xs) => xs.map((x) => (x.productoId === datos.productoId ? { ...x, enCarro: redondo(x.enCarro - datos.cantidad) } : x)));
+      // el sistema no conoce el código: que diga cuál del pedido es (queda aprendido)
+      if (e?.datos?.codigo === 'CODIGO_DESCONOCIDO' && datos.codigo && !datos.aprender) {
+        setDesconocido(String(e.datos.leido ?? datos.codigo));
+        try { navigator.vibrate?.([120, 80, 120]); } catch { /* sin vibración */ }
+        return 'rechazado';
+      }
       const texto = String(e?.message ?? 'No pude hablar con el sistema');
       avisar('error', texto === 'Ese producto no está en el pedido' ? 'Ese producto NO es de este pedido' : texto);
       return /no está en el pedido|no está en el sistema/i.test(texto) ? 'rechazado' : 'falla';
@@ -585,6 +598,31 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
         onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
       {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} conCliente pedida={falta.aclaracion ?? null} />}
+      {desconocido && (
+        <Modal abierto onCerrar={() => { callados.current.set(desconocido, Date.now() + 30_000); setDesconocido(null); }} ancho="chico" titulo="Ese código no está en el sistema"
+          descripcion={`Leí ${desconocido}. Si es uno de estos, tocalo: va al carro y el código queda guardado para la próxima vez (y para la caja).`}
+          pie={<Boton variante="secundario" onClick={() => { callados.current.set(desconocido, Date.now() + 30_000); setDesconocido(null); }}>No es ninguno</Boton>}>
+          {faltan.length ? (
+            <ul className="space-y-2">
+              {faltan.map((i) => (
+                <li key={i.productoId}>
+                  <button type="button" className="w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-left active:bg-crema-claro"
+                    onClick={async () => {
+                      const codigo = desconocido;
+                      setDesconocido(null);
+                      const r = await sumar({ codigo, productoId: i.productoId, cantidad: 1, aprender: true });
+                      if (r === 'sumado') avisar('ok', `Listo: ese código ahora es ${i.nombre}`);
+                    }}>
+                    <span className="block font-semibold leading-tight text-tinta">{i.nombre}</span>
+                    <Aclaracion texto={i.aclaracion} />
+                    <span className="mt-0.5 block text-xs text-tinta/60">Faltan {numero(redondo(i.cantidad - i.enCarro), 2)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-sm text-tinta/70">Ya está todo en el carro: ese producto no es de este pedido.</p>}
+        </Modal>
+      )}
     </div>
   );
 }
