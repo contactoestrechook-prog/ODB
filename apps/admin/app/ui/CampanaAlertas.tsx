@@ -52,7 +52,9 @@ function IconoAviso({ tipo }: { tipo: string }) {
 
 // el texto del enlace según adónde lleva
 const destino = (link: string) =>
-  link.startsWith('/compras') ? 'Completar el proveedor'
+  // la carga de una factura ya registrada, para corregirla (20/11/2026)
+  link.startsWith('/compras?lectura=') ? 'Corregir la factura'
+  : link.startsWith('/compras') ? 'Completar el proveedor'
     : link.startsWith('/mesa-compras') ? 'Ver qué comprar'
       : link.startsWith('/aprobaciones') ? 'Ir a Aprobaciones'
         : link.startsWith('/pedidos') ? 'Ver el pedido'
