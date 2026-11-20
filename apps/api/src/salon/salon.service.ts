@@ -7,6 +7,7 @@ import { ComprasService } from '../compras/compras.service';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { ReemplazosService } from '../reemplazos/reemplazos.service';
 import { tiemposPorPreparador } from './tiempos';
+import { reservadoDelRenglon } from '../pedidos/sin-stock';
 import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
 
 // OP SALÓN (Leandro, 5/11/2026). Tres trabajos del que está en el salón:
@@ -593,7 +594,7 @@ export class SalonService {
       .from('pedidos')
       .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, asignado_a, asignado_en, sucursal_id, contacto_nombre, reserva_stock,
         cliente:clientes(nombre), sucursal:sucursales(nombre),
-        items:pedidos_items(producto_id, cantidad, producto:productos(sku, nombre))`)
+        items:pedidos_items(producto_id, cantidad, reservado, producto:productos(sku, nombre))`)
       .in('estado', ESTADOS_ABIERTOS)
       .not('asignado_a', 'is', null)
       .order('asignado_en');
@@ -626,7 +627,7 @@ export class SalonService {
           enCarro,
           ubicacion: lugar.get(`${i.producto_id}|${p.sucursal_id}`) ?? null,
           // lo que el sistema da para este pedido (si reservó, lo suyo ya está descontado)
-          hayEnSistema: Math.max(0, (enSistema.get(`${i.producto_id}|${p.sucursal_id}`) ?? 0) + (p.reserva_stock ? Number(i.cantidad) : 0)),
+          hayEnSistema: Math.max(0, (enSistema.get(`${i.producto_id}|${p.sucursal_id}`) ?? 0) + reservadoDelRenglon(p.reserva_stock, Number(i.cantidad), i.reservado)),
         };
       });
       // en el orden de recorrido: por lugar (lo sin lugar al final)

@@ -445,7 +445,7 @@ export class FraccionesService {
       this.db.from('stock').select('cantidad, sucursal_id').eq('producto_id', productoId).gt('cantidad', 0),
       this.db
         .from('pedidos_items')
-        .select('cantidad, pedido:pedidos!inner(sucursal_id, estado, reserva_stock)')
+        .select('cantidad, reservado, pedido:pedidos!inner(sucursal_id, estado, reserva_stock)')
         .eq('producto_id', productoId)
         .eq('pedido.reserva_stock', true)
         .in('pedido.estado', [...ESTADOS_PEDIDO_ABIERTO]),
@@ -454,7 +454,9 @@ export class FraccionesService {
     if (stockRes.error) throw new BadRequestException(stockRes.error.message);
     if (reservasRes.error) throw new BadRequestException(`No pude revisar los pedidos con reserva: ${reservasRes.error.message}`);
     const nombres = new Map(((sucRes.data ?? []) as any[]).map((s) => [String(s.id), String(s.nombre)]));
-    return describirArmadas((stockRes.data ?? []) as any[], (reservasRes.data ?? []) as any[], (suc) => nombres.get(suc) ?? 'otra sucursal');
+    // lo reservado de verdad (20/11/2026: un pedido puede haber reservado solo lo que había)
+    const reservas = ((reservasRes.data ?? []) as any[]).map((r) => ({ ...r, cantidad: r.reservado != null ? Number(r.reservado) : r.cantidad }));
+    return describirArmadas((stockRes.data ?? []) as any[], reservas, (suc) => nombres.get(suc) ?? 'otra sucursal');
   }
 
   private async stockEn(productoId: string, sucursalId: string): Promise<number> {

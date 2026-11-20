@@ -1,4 +1,4 @@
-import { faltasEnSistema, lineaDeFalta } from './sin-stock';
+import { faltasEnSistema, lineaDeFalta, reservadoDelRenglon } from './sin-stock';
 import { notasDelPedido } from './charla-a-pedido';
 
 // Lo que el sistema da sin stock (20/11/2026): el pedido de Andrea (DOM-87B017B4EA14)
@@ -24,7 +24,16 @@ describe('lo que el sistema da sin stock', () => {
 
   it('si el pedido reservó, lo suyo ya está descontado del stock: no falta', () => {
     // reservó los 4 Adler: el stock quedó en 0, pero son de este pedido
-    expect(faltasEnSistema([{ productoId: 'adler', nombre: 'Adler', cantidad: 4 }], () => 0, true)).toEqual([]);
+    expect(faltasEnSistema([{ productoId: 'adler', nombre: 'Adler', cantidad: 4, reservado: 4 }], () => 0)).toEqual([]);
+    // reservó lo que había (1 de 4): faltan 3
+    expect(faltasEnSistema([{ productoId: 'adler', nombre: 'Adler', cantidad: 4, reservado: 1 }], () => 0).map((f) => f.hay)).toEqual([1]);
+  });
+
+  it('cuánto reservó un renglón: lo que dice, y en los de antes todo o nada según el pedido', () => {
+    expect(reservadoDelRenglon(true, 4, null)).toBe(4);
+    expect(reservadoDelRenglon(false, 4, null)).toBe(0);
+    expect(reservadoDelRenglon(true, 4, 1)).toBe(1);
+    expect(reservadoDelRenglon(true, 4, '0')).toBe(0);
   });
 
   it('las notas del pedido dicen qué no alcanza, con nombre', () => {

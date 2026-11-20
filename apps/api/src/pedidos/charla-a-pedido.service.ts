@@ -239,15 +239,23 @@ export class CharlaAPedidoService {
     });
     const canal = tipo === 'envio' ? 'domicilio' : 'pickup';
     const renglones = items.map((i) => ({ producto_id: i.producto_id, cantidad: i.cantidad }));
-    // reserva el stock como los del bot; si no alcanza, el pedido entra igual (se avisa en las notas)
+    // reserva el stock como los del bot; si no alcanza para todo, RESERVA LO QUE HAY
+    // renglón por renglón (Leandro, 20/11/2026: «Sí, reservá lo que hay»). Antes, si
+    // faltaba uno, no se reservaba ninguno y el resto se podía vender en el mostrador.
     let pedidoId: string;
     let sinReserva = false;
     try {
       pedidoId = await this.pedidos.crear({ canal, sucursalId: suc.id, items: renglones, referencia: codigo, notas: armarNotas(false) || undefined, reservar: true });
     } catch (e: any) {
       if (!/stock/i.test(String(e?.message ?? ''))) throw e;
-      sinReserva = true;
-      pedidoId = await this.pedidos.crear({ canal, sucursalId: suc.id, items: renglones, referencia: codigo, notas: armarNotas(true) || undefined, reservar: false });
+      pedidoId = await this.pedidos.crear({ canal, sucursalId: suc.id, items: renglones, referencia: codigo, notas: armarNotas(false) || undefined, reservar: false });
+      const { error: eRes } = await this.db.rpc('reservar_lo_que_hay', { p_pedido: pedidoId, p_usuario: usuario.sub ?? null });
+      if (eRes) {
+        // sin la reserva parcial, como antes: entra sin reservar y queda dicho en las notas
+        sinReserva = true;
+        this.log.warn(`pedido ${codigo}: no pude reservar lo que hay (${eRes.message}); queda sin reserva`);
+        await this.db.from('pedidos').update({ notas: armarNotas(true) || null }).eq('id', pedidoId).then(() => null, () => null);
+      }
     }
     const ahora = new Date().toISOString();
     const nombre = String(b.nombre ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || null;

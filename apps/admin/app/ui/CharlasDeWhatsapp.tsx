@@ -110,7 +110,7 @@ export function CharlasDeWhatsapp({ charlas, error, recargar, onCreado, onVerPed
           onCerrar={() => setAbierta(null)}
           onCreado={(codigo, sinReserva, sinStock) => {
             setAbierta(null);
-            setHecho(`Pedido ${codigo} creado: ya suena en las cajas.${sinStock.length ? ` Sin stock en el sistema: ${sinStock.join(', ')} (la caja y quien lo arme lo ven marcado).` : sinReserva ? ' No alcanzaba el stock para reservarlo y quedó anotado en el pedido.' : ''}`);
+            setHecho(`Pedido ${codigo} creado: ya suena en las cajas.${sinStock.length ? ` Sin stock en el sistema: ${sinStock.join(', ')}.${sinReserva ? ' No se pudo reservar nada.' : ' Se reservó lo que hay.'} La caja y quien lo arme lo ven marcado.` : sinReserva ? ' No alcanzaba el stock para reservarlo y quedó anotado en el pedido.' : ''}`);
             recargar();
             onCreado();
           }}

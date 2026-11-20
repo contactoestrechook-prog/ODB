@@ -13,20 +13,28 @@ import { SupabaseClient } from '@supabase/supabase-js';
 export type FaltaEnSistema = { productoId: string; nombre: string; pide: number; hay: number };
 
 /**
- * Lo que para el sistema no alcanza. `hay` es lo que hay en la sucursal; si el
- * pedido reservó, lo suyo ya está descontado y se le suma (mismo criterio que
- * resolver_falta_armado).
+ * Cuánto de un renglón está reservado (igual que reservado_del_renglon en la
+ * base, 20/11/2026): lo que dice el renglón y, en los de antes (vacío), todo si
+ * el pedido reserva y nada si no.
+ */
+export function reservadoDelRenglon(reservaElPedido: boolean | null | undefined, cantidad: number, reservado: number | string | null | undefined): number {
+  if (reservado != null && String(reservado) !== '') return Number(reservado) || 0;
+  return reservaElPedido ? Number(cantidad) || 0 : 0;
+}
+
+/**
+ * Lo que para el sistema no alcanza. `hay` es lo que hay en la sucursal más lo
+ * que el pedido ya tiene reservado de eso (lo suyo ya está descontado del stock).
  */
 export function faltasEnSistema(
-  items: { productoId: string; nombre: string; cantidad: number }[],
+  items: { productoId: string; nombre: string; cantidad: number; reservado?: number }[],
   hayDe: (productoId: string) => number,
-  reservado = false,
 ): FaltaEnSistema[] {
   const salida: FaltaEnSistema[] = [];
   for (const i of items) {
     const pide = Number(i.cantidad) || 0;
     if (pide <= 0) continue;
-    const hay = Math.max(0, Math.round(((Number(hayDe(i.productoId)) || 0) + (reservado ? pide : 0)) * 1000) / 1000);
+    const hay = Math.max(0, Math.round(((Number(hayDe(i.productoId)) || 0) + (Number(i.reservado) || 0)) * 1000) / 1000);
     if (hay < pide - 1e-9) salida.push({ productoId: i.productoId, nombre: i.nombre, pide, hay });
   }
   return salida;

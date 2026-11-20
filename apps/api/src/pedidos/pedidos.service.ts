@@ -11,7 +11,7 @@ import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { sinRestosDeMarcado, textoONulo, unirLimpio } from '../comun/texto-limpio';
-import { faltasEnSistema, stockDe } from './sin-stock';
+import { faltasEnSistema, reservadoDelRenglon, stockDe } from './sin-stock';
 import {
   armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
   ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
@@ -750,7 +750,7 @@ export class PedidosService {
          destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en, reserva_stock,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),
-         items:pedidos_items(producto_id, cantidad, precio_unitario, producto:productos(sku, nombre))`,
+         items:pedidos_items(producto_id, cantidad, precio_unitario, reservado, producto:productos(sku, nombre))`,
       )
       .in('estado', estados);
     if (desde) q = q.gte('creado_en', desde);
@@ -765,8 +765,10 @@ export class PedidosService {
       ? await stockDe(this.db, seArman.flatMap((p) => ((p.items ?? []) as any[]).map((i) => String(i.producto_id)))).catch(() => null)
       : null;
     const sinStockDe = (p: any) => stock && seArman.includes(p)
-      ? faltasEnSistema(((p.items ?? []) as any[]).map((i) => ({ productoId: String(i.producto_id), nombre: String(i.producto?.nombre ?? 'Producto'), cantidad: Number(i.cantidad) })),
-        (id) => stock.get(`${id}|${p.sucursal_id}`) ?? 0, p.reserva_stock === true)
+      ? faltasEnSistema(((p.items ?? []) as any[]).map((i) => ({
+          productoId: String(i.producto_id), nombre: String(i.producto?.nombre ?? 'Producto'), cantidad: Number(i.cantidad),
+          reservado: reservadoDelRenglon(p.reserva_stock, Number(i.cantidad), i.reservado),
+        })), (id) => stock.get(`${id}|${p.sucursal_id}`) ?? 0)
       : [];
     return (data ?? []).map((p: any) => ({
       ...p,
