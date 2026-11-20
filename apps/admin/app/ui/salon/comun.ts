@@ -19,7 +19,8 @@ export async function api<T = any>(metodo: 'GET' | 'POST', params: Record<string
     ? await fetch(`/api/salon?${new URLSearchParams(params as Record<string, string>)}`, { cache: 'no-store' })
     : await fetch('/api/salon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(Array.isArray(d?.message) ? d.message.join(' · ') : d?.message ?? 'No pude hablar con el sistema'), { status: r.status });
+  // `datos`: lo que dice el servidor además del mensaje (p. ej. el código que no conoce, 20/11/2026)
+  if (!r.ok) throw Object.assign(new Error(Array.isArray(d?.message) ? d.message.join(' · ') : d?.message ?? 'No pude hablar con el sistema'), { status: r.status, datos: d });
   return d as T;
 }
 

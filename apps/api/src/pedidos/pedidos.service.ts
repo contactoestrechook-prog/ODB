@@ -845,6 +845,10 @@ export class PedidosService {
         const d = h.detalle ?? {};
         const que = `${d.acepta ? 'Aceptó' : 'No quiso'} ${d.reemplazo ?? 'el parecido'} en lugar de ${d.falta ?? 'lo que faltaba'}${d.por_whatsapp ? ' (lo contestó el cliente por WhatsApp)' : ''}`;
         lineas.push({ cuando: h.creado_en, que, quien: d.por_whatsapp ? null : quien(h.usuario_id), tono: 'atencion' });
+      } else if (h.evento === 'codigo') {
+        // un código que el sistema no conocía, asociado al armar (20/11/2026)
+        const d = h.detalle ?? {};
+        lineas.push({ cuando: h.creado_en, que: `${d.aprendido ? 'Se aprendió el código' : 'Se usó el código'} ${d.codigo ?? ''} para ${d.producto ?? 'un producto'}`, quien: quien(h.usuario_id), tono: 'neutro' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
       } else if (h.evento === 'envio') {

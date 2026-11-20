@@ -676,13 +676,21 @@ export class SalonService {
   }
 
   /** Suma al carro: por código escaneado o tocando el producto. */
-  async sumarAlCarro(pedidoId: string, dto: { codigo?: string; productoId?: string; cantidad?: number }, quien: Usuario) {
+  async sumarAlCarro(pedidoId: string, dto: { codigo?: string; productoId?: string; cantidad?: number; aprender?: boolean }, quien: Usuario) {
     const p = await this.pedidoDelArmado(pedidoId, quien);
     let productoId = dto.productoId ?? null;
     let porCodigo = false;
-    if (!productoId && dto.codigo) {
+    // UN CÓDIGO QUE EL SISTEMA NO CONOCE (Leandro, 20/11/2026: «estoy escaneando el
+    // código del Saphirus sabor bebé y me dice que el código no está en el
+    // sistema»). Los VARIOS tienen cargado un solo código y cada fragancia trae
+    // el suyo. Quien arma dice cuál del pedido es; el código queda aprendido
+    // (también para la caja) y en el historial del pedido.
+    if (dto.aprender === true && dto.codigo && productoId) {
+      await this.aprenderCodigo(pedidoId, p, String(dto.codigo), productoId, quien);
+      porCodigo = true;
+    } else if (!productoId && dto.codigo) {
       const prod = await this.productoPorSkuOCodigo(dto.codigo);
-      if (!prod) throw new BadRequestException('Ese código no está en el sistema');
+      if (!prod) throw new BadRequestException({ statusCode: 400, codigo: 'CODIGO_DESCONOCIDO', message: 'Ese código no está en el sistema', leido: String(dto.codigo).trim().toUpperCase() });
       productoId = prod.id;
       porCodigo = prod.porCodigo;
     }
@@ -697,6 +705,26 @@ export class SalonService {
       .single();
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     return { ok: true, id: (data as any).id, productoId, cantidad, creadoEn: (data as any).creado_en };
+  }
+
+  /** Asocia un código de barras nuevo a un producto DEL PEDIDO (nunca le saca el código a otro). */
+  private async aprenderCodigo(pedidoId: string, p: any, codigo: string, productoId: string, quien: Usuario) {
+    const limpio = codigo.trim().toUpperCase();
+    if (!/^[0-9A-Z-]{6,32}$/.test(limpio)) throw new BadRequestException('Ese código no se leyó bien: escanealo de nuevo');
+    const item = ((p.items ?? []) as any[]).find((i) => i.producto_id === productoId);
+    if (!item) throw new BadRequestException('Ese producto no está en el pedido');
+    const { data: ya } = await this.db.from('codigos_barras').select('producto_id, producto:productos(nombre)').eq('codigo', limpio).maybeSingle();
+    if (ya && (ya as any).producto_id !== productoId) throw new BadRequestException(`Ese código ya es de ${(ya as any).producto?.nombre ?? 'otro producto'}: no es este`);
+    if (!ya) {
+      const { error } = await this.db.from('codigos_barras').insert({ codigo: limpio, producto_id: productoId });
+      if (error && (error as any).code !== '23505') throw new BadRequestException(error.message);
+    }
+    const { data: prod } = await this.db.from('productos').select('nombre, sku').eq('id', productoId).maybeSingle();
+    await this.db.from('pedidos_historial').insert({
+      pedido_id: pedidoId, evento: 'codigo', usuario_id: quien.sub ?? null,
+      detalle: { codigo: limpio, producto: (prod as any)?.nombre ?? null, sku: (prod as any)?.sku ?? null, aprendido: !ya },
+    }).then(() => null, () => null);
+    this.log.log(`código ${limpio} ${ya ? 'ya era' : 'aprendido para'} ${(prod as any)?.nombre ?? productoId} (pedido ${pedidoId}, ${quien.sub ?? 'sin usuario'})`);
   }
 
   /**

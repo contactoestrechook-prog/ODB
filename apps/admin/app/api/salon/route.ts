@@ -47,7 +47,8 @@ export async function POST(req: Request) {
     case 'confirmar': return reenviar(`/salon/ingresos/${id(b.ingresoId)}/confirmar`, cuerpo({ numeroFactura: b.numeroFactura, items: b.items }));
     case 'rechazar': return reenviar(`/salon/ingresos/${id(b.ingresoId)}/rechazar`, cuerpo({ motivo: b.motivo }));
     case 'asignar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/asignar`, cuerpo({ usuarioId: b.usuarioId }));
-    case 'carro': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro`, cuerpo({ codigo: b.codigo, productoId: b.productoId, cantidad: b.cantidad }));
+    // + aprender: un código que el sistema no conocía (20/11/2026)
+    case 'carro': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro`, cuerpo({ codigo: b.codigo, productoId: b.productoId, cantidad: b.cantidad, aprender: b.aprender === true }));
     case 'sacar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/carro/${id(b.cargaId)}`, { method: 'DELETE' });
     case 'terminar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/terminar`, cuerpo({}));
     // falta stock al armar (19/11/2026)
