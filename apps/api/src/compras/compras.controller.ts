@@ -445,6 +445,21 @@ export class ComprasController {
     return this.compras.corregirRenglonesFactura(id, dto ?? {}, req.usuario?.sub);
   }
 
+  // corregir una factura YA registrada desde la pantalla de carga (20/11/2026): la
+  // pantalla pregunta si ya está y, si está, la corrige en vez de registrarla dos veces.
+  // Quien no es gerente ni dueño queda como pedido de cambio (lo aprueba un dueño).
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/factura-registrada')
+  facturaRegistrada(@Query('proveedorId') proveedorId: string, @Query('numero') numero: string) {
+    return this.compras.facturaRegistrada(proveedorId, numero);
+  }
+
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/facturas/:id/corregir-con-carga')
+  corregirConCarga(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.corregirConCarga(id, dto ?? {}, req.usuario ?? {});
+  }
+
   // ¿es la primera factura de este proveedor? (para ofrecer «Compra eventual», 18/11/2026)
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Get('compras/proveedores/:id/primera-compra')

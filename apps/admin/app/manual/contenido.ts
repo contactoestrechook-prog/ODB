@@ -631,6 +631,18 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Corregir una factura ya registrada desde la carga (con el papel a la vista)',
+        pasos: [
+          'Si después de registrar te das cuenta de un error (cajas de 4 que eran de 6, un precio, un producto), abrí de nuevo la factura leída desde la bandeja de lectura.',
+          'Arriba aparece "Esta factura ya está registrada" con quién y cuándo la cargó. Corregí ahí lo que haga falta, igual que al cargarla: bultos, U×B, sueltas, precio, el producto.',
+          'Abajo el botón dice "Corregir la factura registrada". Antes de aplicar te muestra qué cambia, renglón por renglón (por ejemplo «18 → 12 · $13.425 → $20.138»).',
+          'Al confirmar, el stock, el costo y el precio de venta se acomodan solos, y la factura queda con lo nuevo (también el total, el IVA o las percepciones si los cambiaste).',
+          'Gerencia y dueños corrigen directo; el resto lo pide y lo aprueba un dueño desde la campanita.',
+          'Sirve para las facturas cargadas como "entrada + factura". Si la mercadería entró con una orden de compra o con el remito de la pistola, se corrige desde Facturas de compra → "Corregir renglones".',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'Corregir los renglones de una factura ya cargada',
         pasos: [
           'Abrí la factura en Facturas de compra. En "Lo que entró con esta factura" están los productos, la cantidad que entró y el costo por unidad.',

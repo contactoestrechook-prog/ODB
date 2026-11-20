@@ -587,6 +587,25 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       .catch(() => { /* sin el dato, no se ofrece: la factura entra como siempre */ });
     return () => { vigente = false; };
   }, [modal?.tipo, f.proveedorId]);
+  // ¿ESTA FACTURA YA ESTÁ REGISTRADA? (20/11/2026, Leandro: «tenemos que poder modificar
+  // una factura ya hecha y que nos damos cuenta que tiene un error»). Juan Pablo registró
+  // Umami 0006-00070233 y a los 2 minutos volvió acá a cambiar las cajas de 6 por 4: no se
+  // podía registrar dos veces. Ahora se avisa y el botón la CORRIGE con lo que dice esta carga.
+  const [registrada, setRegistrada] = useState<null | { id: string; numero: string; creadoEn: string; cargadaPor: string | null; monto: number; corregible: boolean; motivo: string | null }>(null);
+  const numeroLeido = foto?.comprobante?.numero ?? null;
+  const esFacturaLeida = !!foto?.comprobante?.tipo?.startsWith('factura');
+  useEffect(() => {
+    setRegistrada(null);
+    if (modal?.tipo !== 'entradaFoto' || !f.proveedorId || !numeroLeido || !esFacturaLeida) return;
+    let vigente = true;
+    const t = setTimeout(() => {
+      fetch(`/api/compras?recurso=factura-registrada&proveedorId=${encodeURIComponent(f.proveedorId)}&numero=${encodeURIComponent(numeroLeido)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (vigente) setRegistrada(d?.registrada ?? null); })
+        .catch(() => { /* sin el dato, se registra como siempre (y la API frena la repetida) */ });
+    }, 400);
+    return () => { vigente = false; clearTimeout(t); };
+  }, [modal?.tipo, f.proveedorId, numeroLeido, esFacturaLeida]);
   // LOS REMITOS DE ESTE PROVEEDOR QUE ESPERAN SU FACTURA (10/11/2026): si esta
   // factura es la de uno de ellos, la mercadería ya entró con el remito y se
   // carga solo la factura, conciliada (lib/remito-factura.ts).
@@ -1977,6 +1996,46 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     return d;
   };
 
+  // CORREGIR LA FACTURA REGISTRADA con lo que dice esta carga (20/11/2026): primero se
+  // muestra qué cambia (sin tocar nada) y, si se confirma, se corrige (o se pide, si quien
+  // carga no es gerente ni dueño). El stock, el costo y el precio de venta se acomodan solos.
+  const corregirRegistrada = async (body: any) => {
+    if (!registrada?.corregible) return null;
+    const { accion: _registrar, ...datos } = body;
+    const r = await fetch('/api/compras', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'corregirConCarga', id: registrada.id, ...datos, soloVer: true }) });
+    const vista = await r.json().catch(() => ({}));
+    if (!r.ok) { await confirmar({ titulo: 'No se puede corregir así', texto: vista?.message ?? 'No pude ver qué cambia.', textoConfirmar: 'Entendido' }); return null; }
+    if (vista.nada) { await confirmar({ titulo: 'No hay nada para corregir', texto: 'Lo que dice esta carga es igual a lo que se registró.', textoConfirmar: 'Entendido' }); return null; }
+    const lineas: string[] = [...(vista.renglones ?? []), ...(vista.encabezado ?? [])];
+    const ok = await confirmar({
+      titulo: `Corregir la factura ${registrada.numero}`,
+      texto: (
+        <div className="space-y-2">
+          <p>Esto cambia respecto de lo que se registró:</p>
+          <ul className="list-disc space-y-0.5 pl-5">{lineas.map((l) => <li key={l}>{l}</li>)}</ul>
+          <p className="text-tinta/70">El stock, el costo y el precio de venta se acomodan solos. Lo que ya se vendió no se puede restar: te aviso si pasa.</p>
+        </div>
+      ),
+      textoConfirmar: 'Sí, corregir',
+    });
+    if (!ok) return null;
+    const d = await post({ accion: 'corregirConCarga', id: registrada.id, ...datos });
+    if (!d) return null;
+    const sin = ((d.sinRestar ?? []) as any[]);
+    onAvisoTrasRegistrar?.(d.pedido
+      ? `Pedido de corrección de la factura ${registrada.numero} enviado: lo aprueba un dueño y le llega a la campanita. Hasta entonces queda como se registró.`
+      : `Factura ${registrada.numero} corregida: ${lineas.join(' · ')}.${sin.length ? ` No se pudo restar todo porque ya se había vendido: ${sin.map((x: any) => `${x.producto ?? x.nombre ?? 'un producto'} (faltaron ${x.falta ?? '?'})`).join(', ')}.` : ''}`);
+    const vigentes = cambiosFactura.filter((c) => !c.deshecho);
+    if (foto?.lecturaId && vigentes.length) {
+      fetch('/api/entrada-foto', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'revision', id: foto.lecturaId, proveedorId: f.proveedorId || undefined, numero: foto.comprobante?.numero ?? undefined,
+          cambios: vigentes.map(({ quien, cuando, renglon, campo, antes, despues, motivo }) => ({ quien, cuando, renglon, campo, antes, despues, motivo })) }),
+      }).catch(() => {});
+    }
+    return d;
+  };
+
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
   const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento && !i._esDevolucion);
@@ -2624,11 +2683,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         ) : (
         <Acciones
           cerrar={cerrar}
-          okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
+          okLabel={registrada ? 'Corregir la factura registrada' : `Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
           faltan={faltanEntrada}
+          disabled={!!registrada && !registrada.corregible}
           ir={irA}
-          info={entraEn}
-          onOk={() => registrarConConstancia({
+          info={registrada ? (registrada.corregible ? `Ya está registrada: se corrige con lo que dice esta carga.` : registrada.motivo) : entraEn}
+          onOk={() => (registrada ? corregirRegistrada : registrarConConstancia)({
             accion: 'entradaDirecta',
             proveedorId: f.proveedorId,
             sucursalId: f.sucursalId,
@@ -3879,6 +3939,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                   <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
                 )}
               </div>
+
+              {/* YA REGISTRADA (20/11/2026): se corrige con esta carga en vez de registrarla dos veces */}
+              {registrada && (
+                <Aviso tono={registrada.corregible ? 'atencion' : 'error'} titulo={`Esta factura ya está registrada${registrada.cargadaPor ? ` (la cargó ${registrada.cargadaPor}` : ' ('}${registrada.creadoEn ? `${registrada.cargadaPor ? ', ' : ''}el ${new Date(registrada.creadoEn).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}` : ''})`}>
+                  {registrada.corregible
+                    ? <>Si encontraste un error, corregí acá lo que haga falta (cajas, unidades, precios, el producto) y tocá <b>Corregir la factura registrada</b>. Antes de aplicar te muestro qué cambia; el stock, el costo y el precio de venta se acomodan solos.</>
+                    : <>{registrada.motivo}</>}
+                </Aviso>
+              )}
 
               {/* COMPRA EVENTUAL: solo con un proveedor que nunca tuvo una factura de las de siempre */}
               {primeraVezProveedor && foto.comprobante?.tipo?.startsWith('factura') && (

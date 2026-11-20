@@ -1,4 +1,6 @@
 import { mismoNumero } from './numero-comprobante';
+import { diferenciasConLoRegistrado, diferenciasDeEncabezado } from './corregir-con-carga';
+import { rolesDe } from '../auth/roles';
 import { controlarCuenta } from './cuenta-servidor';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -1526,7 +1528,7 @@ export class ComprasService {
   // calcula el precio de venta del costo nuevo, con la misma regla que al recibir.
   async corregirRenglonesFactura(
     facturaId: string,
-    dto: { renglones?: { productoId?: string | null; productoNuevoId?: string | null; cantidad: number; costo: number }[]; motivo?: string },
+    dto: { renglones?: { productoId?: string | null; productoNuevoId?: string | null; cantidad: number; costo: number; margenPct?: number | null }[]; motivo?: string },
     usuarioId?: string,
   ) {
     const motivo = String(dto?.motivo ?? '').trim();
@@ -1553,7 +1555,8 @@ export class ComprasService {
           cantidad: Number(r.cantidad),
           costo,
           // una compra eventual no remarca nada (la base tampoco toca el costo)
-          precio: (f as any).compra_eventual || !(costo > 0) ? null : precioDesdeCosto(costo, margenAplicable(delProveedor.get(destino), rubro.get(destino))),
+          // la remarcación de la carga corregida, si vino; si no, la del proveedor o la del rubro
+          precio: (f as any).compra_eventual || !(costo > 0) ? null : precioDesdeCosto(costo, margenAplicable(r.margenPct ?? delProveedor.get(destino), rubro.get(destino))),
         };
       }),
       p_motivo: motivo,
@@ -1562,6 +1565,121 @@ export class ComprasService {
     if (error) throw new BadRequestException(this.traducirError(error.message));
     invalidarAbastecimiento(); // cambió el stock y quizás el costo
     return data;
+  }
+
+  // ---- CORREGIR UNA FACTURA YA REGISTRADA DESDE LA CARGA (20/11/2026) ----
+  // Leandro: «tenemos que poder modificar una factura ya hecha y que nos damos cuenta
+  // que tiene un error». La pantalla de carga avisa que la factura ya está y, en vez de
+  // registrarla otra vez, la corrige: compara lo que dice la carga con lo que entró y
+  // aplica solo lo distinto (corregir_renglones_factura: stock, costo y precio juntos)
+  // más el pie (total, neto, IVA, percepciones). Ver corregir-con-carga.ts.
+
+  /** ¿Se puede corregir desde la carga? Solo la que fue «entrada + factura» (como Corregir renglones). */
+  private async corregibleDesdeCarga(f: { id: string; oc_id?: string | null; estado?: string | null }): Promise<{ ok: boolean; motivo?: string }> {
+    if (f.estado === 'anulada') return { ok: false, motivo: 'La factura está anulada.' };
+    if (!f.oc_id) return { ok: false, motivo: 'Con esta factura no entró mercadería (se cargó para conciliar con un remito): corregí la recepción o el remito.' };
+    const [{ data: oc }, { data: otras }] = await Promise.all([
+      this.db.from('ordenes_compra').select('origen').eq('id', f.oc_id).maybeSingle(),
+      this.db.from('facturas_proveedor').select('id').eq('oc_id', f.oc_id).neq('id', f.id).neq('estado', 'anulada'),
+    ]);
+    if ((oc as any)?.origen !== 'directa' || (otras ?? []).length) {
+      return { ok: false, motivo: 'La mercadería de esta factura entró con una orden de compra o con el remito: corregila desde Facturas de compra → «Corregir renglones».' };
+    }
+    return { ok: true };
+  }
+
+  /** La factura de este proveedor con este número, si ya está registrada (y si se puede corregir desde la carga). */
+  async facturaRegistrada(proveedorId: string, numero: string) {
+    // siempre un objeto (null suelto llega vacío y el panel no lo puede leer)
+    if (!proveedorId || !String(numero ?? '').trim()) return { registrada: null };
+    const { data, error } = await this.db.from('facturas_proveedor')
+      .select('id, numero, creado_en, estado, oc_id, cargada_por, monto')
+      .eq('proveedor_id', proveedorId).eq('tipo', 'factura').neq('estado', 'anulada')
+      .order('creado_en', { ascending: false }).limit(2000);
+    if (error) throw new BadRequestException(error.message);
+    const f = ((data ?? []) as any[]).find((x) => mismoNumero(x.numero, numero));
+    if (!f) return { registrada: null };
+    const [c, { data: u }] = await Promise.all([
+      this.corregibleDesdeCarga(f),
+      f.cargada_por ? this.db.from('usuarios').select('nombre').eq('id', f.cargada_por).maybeSingle() : Promise.resolve({ data: null } as any),
+    ]);
+    return { registrada: { id: f.id, numero: f.numero, creadoEn: f.creado_en, estado: f.estado, monto: Number(f.monto) || 0, cargadaPor: (u as any)?.nombre ?? null, corregible: c.ok, motivo: c.motivo ?? null } };
+  }
+
+  /**
+   * Corrige la factura registrada con lo que dice la carga. `soloVer`: devuelve qué
+   * cambiaría, sin tocar nada (la pantalla lo muestra antes de confirmar). Gerencia y
+   * dueños corrigen directo; el resto lo pide y lo aprueba un dueño (como siempre).
+   */
+  async corregirConCarga(facturaId: string, dto: EntradaDirectaDto & { soloVer?: boolean }, usuario: { sub?: string; rol?: string; roles?: unknown } = {}) {
+    const { data: fd } = await this.db.from('facturas_proveedor')
+      .select('id, numero, proveedor_id, oc_id, estado, compra_eventual, monto, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, letra, fecha_emision, condicion_venta')
+      .eq('id', facturaId).maybeSingle();
+    const f = fd as any;
+    if (!f) throw new BadRequestException('No existe la factura');
+    if (dto.proveedorId && dto.proveedorId !== f.proveedor_id) throw new BadRequestException('La carga es de otro proveedor: no corresponde a esta factura');
+    if (dto.factura?.numero && !mismoNumero(f.numero, dto.factura.numero)) throw new BadRequestException(`La carga dice ${dto.factura.numero} y la factura registrada es la ${f.numero}`);
+    const c = await this.corregibleDesdeCarga(f);
+    if (!c.ok) throw new BadRequestException(c.motivo);
+    if (!dto.items?.length) throw new BadRequestException('La carga no tiene renglones');
+    if (dto.items.some((i) => i.valorizaOc)) throw new BadRequestException('En una corrección no se le pone precio a una entrada vieja: hacelo aparte, desde la entrada a $0');
+    if ((dto.devoluciones ?? []).length) throw new BadRequestException('Las devoluciones no se corrigen acá: ajustalas desde Stock');
+    const malos: string[] = [];
+    dto.items.forEach((i, n) => {
+      const cual = i.descripcionLeida?.trim() || i.sku || `renglón ${n + 1}`;
+      const cantidad = Number(i.cantidad);
+      const costo = Number(i.costo);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) malos.push(`${cual}: la cantidad tiene que ser un número mayor a cero`);
+      else if (i.costo != null && (!Number.isFinite(costo) || costo < 0)) malos.push(`${cual}: el costo no es un número válido`);
+      else if (!i.sku) malos.push(`${cual}: falta elegir a qué producto corresponde`);
+    });
+    if (malos.length) throw new BadRequestException(malos.length === 1 ? `No pude corregir la factura — ${malos[0]}.` : `No pude corregir la factura. Revisá estos renglones: ${malos.join(' · ')}.`);
+    // la cuenta de la carga tiene que cerrar contra el total, como al registrar
+    const controlCuenta = dto.factura?.total && Number(dto.factura.total) > 0 ? controlarCuenta(dto.cuenta, Number(dto.factura.total), dto.items) : null;
+    if (controlCuenta?.frena) throw new BadRequestException(controlCuenta.frena);
+
+    const fusion = fusionarRenglonesPorSku(dto.items.map((i) => ({ ...i, sku: String(i.sku), cantidad: Number(i.cantidad), costo: esPrecioSimbolico(i.costo) ? 0 : Number(i.costo) || 0 })));
+    const idsCarga = await Promise.all(fusion.map((i) => this.productoIdPorSku(i.sku)));
+    const { data: oi, error: eOi } = await this.db.from('ordenes_compra_items').select('producto_id, cantidad_recibida, costo_unitario, producto:productos(nombre)').eq('oc_id', f.oc_id);
+    if (eOi) throw new BadRequestException(eOi.message);
+    const { data: prods } = await this.db.from('productos').select('id, nombre').in('id', [...new Set(idsCarga)]);
+    const nombre = new Map(((prods ?? []) as any[]).map((p) => [String(p.id), String(p.nombre)]));
+    const renglones = diferenciasConLoRegistrado(
+      ((oi ?? []) as any[]).map((x) => ({ productoId: String(x.producto_id), nombre: x.producto?.nombre ?? 'Producto', cantidad: Number(x.cantidad_recibida ?? 0), costo: Number(x.costo_unitario ?? 0) })),
+      fusion.map((i, k) => ({
+        productoId: String(idsCarga[k]), nombre: nombre.get(String(idsCarga[k])) ?? i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0,
+        margenPct: (i as any).margenPct ?? dto.margenPct ?? null,
+      })),
+    );
+    const enc = diferenciasDeEncabezado(f, dto.factura as any);
+    const resumen = { renglones: renglones.map((r) => r.detalle), encabezado: enc.detalle };
+    if (dto.soloVer) return { ...resumen, nada: !renglones.length && !enc.detalle.length };
+    if (!renglones.length && !enc.detalle.length) throw new BadRequestException('No cambió nada respecto de lo que se registró');
+
+    const motivo = `Corregida desde la carga de la factura: ${[...resumen.renglones, ...resumen.encabezado].join(' · ')}`.slice(0, 900);
+    const directo = rolesDe(usuario).some((r) => r === 'gerente' || r === 'dueno');
+    if (!directo) {
+      if (renglones.length) {
+        await this.solicitarCambioFactura(facturaId, {
+          tipo: 'renglones', motivo,
+          cambios: { renglones: renglones.map(({ productoId, productoNuevoId, cantidad, costo, detalle }) => ({ productoId, productoNuevoId, cantidad, costo, detalle })) },
+        }, usuario.sub);
+      }
+      if (enc.detalle.length) await this.solicitarCambioFactura(facturaId, { tipo: 'editar', cambios: enc.cambios, motivo }, usuario.sub);
+      return { ok: true, pedido: true, ...resumen };
+    }
+    const r: any = renglones.length ? await this.corregirRenglonesFactura(facturaId, { renglones, motivo }, usuario.sub) : null;
+    if (enc.detalle.length) await this.editarFactura(facturaId, enc.cambios, usuario.sub);
+    // el papel (los renglones leídos) queda como la carga corregida
+    await this.db.from('facturas_proveedor_items').delete().eq('factura_id', facturaId).then(() => null, () => null);
+    await this.guardarItemsFactura(facturaId, dto.items.map((i) => ({ sku: i.sku, descripcion: i.descripcionLeida ?? i.sku, cantidad: Number(i.cantidad), precio: (i as any).precioLeido ?? i.costo }))).catch(() => null);
+    // la próxima factura del proveedor aprende de la corrección (vínculo y remarcación)
+    if (!f.compra_eventual) await this.aprenderVinculos(f.proveedor_id, dto.items).catch(() => null);
+    await this.db.from('auditoria').insert({
+      usuario_id: usuario.sub ?? null, accion: 'corregir_factura_con_carga', entidad: 'facturas_proveedor', entidad_id: facturaId,
+      datos_despues: { renglones: resumen.renglones, encabezado: resumen.encabezado },
+    }).then(() => null, () => null);
+    return { ok: true, ...resumen, stock: r?.stock ?? null, costos: r?.costos ?? [], sinRestar: r?.sinRestar ?? r?.stock?.sinRestar ?? [] };
   }
 
   // COMPRA EVENTUAL (18/11/2026): se ofrece cuando el proveedor nunca tuvo una factura

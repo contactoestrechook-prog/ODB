@@ -31,6 +31,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'remarcacion') {
     // qué % de remarcación usar para estos productos con este proveedor
     ruta = `/compras/remarcacion?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&skus=${encodeURIComponent(url.searchParams.get('skus') ?? '')}`;
+  } else if (recurso === 'factura-registrada') {
+    // ¿esta factura ya está registrada? → la carga ofrece corregirla (20/11/2026)
+    ruta = `/compras/factura-registrada?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&numero=${encodeURIComponent(url.searchParams.get('numero') ?? '')}`;
   } else if (recurso === 'primera-compra' && url.searchParams.get('proveedorId')) {
     // ¿primera factura de este proveedor? → se ofrece «Compra eventual» (18/11/2026)
     ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/primera-compra`;
@@ -143,6 +146,8 @@ export async function POST(req: Request) {
     case 'rechazarCambioFactura': ruta = `/compras/facturas/cambios/${d.id}/rechazar`; body = { respuesta: d.respuesta }; break;
     case 'anularFactura': ruta = `/compras/facturas/${d.id}/anular`; break;
     case 'corregirRenglonesFactura': ruta = `/compras/facturas/${d.id}/renglones`; body = { renglones: d.renglones, motivo: d.motivo }; break;
+    // corregir la factura registrada con lo que dice la carga (20/11/2026)
+    case 'corregirConCarga': { const { id, ...resto } = d; ruta = `/compras/facturas/${id}/corregir-con-carga`; body = { ...resto, usuarioId }; break; }
     case 'pagoFactura': ruta = `/compras/facturas/${d.id}/pagos`; break;
     case 'crearOP': ruta = '/compras/ordenes-pago'; body = { ...d, usuarioId }; break;
     case 'aprobarOP': ruta = `/compras/ordenes-pago/${d.id}/aprobar`; body = { usuarioId }; break;
