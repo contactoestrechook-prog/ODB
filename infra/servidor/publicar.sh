@@ -10,6 +10,15 @@ git fetch -q origin main
 git merge-base --is-ancestor origin/main HEAD || { echo "CANDADO: esta copia no tiene todo origin/main"; exit 1; }
 [ -z "$(git status --porcelain | grep -v 'node_modules$')" ] || { echo "CANDADO: hay cambios sin commitear"; exit 1; }
 VERSION=$(git rev-parse --short HEAD)
+# CANDADO DE LA ALARMA DE LOS PEDIDOS (Leandro, 21/11/2026: «todos los pop-ups de ODB de
+# pedido hagan un ruido escandaloso en todas las máquinas, sin excepción, con candado»).
+# Antes de mandar nada, las pruebas de la regla: si alguien bajó la alarma, le puso una
+# excepción o sumó un aviso de pedido que no suena, no se publica. Sin dependencias en
+# esta copia no se puede comprobar: tampoco se publica (enlazá apps/api/node_modules).
+[ -d apps/api/node_modules ] || { echo "CANDADO: falta apps/api/node_modules en esta copia: no puedo correr el candado de la alarma (enlazalo desde ~/Projects/odb/apps/api/node_modules)"; exit 1; }
+echo "Candado de la alarma de los pedidos…"
+( cd apps/api && npx jest src/pedidos/alarma-escandalosa.spec.ts --silent ) >/tmp/candado-alarma-$$.log 2>&1 || { cat /tmp/candado-alarma-$$.log | tail -40; echo "CANDADO: la alarma de los pedidos no cumple la regla del 21/11/2026. No se publica."; exit 1; }
+echo "Candado de la alarma: ok."
 # ServerAliveInterval: la compilación tarda minutos sin escribir nada y la red de la
 # Mac a veces se corta (21/10/2026 se colgó el primer envío)
 ssh_() { ssh -i "$LLAVE" -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=8 "$SERVIDOR" "$@"; }

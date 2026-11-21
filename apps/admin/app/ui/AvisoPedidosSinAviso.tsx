@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 
 // REGLA (Leandro, 3/10/2026): toda confirmación de pedido sale al teléfono de
 // administración. Si el aviso de un pedido no salió en 3 minutos, o salió y
@@ -9,6 +10,9 @@ import { useCallback, useEffect, useState } from 'react';
 // TODAS las pantallas. Se saca con "Ya avisé al local" (queda quién y cuándo).
 // También avisa si el WhatsApp de la casa está desconectado o si no se pudo
 // verificar: nunca queda vacía en silencio.
+//
+// 21/11/2026 — REGLA CON CANDADO (ver lib/alarma-pedido.ts): mientras haya un pedido cuyo
+// aviso no salió o no llegó, la alarma suena al máximo y sin parar hasta «Ya avisé al local».
 type Problema = { avisoId: string; pedidoId: string | null; tipo: string; codigo: string; problema: 'no_salio' | 'no_llego'; minutos: number; motivo: string | null };
 type Respuesta = { problemas?: Problema[]; whatsapp?: string | null; error?: string };
 
@@ -44,6 +48,7 @@ export function AvisoPedidosSinAviso() {
   const problemas = estado.problemas ?? [];
   const whatsappCaido = !!estado.whatsapp && estado.whatsapp !== 'WORKING';
   const sinVerificar = fallas >= 2;
+  useAlarmaHastaQueSeAtienda(problemas.length > 0);
   if (!problemas.length && !whatsappCaido && !sinVerificar) return null;
   return (
     <div role="alert" className="sticky top-0 z-[60] w-full bg-marca px-4 py-3 text-white shadow-md" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>

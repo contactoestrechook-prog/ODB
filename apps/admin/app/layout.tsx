@@ -10,11 +10,13 @@ import { AvisoTeTocaArmar } from "./ui/AvisoTeTocaArmar";
 import { AvisoConsultasArmado } from "./ui/AvisoConsultasArmado";
 import { AvisoFiambreria } from "./ui/AvisoFiambreria";
 import { AvisoPreguntaCliente } from "./ui/AvisoPreguntaCliente";
+import { AvisoSonidoApagado } from "./ui/AvisoSonidoApagado";
 import { cookies } from "next/headers";
 import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
-// Quién ve la ventana de "Llegó un pedido" (6/10/2026): los que pueden tomarlo
-// y prepararlo. Administración lo recibe por WhatsApp, con el link para tomarlo.
+// Quién puede tocar «Lo tomo» en «Llegó un pedido» (6/10/2026): los que pueden tomarlo y
+// prepararlo. LA VENTANA Y LA ALARMA SALEN EN TODAS LAS MÁQUINAS CON SESIÓN, de cualquier rol
+// y sucursal (regla con candado, 21/11/2026: «en todas las máquinas, sin excepción»).
 const ATIENDEN_PEDIDOS = ["dueno", "gerente", "cajero", "deposito"];
 // A quién se le puede asignar un armado y tiene más pantallas que Salón: le sale
 // «Te toca armar» donde esté (los mismos roles que la API deja leer /salon/pedidos).
@@ -87,7 +89,9 @@ export default async function RootLayout({
           {!encerrado && roles.some((r) => PUEDEN_ARMAR.includes(r)) && <AvisoTeTocaArmar />}
           {/* lo que quien arma le pregunta a la caja, y los pedidos que devuelve (21/11/2026) */}
           {roles.some((r) => MANEJAN_PEDIDOS.includes(r)) && <AvisoConsultasArmado sucursalId={sucursalDesdeToken(token)} miId={datosDesdeToken(token).sub} />}
-          {roles.some((r) => ATIENDEN_PEDIDOS.includes(r)) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
+          {/* REGLA CON CANDADO (21/11/2026): en todas las máquinas con sesión, sin filtro de rol */}
+          {token && <AvisoSonidoApagado />}
+          {token && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} puedeTomar={roles.some((r) => ATIENDEN_PEDIDOS.includes(r))} />}
         </div>
         {/* fiambrería: la ventana de lo que tiene que preparar de cada pedido (19/11/2026) */}
         {roles.includes("fiambreria") && <AvisoFiambreria />}

@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { llevaFlotantes } from '../lib/rutas';
-import { prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { esRutaDeAcceso, llevaFlotantes } from '../lib/rutas';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 import { FOCO, IconoCerrar, unir } from './kit';
 import { avance, reloj, useAhora, type PedidoArmar } from './salon/comun';
 
@@ -18,10 +18,13 @@ import { avance, reloj, useAhora, type PedidoArmar } from './salon/comun';
 // Ahora, a quien le asignan un pedido le aparece esta ventana en CUALQUIER
 // pantalla (la Caja incluida), vibra y suena una vez, y «Armarlo» lo lleva al
 // armado. En Salón y en Depósito no sale: ahí el pedido ya se abre o se muestra.
+//
+// 21/11/2026 — REGLA CON CANDADO (ver lib/alarma-pedido.ts): suena al máximo y sin parar
+// mientras haya un pedido asignado que todavía no abrió; se calla cuando empieza a
+// armarlo. Esconder 5 minutos solo vale para el que ya está armando (no suena).
 
 const CADA_MS = 10_000;
 const ESCONDER_MS = 5 * 60_000;
-const CLAVE_VISTOS = 'odb_armar_vistos';
 const CLAVE_ESCONDIDOS = 'odb_armar_escondidos';
 /** De dónde vino: al terminar, el armado le ofrece volver (ver salon/Armar). */
 export const CLAVE_VINE_DE = 'odb_armar_vine_de';
@@ -50,16 +53,6 @@ export function AvisoTeTocaArmar() {
       if (!r.ok) return;
       const d = await r.json();
       if (!Array.isArray(d)) return;
-      // lo nuevo vibra y suena UNA vez (la ventana queda hasta que lo abre)
-      const vistos = leer(CLAVE_VISTOS);
-      const nuevos = (d as PedidoArmar[]).filter((p) => !vistos[p.id]);
-      if (nuevos.length) {
-        for (const p of nuevos) vistos[p.id] = Date.now();
-        guardar(CLAVE_VISTOS, vistos);
-        try { navigator.vibrate?.([200, 100, 200, 100, 200]); } catch { /* sin vibración */ }
-        prepararAudio();
-        sonarAlarma(0.5);
-      }
       setPedidos(d);
     } catch { /* sin red: la próxima vuelta */ }
   }, []);
@@ -73,8 +66,12 @@ export function AvisoTeTocaArmar() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
   }, [mirar]);
 
-  if (!llevaFlotantes(ruta) || SIN_VENTANA.some((b) => ruta === b || ruta?.startsWith(b + '/'))) return null;
-  const visibles = pedidos.filter((p) => !(escondidos[p.id] && escondidos[p.id] > ahora));
+  const enSuPantalla = SIN_VENTANA.some((b) => ruta === b || ruta?.startsWith(b + '/'));
+  // suena hasta que lo abre (en Salón y Depósito el armado se abre solo y suena ahí)
+  useAlarmaHastaQueSeAtienda(!enSuPantalla && !esRutaDeAcceso(ruta) && pedidos.some((p) => !p.primeraCarga));
+  if (!llevaFlotantes(ruta) || enSuPantalla) return null;
+  // esconder solo vale para el que ya empezó a armar: el que no abrió no se esconde
+  const visibles = pedidos.filter((p) => !(p.primeraCarga && escondidos[p.id] && escondidos[p.id] > ahora));
   if (!visibles.length) return null;
   const [p, ...resto] = visibles;
   const a = avance(p);
@@ -117,10 +114,12 @@ export function AvisoTeTocaArmar() {
           className={unir('inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-dato-3 px-4 text-sm font-semibold text-white hover:bg-[#673D74]', FOCO)}>
           {p.primeraCarga ? 'Seguir armando' : 'Armarlo'}
         </Link>
-        <button type="button" onClick={esconder} aria-label={`Esconder 5 minutos el aviso del pedido ${p.codigo}`} title="Esconder 5 minutos"
-          className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}>
-          <IconoCerrar className="size-5" />
-        </button>
+        {p.primeraCarga && (
+          <button type="button" onClick={esconder} aria-label={`Esconder 5 minutos el aviso del pedido ${p.codigo}`} title="Esconder 5 minutos"
+            className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}>
+            <IconoCerrar className="size-5" />
+          </button>
+        )}
       </div>
       {resto.length > 0 && (
         <Link href="/salon" onClick={recordarDeDondeVengo} className={unir('block bg-crema-claro px-4 py-2 text-xs font-semibold text-tinta/70 hover:text-tinta', FOCO)}>

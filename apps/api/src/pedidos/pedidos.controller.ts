@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
-import { Publico, Roles, SinHerencia } from '../auth/decorators';
+import { ParaCualquierRol, Publico, Roles, SinHerencia } from '../auth/decorators';
 import { loQueVeElQueArma, soloArma } from '../auth/roles';
 import { LimitadorTasa } from '../comun/limitador';
 import { MEDIOS_AL_ENTREGAR } from './envios';
@@ -112,6 +112,18 @@ export class PedidosController {
   @Post('pedidos/whatsapp')
   crearWa(@Body() b: { items: any[]; nombre?: string; notas?: string; dni?: string }, @Req() req: any) {
     return this.pedidos.recibirWhatsApp(b, req.usuario?.sub);
+  }
+
+  // LO QUE HACE SONAR «LLEGÓ UN PEDIDO» EN TODAS LAS MÁQUINAS (regla con candado,
+  // Leandro, 21/11/2026: «en todas las máquinas, sin excepción»): los pedidos sin
+  // tomar, para CUALQUIER rol con sesión (también el que solo arma, fiambrería,
+  // administración). Tomarlo sigue siendo de la caja: ver pedidos/:id/tomar.
+  // Candado: alarma-escandalosa.spec.ts.
+  @ParaCualquierRol()
+  @Get('pedidos/sin-tomar')
+  async sinTomar() {
+    const lista = await this.pedidos.cola(['recibido', 'pagado']);
+    return (lista as any[]).filter((p) => !p.tomado_por);
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')

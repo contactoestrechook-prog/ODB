@@ -1,5 +1,23 @@
 # ODB — reglas para trabajar en este proyecto
 
+## REGLA CON CANDADO: todo aviso de pedido suena escandaloso, en todas las máquinas (21/11/2026)
+
+Leandro: «necesito que todos los pop-ups de ODB de pedido hagan un ruido escandaloso
+en todas las máquinas, sin excepción, con candado esta regla».
+
+- Una sola alarma: `apps/admin/app/lib/alarma-pedido.ts` (`ALARMA`, `sonarEscandalo`),
+  al máximo desde el primer toque. Todo aviso de pedido suena con
+  `useAlarmaHastaQueSeAtienda` (sin parar hasta que se atiende) o
+  `useRafagaAlLlegar` / `sonarRafaga` (en la pantalla donde ya se trabaja), de
+  `apps/admin/app/lib/usar-alarma.ts`. Nada de volumen bajo, «Más tarde», tope de
+  horas ni filtro de rol o sucursal para sonar.
+- «Llegó un pedido» está en TODAS las máquinas con sesión (layout: `{token && …}`) y
+  lee `GET /pedidos/sin-tomar`, abierta a cualquier rol.
+- El candado: `apps/api/src/pedidos/alarma-escandalosa.spec.ts`, y
+  `infra/servidor/publicar.sh` lo corre antes de mandar nada (si falla, no publica).
+  Un aviso nuevo de pedido va en `AVISOS_DE_PEDIDO` de esa prueba. La regla la cambia
+  Leandro: nunca se arregla una falla de ese candado aflojando la prueba.
+
 ## Producción es el SERVIDOR PROPIO, no Railway (24/10/2026)
 
 ODB se mudó a un servidor propio. Lo que usa la gente es:
