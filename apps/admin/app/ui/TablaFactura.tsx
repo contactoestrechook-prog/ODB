@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { pesos } from '../lib/formato';
-import { cuentaDelPapel, entraDeRenglon, papelDeLectura, unidadesDelPapel, vistaDelPapel, type CampoPapel, type EntraComo, type Papel } from '../lib/tabla-factura';
+import { cuentaDelPapel, entraDeRenglon, papelDeLectura, sinCargoDe, unidadesDelPapel, vistaDelPapel, type CampoPapel, type EntraComo, type Papel } from '../lib/tabla-factura';
 import { FOCO, unir } from './kit/clases';
 
 // ============================================================
@@ -145,6 +145,8 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel, onCambiarDato }: Props
             // con precio por bulto: «5 bultos × $355.041 − 61,5% (queda $136.691 el bulto · $22.782 c/u)»
             : porBulto && uxb ? `${cifra(bultosVista, 3)} ${bultosVista === 1 ? 'bulto' : 'bultos'} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(precioNeto)} el bulto · ${pesos(Math.round((precioNeto / uxb) * 100) / 100)} c/u)` : ` (${pesos(Math.round((precioNeto / uxb) * 100) / 100)} c/u)`}`
             : `${cifra(unidades, 3)} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(precioNeto)} c/u)` : ''}`}
+          {/* lo sin cargo juntado (21/11/2026): el % es eso, no un descuento de precio */}
+          {sinCargoDe(i) > 0 ? ` · el % son las ${cifra(sinCargoDe(i), 3)} sin cargo de ${cifra(unidades, 3)} (${cifra(unidades - sinCargoDe(i), 3)} pagas)` : ''}
           {!c.cierra && c.dif != null ? ` · difiere ${pesos(Math.abs(c.dif))} del importe` : ''}
           {porKilo != null ? ` · ¿va por kilo? da ${cifra(porKilo, 2)} kg` : ''}
         </span>

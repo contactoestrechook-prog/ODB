@@ -30,7 +30,7 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel, juntarRegalos, paresDeRegalo, separarRegalos, sinCargoDe } from '../lib/tabla-factura';
 import { AgregarRenglon } from './AgregarRenglon';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -726,7 +726,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       // lo que el papel no entrega ni cobra no es un renglón (18/11/2026, Nini: «Promocion 0145993» en cero)
       const { renglones: leidos, sinNada } = separarRenglonesSinNada(d.items ?? []);
       setRenglonesSinNada(sinNada.map((i: any) => String(i.descripcion ?? '')));
-      const filas = leidos.map((i: any) => {
+      const filasDelPapel = leidos.map((i: any) => {
         const sugerido = i.match?.sugerido === true;
         // La interpretación del renglón —bulto, bonificación, peso, corrección
         // de cantidad, descuento— la decide el servidor en UNA función con la
@@ -825,6 +825,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         // descuenta otra vez: queda como dato a la vista (22/10/2026)
         x.papel?.descIncluido ? { ...x, bonificacionPct: null, bonifIncluidaPct: x.papel.descIncluido } : x
       ));
+      // LO SIN CARGO ENTRA JUNTO CON LO QUE SE PAGA (21/11/2026, Ferrero de Distri-Sur:
+      // «sumamos el renglón bonificado que trae 12 + el que trae 60 = 72, lo dividimos en
+      // cajas de 12»). Es parte de lo que leyó el sistema: el renglón sin cargo y su
+      // «Descuento» se suman al pago del mismo artículo (ver juntarRegalos). Si una
+      // persona ya había trabajado alguno de esos renglones, ese par queda como lo dejó.
+      const b0 = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
+      const tocadosAntes = new Set<number>((b0?.renglones ?? []).map((r: any) => Number(r?.renglon)));
+      const paresLeidos = paresDeRegalo(filasDelPapel, atribuirDescuentos(filasDelPapel).destinos);
+      const prueba = juntarRegalos(filasDelPapel, paresLeidos, esRenglonDescuento);
+      const libres = prueba.juntados.filter((j) => ![j.regalo, j.descuento, j.en].some((k) => k != null && tocadosAntes.has(k)));
+      const filas = libres.length === prueba.juntados.length
+        ? prueba.items
+        : juntarRegalos(filasDelPapel, libres.map((j) => ({ regalo: j.regalo, descuento: j.descuento, en: j.en })), esRenglonDescuento).items;
       // LA FACTURA A MEDIO CARGAR (3/11/2026): lo que leyó el sistema queda como
       // punto de partida; si alguien ya la había trabajado, encima van sus
       // cambios (los guarda el efecto de abajo, solos, mientras se edita)
@@ -1325,6 +1338,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     _esDescuento: esRenglonDescuento(i),
     _esDevolucion: !!i.esDevolucion,
   }));
+  // los renglones sin cargo que siguen sueltos → su «Descuento» (21/11/2026): con eso
+  // la pantalla y el chat los pueden juntar con lo pago del mismo artículo
+  const regalosSinJuntar = () => {
+    const m = new Map<number, number>();
+    for (const [j, x] of destinoDeDescuento) if (x.motivo === 'regalo' && !fotoItemsVivos.current[x.renglon]?.juntadoEn) m.set(x.renglon, j);
+    return m;
+  };
   // OJO: el descuento ya está adentro de precioEfectivo del renglón que rebaja.
   // Sumar además el renglón de descuento lo restaría DOS veces.
   // Lo que el renglón factura según el papel. Un renglón que no ingresó (las
@@ -1504,7 +1524,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       if (perc > 0.005) partesPapel.push(`+ percepciones ${(percepcionesPct * 100).toFixed(2).replace('.', ',')}% sobre neto${interno > 0 ? ' e interno' : ''} ${pesos(perc)}`);
       return `${partesPapel.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
     }
-    const partes = [`${pesos(precioEfectivo(i))} por unidad${numImp(i.bonificacionPct) > 0 ? ` (ya con el ${numImp(i.bonificacionPct)}% de descuento)` : ''}`];
+    // con lo sin cargo adentro (21/11/2026): lo pagado repartido entre todo lo que entra
+    const conRegalo = sinCargoDe(i) > 0
+      ? ` (lo pagado por ${enKilos(facturadoDe(i) - sinCargoDe(i))} repartido entre ${enKilos(facturadoDe(i))}: ${enKilos(sinCargoDe(i))} vinieron sin cargo)`
+      : null;
+    const partes = [`${pesos(precioEfectivo(i))} por unidad${conRegalo ?? (numImp(i.bonificacionPct) > 0 ? ` (ya con el ${numImp(i.bonificacionPct)}% de descuento)` : '')}`];
     const a = alicDe(idx);
     if (ivaConAlicuotas && a != null) {
       const neto = precioEfectivo(i) * ivaConAlicuotas.factorNeto;
@@ -1617,7 +1641,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   };
   const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
   // cómo se le nombra a la persona cada dato que el chat quiso cambiar y no se pudo
-  const NOMBRE_DATO: Record<string, string> = { recibidas: 'lo que entró', juntarEn: 'juntar', kilos: 'kilos', ingresa: 'ingresa al stock', entraComo: 'cómo entra', unidadesPorBulto: 'unidades por bulto', descuentoPct: '% de descuento', alicuotaIva: 'IVA', unidadesPorVenta: 'unidades por paquete', costoFinal: 'costo por unidad', esDevolucion: 'devolución', unidadesDevueltas: 'unidades devueltas', impuestoInternoUnitario: 'impuesto interno por unidad', llevaInternos: 'impuestos internos', ajustarImporte: 'importe', noAplicar: 'descuento sin aplicar' };
+  const NOMBRE_DATO: Record<string, string> = { recibidas: 'lo que entró', juntarEn: 'juntar', sinCargo: 'lo sin cargo',kilos: 'kilos', ingresa: 'ingresa al stock', entraComo: 'cómo entra', unidadesPorBulto: 'unidades por bulto', descuentoPct: '% de descuento', alicuotaIva: 'IVA', unidadesPorVenta: 'unidades por paquete', costoFinal: 'costo por unidad', esDevolucion: 'devolución', unidadesDevueltas: 'unidades devueltas', impuestoInternoUnitario: 'impuesto interno por unidad', llevaInternos: 'impuestos internos', ajustarImporte: 'importe', noAplicar: 'descuento sin aplicar' };
   // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
   // seguir editando mientras la IA pensaba)
   // EL CHAT CAMBIA EL PRODUCTO (10/11/2026): «el 4 es Jorgito tubo chocolate».
@@ -1671,6 +1695,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   // separar a mano lo que se juntó en un renglón: cada uno vuelve como estaba
   const separarJuntados = (idx: number) => {
     const fila = fotoItemsVivos.current[idx];
+    // lo sin cargo que se juntó solo al abrir (21/11/2026): vuelve a sus renglones y queda anotado
+    if (Array.isArray(fila?.regalos) && fila.regalos.length) {
+      const de = fila.regalos.flatMap((r: any) => [r.renglon, r.descuento].filter((x: any) => x != null));
+      setFotoItems((xs) => separarRegalos(xs, idx));
+      setCambiosFactura((xs) => xs.map((y) => (y.campo === 'juntarEn' && !y.deshecho && y.despues === idx + 1 && de.includes(y.renglon as number) ? { ...y, deshecho: true } : y)));
+      anotar('Vos', [{ renglon: idx + 1, campo: 'sinCargo', antes: 'junto', despues: 'separado', motivo: `separó lo sin cargo (renglones ${de.join(', ')} del papel)` }]);
+      return;
+    }
     const juntados: number[] = Array.isArray(fila?.junta) ? fila.junta.map((x: any) => Number(x.renglon)) : [];
     if (!juntados.length) return;
     setFotoItems((xs) => juntados.reduce((ys, n) => separarRenglon(ys, n - 1), xs));
@@ -1691,11 +1723,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const tocados = renglonesTocados();
       cambios = cambios.filter((c: any) => !tocados.has(Math.round(Number(c?.renglon))));
     }
-    // un renglón que tiene un descuento aplicado no se junta en otro: el descuento quedaría sobre nada
+    // un renglón que tiene un descuento aplicado no se junta en otro: el descuento quedaría sobre nada.
+    // Salvo lo sin cargo (21/11/2026): se junta como regalo con lo pago del mismo artículo.
+    const regaloDe = regalosSinJuntar();
     const conDescuentoEncima = new Set([...destinoDeDescuento.values()].map((d: any) => d.renglon));
-    const sinJuntar = cambios.filter((c: any) => c?.campo === 'juntarEn' && c.valor != null && c.valor !== '' && conDescuentoEncima.has(Math.round(Number(c.renglon)) - 1));
+    const sinJuntar = cambios.filter((c: any) => {
+      const k = Math.round(Number(c?.renglon)) - 1;
+      return c?.campo === 'juntarEn' && c.valor != null && c.valor !== '' && conDescuentoEncima.has(k) && !regaloDe.has(k);
+    });
     cambios = cambios.filter((c: any) => !sinJuntar.includes(c));
-    const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
+    const conMarcas = fotoItemsVivos.current.map((x: any, k: number) => (regaloDe.has(k) ? { ...x, _regaloDe: regaloDe.get(k) } : x));
+    const r00 = aplicarCambiosIA(conMarcas, cambios, esRenglonDescuento);
+    // la marca sirve solo para esta vuelta
+    const r0 = { ...r00, items: r00.items.map((x: any) => (x && '_regaloDe' in x ? (({ _regaloDe, ...resto }: any) => resto)(x) : x)) };
     r0.descartados.push(...sinJuntar.map((c: any) => ({ ...c, porque: 'tiene un descuento aplicado en otro renglón de la factura' })));
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
@@ -1846,6 +1886,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       return;
     }
     if (c.campo === 'revisado') setRevisionOk((xs) => xs.filter((t) => t !== c.motivo));
+    // lo sin cargo que se separó (21/11/2026): vuelve a juntarse con ese renglón
+    if (c.campo === 'sinCargo' && c.renglon != null) {
+      const k = c.renglon - 1;
+      setFotoItems((xs) => juntarRegalos(xs, paresDeRegalo(xs, atribuirDescuentos(xs).destinos).map((p) => ({ ...p, en: k })), esRenglonDescuento).items);
+      setCambiosFactura((xs) => xs.map((y) => (y.id === c.id ? { ...y, deshecho: true } : y)));
+      return;
+    }
     // juntado en otro renglón (18/11/2026): vuelve a ser un renglón aparte, o vuelve a juntarse
     if (c.campo === 'juntarEn' && c.renglon != null) {
       const k = c.renglon - 1;
@@ -2121,7 +2168,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const cant = numImp(i.cantidad);
       g.pagado += cant * costoFinal(i);
       g.unidades += cant;
-      if (esSinCargo(i)) g.tieneGratis = true;
+      // lo sin cargo ya juntado con su pago (21/11/2026) también lo ganó el grupo
+      if (esSinCargo(i) || sinCargoDe(i) > 0) g.tieneGratis = true;
       grupos.set(k, g);
     }
     const costoDeLinea = (i: any) => {
@@ -2135,7 +2183,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       const costo = costoDeLinea(i);
       const enPromo = grupos.get(claveP(i))!.tieneGratis && !!prorrateoAut;
       const prev = porSku.get(i.sku);
-      const gratis = esSinCargo(i) ? cant : 0;
+      // en unidades de stock: lo sin cargo juntado es una parte del renglón (12 de 72 bombones = 1 de 6 cajas)
+      const gratis = esSinCargo(i) ? cant : sinCargoDe(i) > 0 && facturadoDe(i) > 0 ? Math.round((cant * sinCargoDe(i) / facturadoDe(i)) * 1000) / 1000 : 0;
       if (!prev) {
         porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1, _gratis: gratis, _enPromo: enPromo });
       } else {
@@ -2151,7 +2200,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       costoUnitario: i.cantidad > 0 ? Math.round((i._costoTotal / i.cantidad) * 100) / 100 : 0,
     }));
   };
-  const hayRegalos = inclItems.some((i: any) => esSinCargo(i));
+  const hayRegalos = inclItems.some((i: any) => esSinCargo(i) || sinCargoDe(i) > 0);
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   // EL RESUMEN DE LA ENTRADA (18/11/2026, Juan Pablo: «¿cuál va a utilizar?»): lo que
@@ -2180,7 +2229,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   const soloPrecioDe = (i: any): PendientePrecioCero | null =>
     i?.sku && i.incluir && !i._esDescuento && !i._esDevolucion && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
-  const lecturaIncompleta = fotoItems.some((i) => (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
+  // lo juntado en otro renglón queda en cero a propósito: no es una lectura incompleta (21/11/2026)
+  const lecturaIncompleta = fotoItems.some((i) => !i.juntadoEn && (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
   // internos sin destino: no se registra hasta marcar qué productos los pagan (3/11/2026)
   const internosBloquea = !internosResueltos && inclItems.length > 0;
   // EL CONTROL FINAL (Leandro, 4/11/2026: «no tiene lógica, necesito más y más
@@ -2603,7 +2653,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   };
   const nombreSucursal = sucursales?.find((s: any) => s.id === f.sucursalId)?.nombre ?? null;
   const renglonIncompleto = (() => {
-    const k = fotoItems.findIndex((i) => (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
+    const k = fotoItems.findIndex((i) => !i.juntadoEn && (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
     return k >= 0 ? k : null;
   })();
   const faltanEntrada = faltaParaEntrada({
@@ -3170,7 +3220,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                 // el servidor prueba con ellas los cambios del chat antes de contestar (18/11/2026)
                 filas={() => {
                   const conDescuentoEncima = new Set([...destinoDeDescuento.values()].map((d: any) => d.renglon));
-                  return fotoItemsVivos.current.map((x: any, k: number) => ({ ...x, _esDescuento: esRenglonDescuento(x), _conDescuentoEncima: conDescuentoEncima.has(k) }));
+                  const regaloDe = regalosSinJuntar();
+                  return fotoItemsVivos.current.map((x: any, k: number) => ({
+                    ...x, _esDescuento: esRenglonDescuento(x), _conDescuentoEncima: conDescuentoEncima.has(k),
+                    ...(regaloDe.has(k) ? { _regaloDe: regaloDe.get(k) } : {}),
+                  }));
                 }}
                 pie={fotoImp}
                 controles={controlesParaIA()}
@@ -3385,7 +3439,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                         {estadoDelBulto(i) === 'caja' && <Sello tono="info">caja ×{Math.round(numImp(i.bultoDescartado))}</Sello>}
                         {numImp(i.envaseAplicado) > 1 && <Sello tono="info">u. → cajas ×{Math.round(numImp(i.envaseAplicado))}</Sello>}
                         {numImp(i.paqueteAplicado) > 0 && <Sello tono="info">kg → paq. {Math.round(numImp(i.paqueteAplicado))} g</Sello>}
-                        {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
+                        {sinCargoDe(i) > 0 ? (
+                          <>
+                            <Sello tono="ok">{enKilos(unidadesFacturadas(i) - sinCargoDe(i))} pagas + {enKilos(sinCargoDe(i))} sin cargo (renglones {i.regalos.flatMap((r: any) => [r.renglon, r.descuento].filter((x: any) => x != null)).join(', ')} del papel)</Sello>
+                            <button type="button" onClick={() => separarJuntados(idx)} className={CHIP_ACCION} aria-label={`Separar lo sin cargo del renglón ${idx + 1}`}>Separar</button>
+                          </>
+                        ) : esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
                         {i.devueltoAMano && <Sello tono="ojo">devuelto (anotado a mano) · no entra al stock</Sello>}
                         {faltanDe(i) > 0 && <Sello tono="ojo">{i.porPeso ? 'entran' : 'llegaron'} {enKilos(unidadesFacturadas(i) - faltanDe(i))} de {enKilos(unidadesFacturadas(i))}{i.porPeso ? ' kg' : ''} · faltan {enKilos(faltanDe(i))} · espera nota de crédito</Sello>}

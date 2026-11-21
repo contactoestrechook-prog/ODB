@@ -488,6 +488,8 @@ function noSeJunta(fila: any, esDescuento: (f: any) => boolean): string | null {
   if (!(importeDe(fila) > 0)) return 'no tiene importe';
   // lo marca la pantalla al mandar las filas al chat: un descuento de otro renglón cae sobre este
   if (fila._conDescuentoEncima) return 'tiene un descuento aplicado en otro renglón de la factura';
+  // ya lleva adentro lo sin cargo de otro renglón (21/11/2026): rehacerlo como suma común lo perdería
+  if (Array.isArray(fila.regalos) && fila.regalos.length) return 'ya lleva adentro lo sin cargo de otro renglón: separalo primero';
   return null;
 }
 
@@ -507,6 +509,8 @@ function conLoJuntado<T extends Record<string, any>>(base: T, junta: { renglon: 
 export function separarRenglon<T extends Record<string, any>>(items: T[], k: number): T[] {
   const fila = items[k];
   if (!fila?.juntadoEn) return items;
+  // lo sin cargo (o su «Descuento») se separa con todo lo sin cargo de ese renglón
+  if (fila.regaloJuntado) return separarRegalos(items, Math.round(Number(fila.juntadoEn)) - 1);
   const nuevos = items.slice();
   const d = Math.round(Number(fila.juntadoEn)) - 1;
   nuevos[k] = { ...fila, ...(fila.antesDeJuntar ?? {}), juntadoEn: null, antesDeJuntar: null };
@@ -516,6 +520,205 @@ export function separarRenglon<T extends Record<string, any>>(items: T[], k: num
     nuevos[d] = conLoJuntado(base, destino.junta.filter((x: any) => x.renglon !== k + 1));
   }
   return nuevos;
+}
+
+// ---- lo sin cargo entra junto con lo que se paga (21/11/2026) ----
+// Distri-Sur imprime así «60 Ferrero T12 y te regalo 12»: un renglón con las 12
+// a precio de lista, abajo un «Descuento» que lo anula entero y después el
+// renglón de las 60 que se pagan. Anabella lo explicó cada vez («sumamos el
+// renglón bonificado que trae 12 + el que trae 60 = 72, lo dividimos en cajas de
+// 12, entran 6 cajas»; «el precio se bonifica, pero la cantidad se suma»). La
+// pantalla mostraba dos renglones: el regalo a $0 y lo pago a precio lleno
+// ($13.911 la caja), con cajas partidas (0,75 + 5,25 de T8). Recién al registrar
+// el sistema los sumaba y promediaba: lo que se veía no era lo que entraba, y el
+// chat no podía juntarlos («tiene un descuento encima»). 19/11: 47 minutos, 17
+// mensajes, la factura sin registrar.
+//
+// Lo que dice la contabilidad (NIC 2: el costo de adquisición va neto de
+// descuentos, rebajas y partidas similares; 1.000 a $2 más 50 sin cargo son
+// 1.050 unidades por $2.000) y hacen Odoo y ERPNext: lo sin cargo es MÁS
+// CANTIDAD del mismo artículo, por la misma plata. Acá: el renglón pago se queda
+// con todas las unidades (60 + 12 = 72) y con su importe ($53.919,60), y lo sin
+// cargo pasa a ser su bonificación (12 de 72 = 16,67 %). Así la cuenta del papel
+// cierra, la caja cuesta $8.986,60 + impuestos y las cajas no se parten. El
+// regalo y su «Descuento» suman cero: la plata de la factura no cambia.
+//
+// Se juntan solos al abrir la factura cuando es el mismo artículo (misma
+// descripción, o el mismo producto vinculado) al mismo precio. Todo se separa
+// con un toque; el chat también puede juntar o separar.
+
+export type ParRegalo = {
+  /** el renglón que va sin cargo (desde 0) */
+  regalo: number;
+  /** el renglón «Descuento» que lo anula (desde 0), o null si el 100 % está en el mismo renglón */
+  descuento: number | null;
+  /** dónde se junta (desde 0); si no se dice, el renglón pago del mismo artículo */
+  en?: number | null;
+};
+
+const textoDelArticulo = (t: unknown) =>
+  String(t ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const papelDe = (fila: any): Papel => fila.papel ?? papelDeLectura(fila);
+
+/** El renglón entero va sin cargo en el mismo renglón: 100 % de bonificación. */
+export function esSinCargoEnElRenglon(fila: any): boolean {
+  if (!fila || fila.esDescuento || fila.esDevolucion || fila.juntadoEn || fila.porPeso) return false;
+  const p = papelDe(fila);
+  return unidadesDelPapel(p) > 0 && (num(p.precio) ?? 0) > 0 && (num(p.desc) ?? 0) >= 99.5;
+}
+
+/** Por qué este renglón no puede recibir lo sin cargo de otro; null si puede. */
+function noRecibeRegalo(fila: any, esDescuento: (f: any) => boolean): string | null {
+  if (!fila) return 'ese renglón no existe';
+  if (esDescuento(fila)) return 'es un renglón de descuento';
+  if (fila.esDevolucion) return 'es una devolución';
+  if (fila.juntadoEn) return `está junto con el renglón ${fila.juntadoEn}`;
+  if (fila.porPeso) return 'va por peso';
+  if (Number(fila.fraccionNeta) > 0) return 'trae el impuesto interno por unidad';
+  if (fila.devueltoAMano || (num(fila.recibidoAMano) ?? 0) > 0) return 'tiene marcado que no llegó entero';
+  if (Array.isArray(fila.junta) && fila.junta.length) return 'ya junta otros renglones: separalos primero';
+  if (esSinCargoEnElRenglon(fila)) return 'también va sin cargo';
+  const p = papelDe(fila);
+  if (!(unidadesDelPapel(p) > 0) || !((num(p.importe) ?? 0) > 0)) return 'no tiene unidades pagas';
+  return null;
+}
+
+/** Lo que el proveedor llama igual y cobra igual: el mismo artículo. */
+function mismoArticulo(a: any, b: any): boolean {
+  const pa = papelDe(a);
+  const pb = papelDe(b);
+  const precioA = num(pa.precio) ?? 0;
+  const precioB = num(pb.precio) ?? 0;
+  if (!(precioA > 0) || !(precioB > 0) || Math.abs(precioA - precioB) > Math.max(0.02, precioA * 0.003)) return false;
+  const ivaA = num(pa.iva);
+  const ivaB = num(pb.iva);
+  if (ivaA != null && ivaB != null && ivaA !== ivaB) return false;
+  const texto = textoDelArticulo(a.descripcion);
+  return (!!texto && texto === textoDelArticulo(b.descripcion)) || (!!a.sku && a.sku === b.sku);
+}
+
+/**
+ * Junta cada renglón sin cargo con el renglón pago del mismo artículo. Devuelve
+ * los renglones y, por cada par que no se pudo juntar, el porqué. El renglón sin
+ * cargo y su «Descuento» quedan en cero, con `juntadoEn` (no se dibujan ni
+ * cuentan); el pago se queda con todas las unidades, su importe y la
+ * bonificación que eso da. Lo de antes queda guardado para separarlo.
+ */
+export function juntarRegalos<T extends Record<string, any>>(
+  items: T[],
+  pares: ParRegalo[],
+  esDescuento: (fila: T) => boolean,
+): { items: T[]; juntados: { regalo: number; descuento: number | null; en: number; unidades: number }[]; noJuntados: { regalo: number; porque: string }[] } {
+  const nuevos = items.slice();
+  const juntados: { regalo: number; descuento: number | null; en: number; unidades: number }[] = [];
+  const noJuntados: { regalo: number; porque: string }[] = [];
+  const sonRegalo = new Set(pares.map((p) => p.regalo));
+  for (const par of pares) {
+    const g = par.regalo;
+    const regalo = nuevos[g];
+    const no = (porque: string) => noJuntados.push({ regalo: g, porque });
+    if (!regalo || esDescuento(regalo) || regalo.esDevolucion) { no('no es un renglón de mercadería'); continue; }
+    if (regalo.juntadoEn) { no(`ya está junto con el renglón ${regalo.juntadoEn}`); continue; }
+    if (regalo.porPeso) { no('va por peso'); continue; }
+    if (regalo.devueltoAMano || (num(regalo.recibidoAMano) ?? 0) > 0) { no('tiene marcado que no llegó entero'); continue; }
+    const d = par.descuento;
+    const desc = d != null ? nuevos[d] : null;
+    if (d != null && (!desc || !esDescuento(desc) || desc.juntadoEn)) { no('el renglón de descuento no está'); continue; }
+    if (d == null && !esSinCargoEnElRenglon(regalo)) { no('no va sin cargo'); continue; }
+    const gp = papelDe(regalo);
+    const uRegalo = unidadesDelPapel(gp);
+    if (!(uRegalo > 0)) { no('no tiene unidades'); continue; }
+    // dónde: el que se dijo, o el primero pago del mismo artículo después del descuento (así lo imprime
+    // Distri-Sur), o si no hay, el más cercano de arriba
+    let en: number | null = null;
+    if (par.en != null) {
+      const porque = noRecibeRegalo(nuevos[par.en], esDescuento);
+      if (porque) { no(`el renglón ${par.en + 1} ${porque}`); continue; }
+      if (!mismoArticulo(regalo, nuevos[par.en])) { no(`el renglón ${par.en + 1} no es el mismo artículo al mismo precio`); continue; }
+      en = par.en;
+    } else {
+      const candidato = (k: number) => k !== g && !sonRegalo.has(k) && !noRecibeRegalo(nuevos[k], esDescuento) && mismoArticulo(regalo, nuevos[k]);
+      const desde = Math.max(g, d ?? g) + 1;
+      for (let k = desde; k < nuevos.length && en == null; k++) if (candidato(k)) en = k;
+      for (let k = g - 1; k >= 0 && en == null; k--) if (candidato(k)) en = k;
+      if (en == null) { no('no hay otro renglón del mismo artículo al mismo precio'); continue; }
+    }
+    const pago = nuevos[en];
+    const pp = papelDe(pago);
+    // Las unidades del regalo, dichas como las cuenta el pago. Con su importe impreso
+    // (Distri-Sur: el «Descuento» va aparte) la cuenta las prueba. Con el 100 % en el
+    // mismo renglón el importe es $0 y cualquier lectura «cierra»: «1» podía ser una caja
+    // o seis botellas (Luigi Bosca 0175-00004531: 5 cajas pagas a precio de caja y 1 de
+    // regalo leída como 6 botellas). Al mismo precio impreso, la columna Cantidad cuenta
+    // lo mismo en los dos renglones: el regalo suma lo que dice esa columna.
+    const regaloSinImporte = !((num(gp.importe) ?? 0) > 0);
+    const enBultosElPago = (num(pp.bultos) ?? 0) > 0;
+    const mismoBulto = enBultosElPago && (num(gp.bultos) ?? 0) > 0 && num(pp.uxb) === num(gp.uxb);
+    const cuantos = (num(gp.bultos) ?? 0) + (num(gp.sueltas) ?? 0);
+    const papel: Papel = regaloSinImporte
+      ? (enBultosElPago ? { ...pp, bultos: (num(pp.bultos) ?? 0) + cuantos } : { ...pp, sueltas: (num(pp.sueltas) ?? 0) + cuantos })
+      : mismoBulto
+      ? { ...pp, bultos: (num(pp.bultos) ?? 0) + (num(gp.bultos) ?? 0), sueltas: (num(pp.sueltas) ?? 0) + (num(gp.sueltas) ?? 0) }
+      : { ...pp, sueltas: (num(pp.sueltas) ?? 0) + uRegalo };
+    const unidadesDelRegalo = redondear(unidadesDelPapel(papel) - unidadesDelPapel(pp), 3);
+    const importe = num(pp.importe) as number;
+    const lista = unidadesDelPapel(papel) * (num(pp.precio) as number);
+    papel.importe = importe;
+    papel.desc = redondear((1 - importe / lista) * 100, 6);
+    // cómo entra (unidades, cajas de N, abiertas) sigue igual: ahora con todas las unidades
+    const entra = entraDeRenglon(pago, pp);
+    const regalos = [...(Array.isArray(pago.regalos) ? pago.regalos : []), { renglon: g + 1, descuento: d != null ? d + 1 : null, unidades: unidadesDelRegalo }];
+    nuevos[en] = { ...aplicarPapel(pago, papel, entra), regalos, antesDelRegalo: pago.antesDelRegalo ?? fotoDe(pago) };
+    const vacio: Papel = { ...gp, bultos: 0, sueltas: 0, importe: 0 };
+    nuevos[g] = {
+      ...aplicarPapel(regalo, vacio, { como: 'unidades' }),
+      cantidad: 0, importe: 0, incluir: false,
+      juntadoEn: en + 1, regaloJuntado: { descuento: d != null ? d + 1 : null }, antesDeJuntar: fotoDe(regalo),
+    };
+    if (d != null && desc) {
+      nuevos[d] = {
+        ...desc, cantidad: 0, precio: 0, importe: 0,
+        juntadoEn: en + 1, regaloJuntado: { regalo: g + 1 },
+        antesDeJuntar: { cantidad: desc.cantidad ?? null, precio: desc.precio ?? null, importe: desc.importe ?? null },
+      };
+    }
+    juntados.push({ regalo: g, descuento: d, en, unidades: unidadesDelRegalo });
+  }
+  return { items: nuevos, juntados, noJuntados };
+}
+
+/** Lo sin cargo que tiene adentro un renglón vuelve a sus renglones, como estaban. */
+export function separarRegalos<T extends Record<string, any>>(items: T[], k: number): T[] {
+  const pago = items[k];
+  if (!pago || !Array.isArray(pago.regalos) || !pago.regalos.length) return items;
+  const nuevos = items.slice();
+  const vuelve = (j: number | null) => {
+    const f = j != null ? nuevos[j] : null;
+    if (j == null || !f || Number(f.juntadoEn) !== k + 1 || !f.regaloJuntado) return;
+    nuevos[j] = { ...f, ...(f.antesDeJuntar ?? {}), juntadoEn: null, antesDeJuntar: null, regaloJuntado: null };
+  };
+  for (const r of pago.regalos) {
+    vuelve(Number(r.renglon) - 1);
+    if (r.descuento != null) vuelve(Number(r.descuento) - 1);
+  }
+  nuevos[k] = { ...pago, ...(pago.antesDelRegalo ?? {}), regalos: null, antesDelRegalo: null };
+  return nuevos;
+}
+
+/** Cuántas de las unidades del renglón van sin cargo (las que se le juntaron). */
+export const sinCargoDe = (fila: any): number =>
+  Array.isArray(fila?.regalos) ? fila.regalos.reduce((s: number, r: any) => s + (num(r?.unidades) ?? 0), 0) : 0;
+
+/**
+ * Los pares regalo → descuento de una factura, desde a qué renglón fue cada
+ * rebaja (lo decide atribuirDescuentos, en el panel): las que anulan un renglón
+ * entero («regalo») y los renglones con 100 % de bonificación.
+ */
+export function paresDeRegalo(items: any[], destinos: Map<number, { renglon: number; motivo: string }>): ParRegalo[] {
+  const pares: ParRegalo[] = [];
+  for (const [d, x] of destinos) if (x.motivo === 'regalo') pares.push({ regalo: x.renglon, descuento: d });
+  items.forEach((f, k) => { if (esSinCargoEnElRenglon(f) && !pares.some((p) => p.regalo === k)) pares.push({ regalo: k, descuento: null }); });
+  return pares.sort((a, b) => a.regalo - b.regalo);
 }
 
 /**
@@ -553,6 +756,19 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       const destino = nuevos[d];
       if (!Number.isInteger(d) || !destino) { descartar(c, 'el renglón donde se junta no existe'); continue; }
       if (d === k) { descartar(c, 'un renglón no se junta consigo mismo'); continue; }
+      // LO SIN CARGO (21/11/2026): un renglón regalado (anulado por un «Descuento», que la
+      // pantalla marca con `_regaloDe`, o con 100 % en el mismo renglón) se junta como regalo:
+      // suma unidades al pago del mismo artículo y la plata no cambia
+      if ((fila._regaloDe != null && !fila.juntadoEn) || esSinCargoEnElRenglon(fila)) {
+        const desc = fila._regaloDe != null ? Math.round(Number(fila._regaloDe)) : null;
+        const r = juntarRegalos(nuevos, [{ regalo: k, descuento: desc, en: d }], esDescuento);
+        if (!r.juntados.length) { descartar(c, r.noJuntados[0]?.porque ?? 'no se pudo juntar'); continue; }
+        for (let j = 0; j < nuevos.length; j++) nuevos[j] = r.items[j];
+        registros.push({ renglon: k + 1, campo: 'juntarEn', antes: null, despues: d + 1, motivo });
+        // su «Descuento» también queda adentro: si algo frena el cambio, vuelven los tres juntos
+        if (desc != null) registros.push({ renglon: desc + 1, campo: 'juntarEn', antes: null, despues: d + 1, motivo: motivo || 'el descuento que lo dejaba sin cargo' });
+        continue;
+      }
       if (Array.isArray(fila.junta) && fila.junta.length) { descartar(c, 'ese renglón ya junta a otros: juntá los demás en él'); continue; }
       const pega = noSeJunta(fila, esDescuento);
       if (pega) { descartar(c, pega); continue; }
@@ -801,8 +1017,15 @@ export function tablaParaIA(
         restaDelStock: fila.incluir === true && !!fila.sku,
       };
     }
+    // el «Descuento» que anulaba un renglón sin cargo, ya juntado con lo pago (21/11/2026)
+    if (esDescuento(fila) && fila.juntadoEn && fila.regaloJuntado) {
+      return { renglon: k + 1, descuento: true, descripcion: fila.descripcion, juntadoEnElRenglon: fila.juntadoEn, nota: `dejaba sin cargo el renglón ${fila.regaloJuntado.regalo}; ya está adentro del renglón ${fila.juntadoEn} como su bonificación` };
+    }
     if (esDescuento(fila)) {
       return { renglon: k + 1, descuento: true, descripcion: fila.descripcion, importe: num(fila.importe), aplicaA: destino(k), noAplicar: !!fila.noAplicar };
+    }
+    if (fila.juntadoEn && fila.regaloJuntado) {
+      return { renglon: k + 1, descripcion: fila.descripcion, juntadoEnElRenglon: fila.juntadoEn, nota: 'iba sin cargo: sus unidades están sumadas en ese renglón, que se queda con la plata que se pagó' };
     }
     // juntado en otro renglón (18/11/2026): ya no cuenta, sus unidades y su plata están allá
     if (fila.juntadoEn) {
@@ -819,6 +1042,10 @@ export function tablaParaIA(
       descripcion: fila.descripcion,
       producto: fila.nombre ?? null,
       ...(Array.isArray(fila.junta) && fila.junta.length ? { juntaLosRenglones: fila.junta.map((x: any) => x.renglon) } : {}),
+      // lleva adentro lo sin cargo del mismo artículo (21/11/2026): las unidades son pagas + sin cargo y el % es lo sin cargo
+      ...(sinCargoDe(fila) > 0 ? {
+        sinCargo: { unidades: sinCargoDe(fila), pagas: redondear(c.unidades - sinCargoDe(fila), 3), deLosRenglones: fila.regalos.flatMap((r: any) => [r.renglon, r.descuento].filter((x: any) => x != null)) },
+      } : {}),
       // no está en el papel: lo agregó una persona o el chat en esta pantalla
       ...(fila.agregado ? { agregadoEnPantalla: true } : {}),
       bultos: v.bultos, unidadesPorBulto: v.uxb, sueltas: v.sueltas,

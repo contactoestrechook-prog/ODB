@@ -42,7 +42,7 @@ const NOMBRE_CAMPO: Record<string, string> = {
   llevaInternos: 'paga impuestos internos', impuestoInternoUnitario: 'impuesto interno por unidad', costoFinal: 'costo por unidad',
   aceptarDiferencia: 'diferencia aceptada', percepcionesAlCosto: 'percepciones al costo',
   revisado: 'revisado antes de registrar', producto: 'producto vinculado',
-  recibidas: 'lo que entró', kilos: 'kilos', juntarEn: 'juntado en el renglón', precioPor: 'el precio impreso es de cada', restaDelStock: 'se resta del stock', unidadesDevueltas: 'unidades devueltas', esDevolucion: 'devolución',
+  recibidas: 'lo que entró', kilos: 'kilos', juntarEn: 'juntado en el renglón', sinCargo: 'lo sin cargo', precioPor: 'el precio impreso es de cada', restaDelStock: 'se resta del stock', unidadesDevueltas: 'unidades devueltas', esDevolucion: 'devolución',
   neto: 'neto', percepcionIva: 'percepción IVA', percepcionIibb: 'percepción IIBB', impuestosInternos: 'impuestos internos', otros: 'otros', total: 'total',
 };
 const valorLegible = (v: unknown) => (v == null || v === '' ? 'vacío' : typeof v === 'number' ? v.toLocaleString('es-AR', { maximumFractionDigits: 3 }) : v === true ? 'sí' : v === false ? 'no' : String(v));
