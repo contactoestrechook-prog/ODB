@@ -85,6 +85,23 @@ export class BotPruebaController {
     return this.bot.renovarAdjunto(ruta);
   }
 
+  // LA PREGUNTA DE UN CLIENTE EN LA CAJA (21/11/2026): lo que el bot no sabe suena en la caja
+  // (ya no va por WhatsApp a administración ni apaga el bot); la caja la contesta ahí mismo.
+  @Get('consultas-caja')
+  consultasCaja() {
+    return this.bot.consultasParaLaCaja();
+  }
+
+  @Post('consultas-caja/:id/responder')
+  responderConsultaCaja(@Param('id') id: string, @Body() b: { texto?: string }, @Req() req: any) {
+    return this.bot.responderConsultaDesdeLaCaja(id, String(b?.texto ?? ''), req.usuario?.sub ?? null);
+  }
+
+  @Post('consultas-caja/:id/cerrar')
+  cerrarConsultaCaja(@Param('id') id: string, @Req() req: any) {
+    return this.bot.cerrarConsultaDesdeLaCaja(id, req.usuario?.sub ?? null);
+  }
+
   // RESPONDE: bandeja de conversaciones en vivo del empleado virtual
   @Get('conversaciones')
   conversaciones() {

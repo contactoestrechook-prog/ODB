@@ -849,7 +849,7 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
     expect(alerta.fila.detalle).toContain('$445.266');
   });
 
-  it('consultarInterno registra adentro Y le pregunta a administración por WhatsApp (decisión del 16/9)', async () => {
+  it('consultarInterno registra adentro y la deja para la caja, sin WhatsApp a administración (21/11/2026; antes, decisión del 16/9)', async () => {
     const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: 'jp-id' }, error: null }, bot_consultas_internas: { data: { id: 'consulta-1' }, error: null } });
     const { s } = servicio(db);
     const envios: any[] = [];
@@ -857,25 +857,18 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
     (s as any).identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Laura Blanco' }));
     const r: any = await (s as any).consultarInterno('pedidos', '5491133344455', 'reparto', '¿Llegamos hoy a La Providencia con el pedido?', 'Ruta 52 10001');
     expect(r.consultado).toBe(true);
-    expect(r.avisoPorWhatsapp).toBe(true);
-    expect(envios).toHaveLength(1);
-    expect(envios[0].to).toBe('5491125213601');
-    expect(envios[0].text).toContain('De: Laura Blanco');
-    expect(envios[0].text).toContain('La Providencia');
-    expect(envios[0].text).toContain('CITANDO');
+    expect(r.avisoPorWhatsapp).toBe(false);
+    expect(envios).toHaveLength(0);
     // campanita y notas siguen
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'alertas_internas')).toBe(true);
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'bot_notas_equipo')).toBe(true);
-    // la consulta queda esperando la respuesta, con el id del aviso
+    // la consulta queda esperando la respuesta de la caja
     const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
-    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.waha_msg_id === 'CONS1')).toBe(true);
-    expect(pendiente.fila.telefono_cliente).toBe('5491133344455');
+    expect(pendiente.fila).toMatchObject({ telefono_cliente: '5491133344455', enviado_a: 'caja', direccion: 'Ruta 52 10001' });
     // 6/10/2026 (consulta silenciosa): el modelo contesta lo demás y al cliente no
     // le dice nada de la consulta; si no hay nada más, no escribe
     expect(r.aviso).toMatch(/Al cliente NO le menciones nada de eso/);
     expect(r.aviso).toMatch(/Si no hay nada más que contestar, no escribas nada/);
-    // el área sabe que al cliente no se le avisó: su respuesta tiene que entenderse sola
-    expect(envios[0].text).toContain('tiene que entenderse sola');
     expect(r.yaEstaba).toBe(false);
   });
 });

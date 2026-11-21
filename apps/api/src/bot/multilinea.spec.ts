@@ -358,17 +358,15 @@ describe('1 y 2. Cada mensaje se contesta por la línea por la que entró, en su
 
 // ===========================================================================
 describe('3. Los avisos internos salen por la principal y dicen de qué línea es la charla', () => {
-  it('la consulta a administración sale por la sesión principal y dice «WhatsApp: Línea local (…)»', async () => {
+  it('la consulta ya no sale por WhatsApp (21/11/2026): queda para la caja con su línea, y la campanita la nombra', async () => {
     const waha = wahaFalso();
     const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
     const s = servicio(db);
     const r = await s.consultarInterno('local', CLIENTE, 'administracion', '¿Tienen caja para viajar con 4 botellas?', '', undefined, 'la caja para viajar');
     expect(r.consultado).toBe(true);
-    const aviso = waha.envios()[0];
-    expect(aviso.cuerpo).toMatchObject({ session: 'odb', chatId: `${ADMIN}@c.us` });
-    expect(aviso.cuerpo.text).toContain('WhatsApp: Línea local (11 5555-1234)');
-    // la consulta y la campanita llevan la línea
-    expect(db.tablas.bot_consultas_internas[0]).toMatchObject({ linea: 'local', telefono_cliente: CLIENTE, enviado_a: ADMIN });
+    expect(waha.envios()).toHaveLength(0);
+    // la consulta y la campanita llevan la línea (la ventana de la caja la muestra)
+    expect(db.tablas.bot_consultas_internas[0]).toMatchObject({ linea: 'local', telefono_cliente: CLIENTE, enviado_a: 'caja' });
     expect(db.tablas.alertas_internas[0].referencia).toMatchObject({ linea: 'local', lineaNombre: 'Línea local (11 5555-1234)' });
   });
 
@@ -590,17 +588,16 @@ describe('5. Con UNA sola línea cargada no cambia nada', () => {
     expect(db.tablas.bot_entrantes[0]).not.toHaveProperty('linea');
   });
 
-  it('el aviso a administración es el de siempre: sin renglón de línea', async () => {
+  it('la consulta va a la caja sin WhatsApp y la campanita, sin renglón de línea', async () => {
     const waha = wahaFalso();
     const db = baseEnMemoria({ lineas_whatsapp: [HOY] });
     const s = servicio(db);
     await s.consultarInterno('pedidos', CLIENTE, 'administracion', '¿Tienen caja para viajar?', '', undefined, 'la caja');
-    const t: string = waha.envios()[0].cuerpo.text;
-    expect(t.split('\n').slice(0, 3)).toEqual(['Consulta de un cliente (administracion)', `De: sin identificar · +${CLIENTE}`, '¿Tienen caja para viajar?']);
-    expect(t).not.toContain('WhatsApp:');
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_consultas_internas[0]).toMatchObject({ enviado_a: 'caja' });
     expect(db.tablas.alertas_internas[0].referencia).not.toHaveProperty('lineaNombre');
     await s.derivarPago('pedidos', CLIENTE, 'mandó el comprobante', { tipo: 'comprobante_enviado', monto: 50000, deQuien: 'Pablo' });
-    expect(waha.envios()[1].cuerpo.text).toContain('(la charla está en la línea de pedidos)');
+    expect(waha.envios()[0].cuerpo.text).toContain('(la charla está en la línea de pedidos)');
   });
 
   it('el vigilante y el barrido miran una sola sesión, la de siempre', async () => {

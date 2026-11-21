@@ -72,6 +72,8 @@ const conHerramientas = (...content: any[]) => ({ stop_reason: 'tool_use', conte
 const texto = (t: string) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t }], usage });
 const insertsDe = (db: any, tabla: string) => db.escrituras.filter((e: Escritura) => e.tabla === tabla && e.op === 'insert');
 const updatesDe = (db: any, tabla: string) => db.escrituras.filter((e: Escritura) => e.tabla === tabla && e.op === 'update');
+// 21/11/2026: la consulta queda para la caja (enviado_a 'caja'), sin WhatsApp a ningún área
+const vaALaCaja = (db: any) => insertsDe(db, 'bot_consultas_internas').some((e: Escritura) => e.fila.enviado_a === 'caja');
 const veces = (t: string, frase: RegExp) => (t.match(new RegExp(frase.source, 'gi')) ?? []).length;
 
 // los mensajes reales del bot en esa charla
@@ -110,7 +112,8 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Opcion 4' });
     expect(r.respuesta).toBe(M2_SIN_ACUSE);
     expect(veces(r.respuesta, /confirm/)).toBe(0);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
     expect(insertsDe(db, 'bot_consultas_internas')[0].fila.tema).toBe('el PerSe Inseparable');
   });
 
@@ -127,7 +130,8 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ahí estoy averiguando que prefiere si uno de cada o 3 de uno. Son para llevar a España, vienen en cajas individuales? Para saber cómo los llevo' });
     expect(r.respuesta).toBe(M8);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
     // el resultado de la herramienta le dice al modelo que no mencione la consulta y conteste lo demás
     const resultado = JSON.parse((crear.mock.calls[1][0].messages.at(-1).content as any[]).find((b: any) => b.type === 'tool_result').content);
     expect(resultado.aviso).toMatch(/Al cliente NO le menciones nada de eso/);
@@ -294,14 +298,14 @@ describe('consultarInterno: la misma consulta se suma a la abierta (5/10/2026)',
     // «otro teléfono, una respondida y una vieja no se juntan» (5/10/2026, revisión)
   });
 
-  it('si la original nunca salió por WhatsApp, sale ahora con la consulta completa', async () => {
+  it('si la original nunca salió por WhatsApp, ya no sale: queda para la caja con la consulta completa (21/11/2026)', async () => {
     const db = baseFalsa({ lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: { select: { data: [abierta({ waha_msg_id: null })], error: null } } });
     const { s, wsp } = servicio(db);
     const r: any = await s.consultarInterno('pedidos', TEL, 'local', CAJA_1617, '', undefined, 'la caja para viajar');
     expect(r.yaEstaba).toBe(true);
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].text).toContain(`${CAJA_1602}\n+ ${CAJA_1617}`);
-    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => u.fila.waha_msg_id === 'W-NUEVO')).toBe(true);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => String(u.fila.consulta ?? '').includes(`${CAJA_1602}\n+ ${CAJA_1617}`))).toBe(true);
+    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => 'waha_msg_id' in u.fila)).toBe(false);
   });
 
   it('lo mismo dicho igual no se vuelve a sumar', async () => {
@@ -311,13 +315,14 @@ describe('consultarInterno: la misma consulta se suma a la abierta (5/10/2026)',
     expect(updatesDe(db, 'bot_consultas_internas').filter((u: Escritura) => u.fila.consulta)).toHaveLength(0);
   });
 
-  it('otra cosa (el Raquis) es otra consulta: se registra con su tema y sale su WhatsApp', async () => {
+  it('otra cosa (el Raquis) es otra consulta: se registra con su tema y va a la caja', async () => {
     const db = baseFalsa({ lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: { select: { data: [abierta()], error: null }, insert: { data: { id: 'q-raquis' }, error: null } } });
     const { s, wsp } = servicio(db);
     const r: any = await s.consultarInterno('pedidos', TEL, 'compras', '¿Entra el Raquis Monasterio 750 cc?', '', undefined, 'el Raquis Monasterio');
     expect(r).toMatchObject({ consultado: true, yaEstaba: false, consulta_id: 'q-raquis', tema: 'el Raquis Monasterio' });
     expect(insertsDe(db, 'bot_consultas_internas')[0].fila.tema).toBe('el Raquis Monasterio');
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
   });
 
   it('una consulta que el área ya contestó (respuesta en camino) no recibe datos nuevos', async () => {
@@ -341,7 +346,7 @@ describe('consultarInterno: la misma consulta se suma a la abierta (5/10/2026)',
     const r: any = await s.consultarInterno('pedidos', TEL, 'local', '¿Entra el PerSe Inseparable?', '', undefined, 'el PerSe Inseparable');
     expect(r).toMatchObject({ consultado: true, consulta_id: 'q-sin-tema', tema: 'el PerSe Inseparable' });
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(2);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
   });
 
   it('el banco de pruebas no busca ni suma: queda respondido al instante y no avisa', async () => {
@@ -456,11 +461,12 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     expect(r.silencio).toBe(true);
     const fila = insertsDe(db, 'bot_consultas_internas')[0]?.fila;
     expect(fila.consulta).toBe('Revisar la foto que mandó el cliente');
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].text).toContain('https://x/foto2.jpg');
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    // la foto queda con la consulta, para verla desde la ventana de la caja
+    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => u.fila.archivo_url === 'https://x/foto2.jpg')).toBe(true);
   });
 
-  it('(G) foto sin texto, consultar_interno con el tema de la abierta y el modelo no escribe nada: al cliente nada, y el archivo le llega al área', async () => {
+  it('(G) foto sin texto, consultar_interno con el tema de la abierta y el modelo no escribe nada: al cliente nada, y el archivo queda en la consulta abierta (la ve la caja)', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(h(['user', 'vienen en cajas individuales?'], ['assistant', `${M8}\n\nLo de la caja para viajar te lo confirmo por acá.`])) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
@@ -471,10 +477,9 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, archivoBase64: '/9j/4AAQ', mimeType: 'image/jpeg', archivoUrl: 'https://x/caja.jpg' });
     expect(r.respuesta).toBeNull();
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
-    // sin tocar el id del aviso original: va un «dato nuevo» con el archivo
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].text).toMatch(/^Dato nuevo para una consulta/);
-    expect((wsp.mock.calls[0] as any[])[0].text).toContain('https://x/caja.jpg');
+    // 21/11/2026: sin «dato nuevo» por WhatsApp; el archivo queda en la consulta abierta
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => u.fila.archivo_url === 'https://x/caja.jpg')).toBe(true);
     expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => 'waha_msg_id' in u.fila)).toBe(false);
   });
 
@@ -509,7 +514,7 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     expect(r.respuesta).toBeNull();
   });
 
-  it('(1) «¿Tenés el Catena en magnum?» a compras no se junta con la caja abierta del local: fila, alerta y WhatsApp propios, y al cliente nada', async () => {
+  it('(1) «¿Tenés el Catena en magnum?» a compras no se junta con la caja abierta del local: fila y alerta propias, va a la caja, y al cliente nada', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(h(['user', 'vienen en cajas individuales?'], ['assistant', `${M8}\n\nLo de la caja para viajar te lo confirmo por acá.`])) },
       lineas_whatsapp: { select: { data: { ...CFG, whatsapp_compras: '5491100000999' }, error: null } },
@@ -520,7 +525,8 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tenés el Catena en magnum?' });
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
     expect(insertsDe(db, 'alertas_internas')).toHaveLength(1);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
     expect(r.respuesta).toBeNull();
   });
 
@@ -536,10 +542,11 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     const { s, wsp } = servicio(db);
     const r: any = await s.consultarInterno('pedidos', TEL, 'local', CAJA_1617, '', undefined, 'la caja para viajar');
     expect(r).toMatchObject({ yaEstaba: false, consulta_id: 'q-nueva' });
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
   });
 
-  it('el mismo tema con un dato nuevo: se suma, la alerta vuelve a quedar sin leer y el área recibe el dato (sin tocar el id original)', async () => {
+  it('el mismo tema con un dato nuevo: se suma y la alerta vuelve a quedar sin leer (la caja lo ve en la consulta; sin WhatsApp)', async () => {
     const casancrem = { id: 'q-casan', linea: 'pedidos', telefono_cliente: TEL, respondido_en: null, area: 'local', consulta: '¿Hay Casancrem tapa roja 290 g?', tema: 'el Casancrem', waha_msg_id: 'W-CAS', respuesta_admin: null, creado_en: new Date(Date.now() - 60 * 60_000).toISOString() };
     const db = baseFalsa({ lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: { select: { data: [casancrem], error: null } } });
     const { s, wsp } = servicio(db);
@@ -547,9 +554,8 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     expect(r.yaEstaba).toBe(true);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
     expect(updatesDe(db, 'alertas_internas')[0].fila).toMatchObject({ leida_en: null });
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].text).toMatch(/^Dato nuevo para una consulta que sigue sin respuesta \(local\)/);
-    expect((wsp.mock.calls[0] as any[])[0].text).toContain('descremado');
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => String(u.fila.consulta ?? '').includes('descremado'))).toBe(true);
     expect(updatesDe(db, 'bot_consultas_internas').some((u: Escritura) => 'waha_msg_id' in u.fila)).toBe(false);
   });
 
@@ -596,7 +602,8 @@ describe('revisión del aviso (5/10/2026): sin consultas falsas ni repetidas', (
     const fila = insertsDe(db, 'bot_consultas_internas')[0]?.fila;
     expect(fila).toMatchObject({ area: 'administracion', tema: 'el precio' });
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(vaALaCaja(db)).toBe(true);
     expect(r.respuesta).toBeNull();
   });
 });

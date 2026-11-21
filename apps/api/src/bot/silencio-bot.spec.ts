@@ -58,6 +58,8 @@ const conHerramientas = (...content: any[]) => ({ stop_reason: 'tool_use', conte
 const final = (firma: string, t: string) => ({ stop_reason: 'end_turn', content: [pensar(firma), { type: 'text', text: t }], usage });
 const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
 const insertsDe = (db: any, tabla: string) => db.escrituras.filter((e: Escritura) => e.tabla === tabla && e.op === 'insert');
+// 21/11/2026: el cliente que insiste deja la consulta marcada (insistio_en) y la caja suena al máximo; el bot no se apaga
+const marcoInsistencia = (db: any) => db.escrituras.some((e: Escritura) => e.tabla === 'bot_consultas_internas' && e.op === 'update' && !!e.fila?.insistio_en);
 const guardado = (db: any) => db.escrituras.filter((e: Escritura) => e.tabla === 'bot_conversaciones' && e.op === 'upsert').at(-1)?.fila;
 const SIN_CONSULTAS = { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } };
 
@@ -331,13 +333,13 @@ describe('«¿Puede por favor responderme?» con la consulta de la cera abierta 
   ];
   const abierta = (minutos: number) => ({ select: { data: [{ id: 'q-cera', linea: 'pedidos', telefono_cliente: TEL, respondido_en: null, area: 'administracion', consulta: '¿La Cera Suiza sirve para pisos de madera plastificados?', tema: 'la cera para pisos plastificados', creado_en: new Date(Date.now() - minutos * 60_000).toISOString() }], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } });
 
-  it('a las dos horas sin respuesta: pasa a una persona y al cliente le llega la frase fija (sin nombrar la consulta)', async () => {
+  it('a las dos horas sin respuesta: NO pasa a una persona (21/11/2026): la consulta queda marcada y la caja suena al máximo', async () => {
     const db = armar(HIST, { consultas: abierta(126) });
     const { s } = servicio(db, vacia('a'));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Puede por favor responderme?' });
-    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
-    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
-    expect(String(s.derivarAHumano.mock.calls[0][2])).toMatch(/insiste.*la cera para pisos plastificados.*126 min/);
+    expect(r.respuesta).not.toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(marcoInsistencia(db)).toBe(true);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 
@@ -541,24 +543,29 @@ describe('revisión 21/10 · la insistencia', () => {
     { role: 'user', content: '¿Esa dice para PISOS DE MADERA PLASTIFICADOS?' },
   ];
   const consulta = (minutos: number) => ({ select: { data: [{ id: 'q-cera', linea: 'pedidos', telefono_cliente: TEL, respondido_en: null, area: 'administracion', consulta: '¿La Cera Suiza sirve para pisos de madera plastificados?', tema: 'la cera para pisos plastificados', creado_en: new Date(Date.now() - minutos * 60_000).toISOString() }], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } });
-  it.each(['¿Alguien me responde?', 'Me dicen algo?', 'No me contestaron', '¿Pudieron ver lo de la cera?'])('«%s» a las dos horas: pasa a una persona', async (t) => {
+  it.each(['¿Alguien me responde?', 'Me dicen algo?', 'No me contestaron', '¿Pudieron ver lo de la cera?'])('«%s» a las dos horas: el bot sigue prendido y la caja suena al máximo', async (t) => {
     const db = armar(HIST, { consultas: consulta(126) });
     const { s } = servicio(db, vacia('a'));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
-    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
-    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).not.toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(marcoInsistencia(db)).toBe(true);
   });
-  it('«Sigo esperando» al otro día (30 h, fuera de las 6 h del estado): pasa a una persona', async () => {
+  it('«Sigo esperando» al otro día (30 h, fuera de las 6 h del estado): la encuentra y la marca, sin pasar a una persona', async () => {
     const db = armar(HIST, { consultas: consulta(30 * 60) });
     const { s } = servicio(db, vacia('a'), vacia('b'));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sigo esperando' });
-    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(r.respuesta).not.toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(marcoInsistencia(db)).toBe(true);
   });
-  it('«¿Y lo de la cera para pisos plastificados?» (vuelve sobre la consulta, sin frase de insistencia) a la hora: pasa a una persona', async () => {
+  it('«¿Y lo de la cera para pisos plastificados?» (vuelve sobre la consulta, sin frase de insistencia) a la hora: la marca, sin pasar a una persona', async () => {
     const db = armar(HIST, { consultas: consulta(60) });
     const { s } = servicio(db, vacia('a'));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo de la cera para pisos plastificados?' });
-    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(r.respuesta).not.toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(marcoInsistencia(db)).toBe(true);
   });
   it('«¿Qué novedades tienen en vinos naranjos?» con la consulta de la cera abierta: no deriva', async () => {
     const db = armar(HIST, { consultas: consulta(60) });

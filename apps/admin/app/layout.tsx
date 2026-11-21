@@ -9,6 +9,7 @@ import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
 import { AvisoTeTocaArmar } from "./ui/AvisoTeTocaArmar";
 import { AvisoConsultasArmado } from "./ui/AvisoConsultasArmado";
 import { AvisoFiambreria } from "./ui/AvisoFiambreria";
+import { AvisoPreguntaCliente } from "./ui/AvisoPreguntaCliente";
 import { cookies } from "next/headers";
 import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
@@ -21,6 +22,10 @@ const PUEDEN_ARMAR = ["dueno", "gerente", "cajero", "deposito", "op_salon"];
 // Del lado de la caja en la charla de un pedido: los que manejan los pedidos de
 // todos (la misma lista que la API, salon/consultas.ts).
 const MANEJAN_PEDIDOS = ["dueno", "gerente", "administrativo", "cajero"];
+// Las preguntas de los clientes que el bot no sabe contestar (21/11/2026: «que no suene más
+// en administración… que siempre suene a caja, con mucho sonido»): la caja, y los dueños y
+// gerentes, que ven todo. Administrativo no: ya no le llegan.
+const CONTESTAN_PREGUNTAS = ["dueno", "gerente", "cajero"];
 
 // La letra del panel (decisión del dueño, octubre 2026): más suave que Arial y
 // angosta, así no aparecen desbordes nuevos. next/font la sirve desde el mismo
@@ -76,6 +81,8 @@ export default async function RootLayout({
             a lo ancho; en escritorio, abajo a la derecha (arriba tapaba los botones
             de cada pantalla). La caja vacía no se ve ni frena los toques. */}
         <div className="pila-avisos flotante-ocultable pointer-events-none fixed inset-x-0 top-(--alto-barra-movil) z-aviso flex flex-col gap-2 px-3 pt-2 *:pointer-events-auto lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0">
+          {/* lo que un cliente preguntó y el bot no sabe: suena en la caja hasta que alguien lo contesta (21/11/2026) */}
+          {!encerrado && roles.some((r) => CONTESTAN_PREGUNTAS.includes(r)) && <AvisoPreguntaCliente sucursalId={sucursalDesdeToken(token)} />}
           {/* a quien le asignan un pedido para armar, en cualquier pantalla (21/11/2026) */}
           {!encerrado && roles.some((r) => PUEDEN_ARMAR.includes(r)) && <AvisoTeTocaArmar />}
           {/* lo que quien arma le pregunta a la caja, y los pedidos que devuelve (21/11/2026) */}

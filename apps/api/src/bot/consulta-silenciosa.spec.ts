@@ -115,10 +115,9 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     // y nada de la consulta, en ninguna forma
     expect(mencionaConsulta(r.respuesta)).toBe(false);
     expect(r.respuesta).not.toMatch(NADA_DE_LA_CONSULTA);
-    // la consulta salió igual: fila con su tema y WhatsApp al número de administración
-    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ tema: 'el PerSe Inseparable', area: 'administracion', enviado_a: ADMIN });
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].to).toBe(ADMIN);
+    // la consulta salió igual: fila con su tema, para la caja (21/11/2026: ya no va por WhatsApp a administración)
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ tema: 'el PerSe Inseparable', area: 'administracion', enviado_a: 'caja' });
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
   });
 
   it('(2) «Son para llevar a España, vienen en cajas individuales?» como único contenido + consulta nueva → se registra la consulta y al cliente no le sale nada', async () => {
@@ -137,11 +136,11 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Son para llevar a España, vienen en cajas individuales?' });
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
-    // registrada: fila, campanita y WhatsApp a administración
+    // registrada: fila para la caja y campanita (21/11/2026: sin WhatsApp a administración)
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
-    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ tema: 'la caja para viajar', enviado_a: ADMIN });
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ tema: 'la caja para viajar', enviado_a: 'caja' });
     expect(insertsDe(db, 'alertas_internas').some((e: Escritura) => e.fila.tipo === 'consulta')).toBe(true);
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
     // y en el historial no queda ningún mensaje del bot (no salió nada)
     const guardado = db.escrituras.filter((e: Escritura) => e.tabla === 'bot_conversaciones' && e.op === 'upsert').at(-1);
     expect(guardado.fila.mensajes.at(-1)).toEqual({ role: 'user', content: 'Son para llevar a España, vienen en cajas individuales?' });
@@ -165,10 +164,9 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     expect(r.respuesta).toBe('Dale, Pablo, te los dejo a tu nombre para retirar en la sucursal Saint Thomas.');
     expect(r.respuesta).not.toMatch(/caja/i);
     expect(r.respuesta).not.toMatch(NADA_DE_LA_CONSULTA);
-    // la misma consulta: sin otra fila; se le suma el dato y al área le llega solo lo nuevo (no otra consulta)
+    // la misma consulta: sin otra fila; se le suma el dato (la caja lo ve en la consulta, sin WhatsApp)
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
-    expect(wsp).toHaveBeenCalledTimes(1);
-    expect((wsp.mock.calls[0] as any[])[0].text).toMatch(/^Dato nuevo para una consulta que sigue sin respuesta/);
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
     // el modelo supo desde el arranque que la caja estaba en manos de administración y que no se menciona
     const primero = crear.mock.calls[0][0].messages.at(-1).content;
     const textoPrimero = typeof primero === 'string' ? primero : primero.map((b: any) => b.text ?? '').join(' ');
@@ -272,7 +270,7 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     expect(alCliente.text).toMatch(/^(?:Buen día|Buenas tardes|Buenas noches)\. Sobre la caja para viajar: sí, vienen en estuche individual de cartón\.$/);
   });
 
-  it('(4c) el WhatsApp al área le dice que al cliente no se le avisó: su respuesta tiene que entenderse sola', async () => {
+  it('(4c) la consulta va a la caja, sin WhatsApp al área (21/11/2026), y al modelo se le dice que no la mencione', async () => {
     const db = baseFalsa({
       lineas_whatsapp: { select: { data: CFG, error: null } },
       bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
@@ -280,7 +278,8 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     const { s, wsp } = servicio(db);
     const r: any = await s.consultarInterno('pedidos', TEL, 'administracion', CAJA_1602, '', undefined, 'la caja para viajar');
     expect(r).toMatchObject({ consultado: true, yaEstaba: false, tema: 'la caja para viajar' });
-    expect((wsp.mock.calls[0] as any[])[0]).toMatchObject({ to: ADMIN, text: expect.stringContaining('al cliente no se le avisó que se consultaba, así que tiene que entenderse sola') });
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ enviado_a: 'caja', tema: 'la caja para viajar' });
     // y al modelo: nada al cliente sobre la consulta; si no hay nada más, no escribe
     expect(r.aviso).toMatch(/Al cliente NO le menciones nada de eso/);
     expect(r.aviso).not.toMatch(/el sistema le avisa/);
@@ -529,8 +528,8 @@ describe('otros caminos de la consulta silenciosa', () => {
     s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'quiere_pagar', monto: 0, motivo: 'Pide el alias para transferir' })), texto('Le paso los datos por acá en un rato.')) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿A dónde te transfiero?' });
     expect(r.respuesta).toBeNull();
-    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema: 'los datos para transferir', enviado_a: ADMIN });
-    expect(wsp).toHaveBeenCalledTimes(1);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema: 'los datos para transferir', enviado_a: 'caja' });
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
     // por el circuito de las consultas: lo que conteste administración le llega al cliente
     expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
   });
@@ -702,7 +701,7 @@ describe('revisión (6/10/2026): las formas que se escapaban', () => {
     expect(diceQueNoSabe('Lo reviso con administración y te confirmo por acá.')).toBe(false);
   });
 
-  it('sin consulta en el turno, «Abrimos hasta las 21. Aún no tengo novedades de la caja.» → el horario al cliente y la caja a administración', async () => {
+  it('sin consulta en el turno, «Abrimos hasta las 21. Aún no tengo novedades de la caja.» → el horario al cliente y la pregunta a la caja', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(HOLA) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
@@ -713,7 +712,8 @@ describe('revisión (6/10/2026): las formas que se escapaban', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hasta qué hora abren? ¿Vienen en caja?' });
     expect(r.respuesta).toBe('Abrimos hasta las 21.');
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
-    expect((wsp.mock.calls[0] as any[])[0].to).toBe(ADMIN);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila.enviado_a).toBe('caja');
+    expect(wsp).not.toHaveBeenCalled(); // 21/11/2026: suena en la caja, sin WhatsApp a administración
   });
 
   it('nota_interna ya no autoriza «quedó anotada» y el aviso de stock no menciona un aviso del sistema que ya no existe', async () => {
@@ -779,7 +779,8 @@ describe('revisión (6/10/2026): pagos, facturas e importes', () => {
     expect(r.respuesta).toBeNull();
     expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
-    expect((wsp.mock.calls as any[]).some((c) => /^Consulta de un cliente/.test(c[0].text))).toBe(true);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila.enviado_a).toBe('caja');
+    expect((wsp.mock.calls as any[]).some((c) => /^Consulta de un cliente/.test(c[0].text))).toBe(false);
     expect((wsp.mock.calls as any[]).some((c) => /Consulta de pago/.test(c[0].text))).toBe(false);
   });
 
