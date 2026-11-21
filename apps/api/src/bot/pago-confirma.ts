@@ -124,7 +124,10 @@ export function conDatosDePago(resumen: string, datosPago?: string | null): stri
 }
 
 /** Los datos de pago para meter en el resumen: alias/CBU/titular y el pedido del comprobante, en dos renglones. */
-export function datosDePagoParaResumen(out: { datosDePago?: unknown; respuestaFija?: unknown }): string {
+export function datosDePagoParaResumen(out: { datosDePago?: unknown; respuestaFija?: unknown; datosParaResumen?: unknown }): string {
+  // con un pedido por confirmar o en curso, en vez del alias va «el alias te llega cuando esté listo» (21/11/2026)
+  const enVez = String(out?.datosParaResumen ?? '').trim();
+  if (enVez) return enVez;
   const datos = String(out?.datosDePago ?? '').trim();
   if (datos) return `${datos.replace(/\.\s*$/, '')}.\nCuando transfieras, mandame el comprobante por acá.`;
   return String(out?.respuestaFija ?? '').trim();

@@ -20,7 +20,8 @@ import { desvioDeLoPedido } from './desvio';
 import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
 import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
-import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO } from './pago-confirma';
+import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, totalEfectivoDe } from './pago-confirma';
+import { aliasAlListo, bloqueDeAlias, datosParaTransferir, ESTADOS_ANTES_DE_LISTO, ESTADOS_LISTO, formaDePagoDeNotas, totalPorTransferencia } from '../pedidos/alias-al-listo';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -2488,7 +2489,8 @@ export class BotService {
           }
           ctx.fallos?.set('__pedido_creado__', 1);
           // el alias que pidió en el mismo turno (derivar_pago) no se pisa
-          if (ctx.fija) { ctx.fija.texto = ctx.fija.datosPago ? `${(out as any).respuesta}\n\n${ctx.fija.datosPago}` : (out as any).respuesta; ctx.fija.operacion = true; }
+          // el «el alias te llega cuando esté listo» no se repite si la confirmación ya lo dice (21/11/2026)
+          if (ctx.fija) { ctx.fija.texto = ctx.fija.datosPago && !String((out as any).respuesta).includes(ctx.fija.datosPago) ? `${(out as any).respuesta}\n\n${ctx.fija.datosPago}` : (out as any).respuesta; ctx.fija.operacion = true; }
           break;
         }
         case 'estado_pedido':
@@ -2614,7 +2616,12 @@ export class BotService {
           // el aviso a administración sale igual, UNA vez, y dice si el monto coincide con el pedido
           const motivoParaAdministracion = porComprobante?.nota ? `${porComprobante.nota} ${motivo}` : motivo;
           try {
-            out = await this.derivarPago(linea, telefono, motivoParaAdministracion, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined, sinCobranza });
+            out = await this.derivarPago(linea, telefono, motivoParaAdministracion, {
+              monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined, sinCobranza,
+              // ¿hay un resumen esperando el «sí»? (en este turno o el último mensaje): el alias espera al «listo»
+              hayResumen: ctx.fallos?.get('__preparado__') === 1 || !!(ctx.fija?.operacion && ctx.fija?.texto && RE_LO_CONFIRMO.test(ctx.fija.texto)),
+              ultimoBot: ctx.ultimoBot,
+            });
           } catch (e: any) {
             // con el pedido ya creado, su confirmación llega al cliente igual
             if (!porComprobante?.creado) throw e;
@@ -2656,7 +2663,9 @@ export class BotService {
             const datos = datosDePagoParaResumen(out as any);
             ctx.fija.datosPago = datos;
             if (ctx.fija.operacion && ctx.fija.texto && RE_LO_CONFIRMO.test(ctx.fija.texto)) ctx.fija.texto = conDatosDePago(ctx.fija.texto, datos);
-            else if (ctx.fallos?.get('__pedido_creado__') === 1 && ctx.fija.texto) ctx.fija.texto = `${ctx.fija.texto}\n\n${String((out as any).respuestaFija)}`;
+            else if (ctx.fallos?.get('__pedido_creado__') === 1 && ctx.fija.texto) {
+              if (!ctx.fija.texto.includes(datos)) ctx.fija.texto = `${ctx.fija.texto}\n\n${String((out as any).respuestaFija)}`;
+            }
             else ctx.fija.texto = String((out as any).respuestaFija);
           }
           break;
@@ -3438,14 +3447,30 @@ export class BotService {
     const totalEfectivo = Math.round(((q.items ?? []) as any[]).reduce((s2: number, r: any) => s2 + Number(r?.subtotalEfectivo ?? r?.subtotal ?? 0), 0));
     const hayDescuento = totalEfectivo > 0 && totalEfectivo < Math.round(totalLista);
     const notas = String(q.notas ?? '');
-    const paga = /efectivo/i.test(notas) ? 'efectivo' : /tarjeta|d[eé]bito|cr[eé]dito/i.test(notas) ? 'tarjeta' : null;
+    // la forma de pago la deciden las notas con el mismo criterio que la base
+    // (forma_pago_de_texto: la que aparece primero). Antes la transferencia no se
+    // miraba y el pedido de St (DOM-1284BEF14D1D, «Paga con transferencia») decía
+    // «Se abona al recibir, en efectivo o tarjeta» (21/11/2026)
+    let paga = formaDePagoDeNotas(notas);
+    // «Perfecto, por transferencia: el alias te llega…» y el «sí»: paga por
+    // transferencia aunque las notas del resumen no lo digan
+    if (paga !== 'transferencia' && !porComprobante && /el alias te llega cuando/i.test(ultimo)) {
+      paga = 'transferencia';
+      const { error: eForma } = await this.db.from('pedidos').update({ forma_pago: 'transferencia' }).eq('id', id);
+      if (eForma) this.log.warn(`pedido ${ped.qr_retiro}: no pude marcar la transferencia: ${eForma.message}`);
+    }
     const cobro = hayDescuento
       ? (paga === 'efectivo' ? `en efectivo: $${pesos(totalEfectivo)}` : paga === 'tarjeta' ? `con tarjeta: $${pesos(totalLista)}` : `$${pesos(totalLista)} con tarjeta o $${pesos(totalEfectivo)} en efectivo o transferencia`)
       : (paga === 'efectivo' ? 'en efectivo' : paga === 'tarjeta' ? 'con tarjeta' : 'en efectivo o tarjeta');
+    const envio = q.tipo === 'domicilio' ? `Envío sin cargo${q.direccion ? ` a ${String(q.direccion).trim().replace(/\.$/, '')}` : ''}. ` : '';
+    // EL ALIAS, CON EL PEDIDO LISTO (21/11/2026): el que transfiere no recibe el alias ahora
+    const cierre = paga === 'transferencia'
+      ? `${envio}Se abona por transferencia${hayDescuento ? `: $${pesos(totalEfectivo)}` : ''}. ${aliasAlListo(ped.qr_retiro)}`
+      : `${envio}${q.tipo === 'domicilio' ? 'Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
     const respuesta = porComprobante
       ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })
-      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? `Envío sin cargo${q.direccion ? ` a ${String(q.direccion).trim().replace(/\.$/, '')}` : ''}. Se abona al recibir` : 'Se abona al retirar'}, ${cobro}.`;
+      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${cierre}`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
@@ -3549,11 +3574,64 @@ export class BotService {
   // adjunto. Al cliente no se le da ningún otro número: hoy (2026-08-21) uno
   // que transfirió $631.717 pidió el alias dos veces y dos veces lo mandamos a
   // otro teléfono.
+  /**
+   * Lo que este chat está comprando: el último pedido del bot (3 días) y el
+   * resumen que espera el «sí» (3 horas, sin pedido, más nuevo que ese pedido).
+   */
+  private async compraDeLaCharla(linea: string, telefono: string): Promise<{
+    pedido: { id: string; estado: string; pagado_en: string | null; total: number; forma_pago: string | null; qr_retiro: string | null; origen: string | null; cliente_id: string | null } | null;
+    cotizacion: { id: string; total: number; items: any; notas: string | null; creada_en: string } | null;
+  }> {
+    const { data } = await this.db.from('bot_cotizaciones').select('id, total, items, notas, creada_en, confirmada_en, pedido_id')
+      .eq('linea', linea).eq('telefono', telefono).gte('creada_en', new Date(Date.now() - 3 * 86400_000).toISOString())
+      .order('creada_en', { ascending: false }).limit(10);
+    const filas = ((data ?? []) as any[]).sort((a, b) => Date.parse(b.creada_en) - Date.parse(a.creada_en));
+    const delPedido = filas.find((f) => f.pedido_id);
+    const abierta = filas.find((f) => !f.pedido_id && !f.confirmada_en && Date.now() - Date.parse(f.creada_en) < 3 * 3600_000
+      && (!delPedido || Date.parse(f.creada_en) > Date.parse(delPedido.creada_en)));
+    let pedido: any = null;
+    if (delPedido) {
+      const { data: p } = await this.db.from('pedidos').select('id, estado, pagado_en, total, forma_pago, qr_retiro, origen, cliente_id').eq('id', delPedido.pedido_id).maybeSingle();
+      if (p && !(p as any).pagado_en && !['entregado', 'cancelado'].includes(String((p as any).estado))) pedido = p;
+    }
+    return { pedido, cotizacion: abierta ? { id: abierta.id, total: Number(abierta.total), items: abierta.items, notas: abierta.notas ?? null, creada_en: abierta.creada_en } : null };
+  }
+
+  /** El resumen que espera el «sí» queda con «Paga con transferencia»: el pedido nace así y su «listo» lleva el alias. */
+  private async anotarPagaConTransferencia(q: { id: string; notas: string | null }) {
+    const notas = String(q.notas ?? '');
+    if (/transf/i.test(notas)) return;
+    // otra forma de pago dicha antes deja de valer: la última palabra es la del cliente
+    const sinOtra = notas.split(/(?<=[.;])\s+/)
+      .filter((o) => !(/\b(?:paga|pagan|abona|abonan)\b/i.test(o) && /\b(?:efectivo|tarjeta|d[eé]bito|cr[eé]dito)\b/i.test(o)))
+      .join(' ').trim();
+    const nuevas = `${sinOtra}${sinOtra && !/[.;]$/.test(sinOtra) ? '.' : ''} Paga con transferencia.`.trim();
+    const { error } = await this.db.from('bot_cotizaciones').update({ notas: nuevas }).eq('id', q.id);
+    if (error) this.log.warn(`no pude anotar «Paga con transferencia» en la cotización ${q.id}: ${error.message}`);
+  }
+
+  /** El pedido ya creado pasa a «paga por transferencia» (salvo Mercado Pago o PedidosYa). */
+  private async marcarTransferencia(p: { id: string; forma_pago: string | null; qr_retiro?: string | null }) {
+    if (p.forma_pago === 'transferencia' || p.forma_pago === 'mercadopago' || p.forma_pago === 'pedidosya') return;
+    const { error } = await this.db.from('pedidos').update({ forma_pago: 'transferencia' }).eq('id', p.id);
+    if (error) this.log.warn(`no pude marcar la transferencia en el pedido ${p.qr_retiro ?? p.id}: ${error.message}`);
+  }
+
+  /** El total con el descuento por transferencia, renglón por renglón (como al cotizar). */
+  private async totalTransferenciaDelPedido(p: { id: string; total: number; cliente_id: string | null }): Promise<number> {
+    const [{ data: items }, { data: cliente }] = await Promise.all([
+      this.db.from('pedidos_items').select('cantidad, precio_unitario, producto:productos(categoria:categorias(nombre))').eq('pedido_id', p.id),
+      p.cliente_id ? this.db.from('clientes').select('mayorista').eq('id', p.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    const renglones = ((items ?? []) as any[]).map((i) => ({ cantidad: i.cantidad, precio_unitario: i.precio_unitario, categoria: i.producto?.categoria?.nombre ?? null }));
+    return totalPorTransferencia(Number(p.total), renglones, (cliente as any)?.mayorista === true);
+  }
+
   async derivarPago(
     linea: string,
     telefono: string,
     motivo: string,
-    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string; sinCobranza?: boolean } = {},
+    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string; sinCobranza?: boolean; hayResumen?: boolean; ultimoBot?: string } = {},
   ) {
     // alias, CBU y a quién se deriva: los de la configuración compartida. La
     // línea nueva no tiene los suyos (comparte todo, 6/10/2026): sin esto no
@@ -3563,20 +3641,61 @@ export class BotService {
     const monto = Number(extra.monto) || 0;
     const tipo = extra.tipo ?? 'consulta';
 
-    // El alias es un dato de la casa: se da directo, sin pasar por nadie. El
-    // comprobante que venga después entra por el circuito de aprobación.
-    const alias = String((cfg as any)?.alias_pago ?? '').trim();
-    if (tipo === 'quiere_pagar' && alias) {
-      const titular = String((cfg as any)?.titular_pago ?? '').trim();
-      const banco = String((cfg as any)?.banco_pago ?? '').trim();
-      const cbu = String((cfg as any)?.cbu_pago ?? '').trim();
-      const datos = `Alias: ${alias}${cbu ? ` · CBU: ${cbu}` : ''}${titular ? ` · Titular: ${titular}` : ''}${banco ? ` (${banco})` : ''}`;
-      return {
-        derivado: false,
-        datosDePago: datos,
-        respuestaFija: `${datos}. Cuando transfieras, mandame el comprobante por acá.`,
-        aviso: 'Ya está: el código le manda los datos al cliente. No agregues nada.',
-      };
+    // EL ALIAS, CON EL PEDIDO LISTO (Leandro, 21/11/2026; reemplaza «el alias se
+    // da directo»). Con un pedido en curso o un resumen por confirmar, el alias no
+    // se da: le llega solo en el aviso de «listo», con el total final (ver
+    // pedidos/alias-al-listo.ts). Con el pedido ya listo o en camino, se da con su
+    // total. Sin pedido ni resumen (una deuda, un pago suelto), como siempre.
+    if (tipo === 'quiere_pagar') {
+      const compra = await this.compraDeLaCharla(linea, telefono).catch((e: any) => {
+        this.log.warn(`no pude ver el pedido de ${telefono} para el alias: ${e?.message ?? e}`);
+        return { pedido: null, cotizacion: null } as Awaited<ReturnType<BotService['compraDeLaCharla']>>;
+      });
+      const resumenPendiente = !!compra.cotizacion || extra.hayResumen === true;
+      const ped = compra.pedido;
+      if (resumenPendiente || (ped && ESTADOS_ANTES_DE_LISTO.includes(ped.estado))) {
+        // queda anotado que paga por transferencia: el aviso de «listo» lleva el alias
+        if (compra.cotizacion) await this.anotarPagaConTransferencia(compra.cotizacion);
+        else if (ped) await this.marcarTransferencia(ped);
+        const linea1 = aliasAlListo(compra.cotizacion ? null : ped?.qr_retiro);
+        // si esperaba el «sí» del resumen, se le vuelve a preguntar con el mismo total
+        // (si no, un «dale» al alias no confirma nada y el pedido no se crea)
+        const q = compra.cotizacion;
+        const esperaElSi = !!q && /¿lo confirmo\?/i.test(String(extra.ultimoBot ?? ''));
+        const totalEf = q ? totalEfectivoDe(q.items) : 0;
+        const pregunta = esperaElSi
+          ? `\nTotal: $${pesos(Number(q!.total))}${totalEf > 0 && totalEf < Math.round(Number(q!.total)) ? `, o $${pesos(totalEf)} por transferencia` : ''}. ¿Lo confirmo?`
+          : '';
+        return {
+          derivado: false,
+          aliasAlListo: true,
+          datosParaResumen: linea1,
+          respuestaFija: `${linea1}${pregunta}`,
+          aviso: 'El alias NO se da ahora (regla del dueño, 21/11/2026): le llega solo cuando el pedido esté listo, con el total final. El código ya le contesta. No le pases alias ni CBU ni agregues nada.',
+        };
+      }
+      const datos = datosParaTransferir(cfg as any);
+      if (datos && ped && ESTADOS_LISTO.includes(ped.estado)) {
+        await this.marcarTransferencia(ped);
+        const total = Math.round(Number(ped.total) || 0);
+        const totalTransferencia = await this.totalTransferenciaDelPedido(ped).catch(() => total);
+        return {
+          derivado: false,
+          datosDePago: datos,
+          respuestaFija: bloqueDeAlias({ total, totalTransferencia, datos }),
+          aviso: 'Ya está: el código le manda el total y los datos al cliente. No agregues nada.',
+        };
+      }
+      // El alias es un dato de la casa: se da directo, sin pasar por nadie. El
+      // comprobante que venga después entra por el circuito de aprobación.
+      if (datos) {
+        return {
+          derivado: false,
+          datosDePago: datos,
+          respuestaFija: `${datos}. Cuando transfieras, mandame el comprobante por acá.`,
+          aviso: 'Ya está: el código le manda los datos al cliente. No agregues nada.',
+        };
+      }
     }
     // QUIERE TRANSFERIR Y NO HAY ALIAS CARGADO (6/10/2026, consulta silenciosa):
     // antes salía «Le paso los datos por acá en un rato.» y un aviso de pago que,

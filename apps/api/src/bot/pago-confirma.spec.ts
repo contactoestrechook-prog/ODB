@@ -109,20 +109,22 @@ const filasInsertadas = (db: any, tabla: string) => db.escrituras.filter((e: any
 
 beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
 
-describe('el alias y el total juntos (mensaje 16 de Pablo)', () => {
+describe('el alias, con el pedido listo (Leandro, 21/11/2026; antes «el alias y el total juntos», mensaje 16 de Pablo)', () => {
   const texto = 'Si queres pásame el total y a donde puedo hacerte l transferencia';
-  const ctx = () => ({ ultimoBot: M12, ultimosBot: [M12], ultimosCliente: ['Me llevo los 3 y un judas más.', texto], textoCliente: texto, fallos: new Map<string, number>(), fija: {} as any });
+  const ctx = (extra: any = {}) => ({ ultimoBot: M12, ultimosBot: [M12], ultimosCliente: ['Me llevo los 3 y un judas más.', texto], textoCliente: texto, fallos: new Map<string, number>(), fija: {} as any, ...extra });
+  const AL_LISTO = 'El alias te llega cuando tu pedido esté listo, con el total final.';
   const verificar = (t: string) => {
     expect(t).toContain('Total: $317.100');
     expect(t).toContain('$285.390');
-    expect(t).toContain('Alias: outlet.de.bebidas');
-    expect(t).toContain('Cuando transfieras, mandame el comprobante por acá.');
-    expect(t.indexOf('outlet.de.bebidas')).toBeLessThan(t.indexOf('¿Lo confirmo?'));
+    expect(t).toContain(AL_LISTO);
+    expect(t).not.toContain('outlet.de.bebidas');
+    expect(t).not.toContain('Cuando transfieras');
+    expect(t.indexOf(AL_LISTO)).toBeLessThan(t.indexOf('¿Lo confirmo?'));
     expect(t.trim().endsWith('¿Lo confirmo?')).toBe(true);
     expect(t.match(/¿Lo confirmo\?/g)).toHaveLength(1);
   };
 
-  it('preparar_pedido y después derivar_pago (quiere_pagar): el resumen con el alias antes de «¿Lo confirmo?»', async () => {
+  it('preparar_pedido y después derivar_pago (quiere_pagar): en el resumen, «te lo paso cuando esté listo» antes de «¿Lo confirmo?», sin alias', async () => {
     const { s } = armar();
     jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
     const c = ctx();
@@ -141,11 +143,63 @@ describe('el alias y el total juntos (mensaje 16 de Pablo)', () => {
     verificar(c.fija.texto);
   });
 
-  it('sin resumen en el turno, el alias sale como siempre', async () => {
+  it('con el resumen por confirmar (último mensaje), le vuelve a preguntar con el mismo total: un «sí» después confirma', async () => {
     const { s } = armar();
+    const c = ctx({ ultimoBot: M18, ultimosBot: [M18, M12] });
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toBe(`${AL_LISTO}\nTotal: $317.100, o $285.390 por transferencia. ¿Lo confirmo?`);
+  });
+
+  it('cotización abierta sin «¿Lo confirmo?» todavía: solo «te lo paso cuando esté listo», y las notas quedan en transferencia', async () => {
+    const { s, db } = armar({ cotizacion: { ...COT, notas: 'Retira en un rato. Paga en efectivo.' } });
+    const c = ctx();
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toBe(AL_LISTO);
+    const notas = db.escrituras.find((e: any) => e.tabla === 'bot_cotizaciones' && e.op === 'update');
+    expect(notas?.fila).toEqual({ notas: 'Retira en un rato. Paga con transferencia.' });
+  });
+
+  it('sin pedido ni resumen (una deuda, un pago suelto): el alias sale como siempre', async () => {
+    const { s } = armar({ cotizacion: null });
     const c = ctx();
     await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
     expect(c.fija.texto).toBe('Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.');
+  });
+
+  // con un pedido ya confirmado: armándose, «te llega cuando esté listo» con su código; listo, el alias con el total
+  const conPedido = (estado: string, extraPedido: any = {}) => {
+    const db = dbPorOperacion({
+      lineas_whatsapp: { select: { data: CFG } },
+      alertas_internas: { select: { data: null } },
+      bot_cotizaciones: { select: { data: [{ ...COT, confirmada_en: new Date().toISOString(), pedido_id: 'p-st' }] } },
+      pedidos: { select: { data: { id: 'p-st', estado, pagado_en: null, total: 38200, forma_pago: null, qr_retiro: 'DOM-1284BEF14D1D', origen: 'bot', cliente_id: null, ...extraPedido } } },
+      pedidos_items: { select: { data: [{ cantidad: 1, precio_unitario: 38200, producto: { categoria: { nombre: 'Almacén' } } }] } },
+    });
+    const s = new BotService(db, {} as any, {} as any, {} as any, {} as any);
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    return { s, db };
+  };
+
+  it('St: el pedido se está armando → «te llega cuando tu pedido DOM-1284BEF14D1D esté listo» y el pedido queda en transferencia', async () => {
+    const { s, db } = conPedido('en_preparacion');
+    const c = ctx({ ultimoBot: 'Pedido DOM-1284BEF14D1D confirmado. Total: $118.200.' });
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toBe('El alias te llega cuando tu pedido DOM-1284BEF14D1D esté listo, con el total final.');
+    expect(db.escrituras.find((e: any) => e.tabla === 'pedidos' && e.op === 'update')?.fila).toEqual({ forma_pago: 'transferencia' });
+  });
+
+  it('con el pedido listo, el alias sale con el total final', async () => {
+    const { s } = conPedido('listo', { forma_pago: 'transferencia' });
+    const c = ctx({ ultimoBot: 'Pedido DOM-1284BEF14D1D confirmado.' });
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toBe('Total a transferir: $38.200.\nAlias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander).\nCuando transfieras, mandame el comprobante por acá.');
+  });
+
+  it('un pedido entregado o cancelado no cuenta: sin resumen abierto, el alias sale como siempre', async () => {
+    const { s } = conPedido('entregado');
+    const c = ctx();
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toContain('Alias: outlet.de.bebidas');
   });
 
   it('conDatosDePago no toca un texto sin «¿Lo confirmo?» al final', () => {

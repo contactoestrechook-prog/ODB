@@ -16,6 +16,7 @@ import {
   armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
   ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
 } from './envios';
+import { avisoListoConAlias, datosParaTransferir, pasaAliasAlListo, totalPorTransferencia } from './alias-al-listo';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -938,6 +939,11 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: 'Lo soltó: el pedido volvió a quedar sin tomar', quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
+      } else if (h.evento === 'alias') {
+        // el alias para transferir, recién con el pedido listo (21/11/2026)
+        const d = h.detalle ?? {};
+        const monto = Number(d.total_transferencia ?? d.total);
+        lineas.push({ cuando: h.creado_en, que: `Le llegó al cliente el alias para transferir${monto > 0 ? ` ($${Math.round(monto).toLocaleString('es-AR')})` : ''}`, quien: null, tono: 'info' });
       } else if (h.evento === 'envio') {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeEnvio(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       }
@@ -1376,14 +1382,73 @@ export class PedidosService {
     const telefono = pedido.cliente?.telefono || pedido.contacto_telefono;
     // solo estados que le importan al cliente y solo si tenemos su teléfono;
     // el texto depende del canal (un envío listo no se retira en la sucursal)
-    const mensaje = avisoAlCliente(pedido, estado);
+    let mensaje = avisoAlCliente(pedido, estado);
     if (!telefono || !mensaje) return;
     // un pedido del bot le avisa al cliente por la línea por la que lo pidió
     // (6/10/2026); el resto, por la principal como siempre
-    const { data: cot } = await this.db.from('bot_cotizaciones').select('linea').eq('pedido_id', pedido.id).limit(1).maybeSingle();
-    const sesion = (cot as any)?.linea ? await new Lineas(this.db).sesion(String((cot as any).linea)) : undefined;
+    const { data: cot } = await this.db.from('bot_cotizaciones').select('linea, telefono').eq('pedido_id', pedido.id).limit(1).maybeSingle();
+    const lineas = new Lineas(this.db);
+    const sesion = (cot as any)?.linea ? await lineas.sesion(String((cot as any).linea)) : undefined;
+    // EL ALIAS, CON EL PEDIDO LISTO (Leandro, 21/11/2026): el que paga por
+    // transferencia recibe el alias recién ahora, con el total final
+    const alias = estado === 'listo' && pasaAliasAlListo(pedido)
+      ? await this.aliasParaElListo(pedido, (cot as any)?.linea ?? await lineas.principal()).catch((e) => {
+          this.log.error(`pedido ${pedido.qr_retiro ?? pedido.id}: no pude armar el alias del «listo»: ${e?.message ?? e}`);
+          return null;
+        })
+      : null;
+    if (alias) mensaje = alias.texto;
     const r = await enviarTextoWhatsapp(this.db, String(telefono), mensaje, 'aviso-cliente-pedido', sesion);
-    if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
+    if (!r.enviado) {
+      this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
+      return;
+    }
+    if (alias) {
+      await this.db.from('pedidos_historial').insert({ pedido_id: pedido.id, evento: 'alias', estado_despues: 'listo', detalle: { total: alias.total, total_transferencia: alias.totalTransferencia } })
+        .then(() => null, () => null);
+      // el bot sabe que ya le pasó el alias: si manda el comprobante o lo vuelve a pedir, sigue de ahí
+      if ((cot as any)?.linea && (cot as any)?.telefono) await this.anotarEnLaCharla(String((cot as any).linea), String((cot as any).telefono), mensaje);
+    }
+  }
+
+  /**
+   * El aviso de «listo» con el alias para el que paga por transferencia. null si
+   * la línea no tiene alias cargado (sale el aviso de siempre) o si ya se le
+   * pasó el alias con este mismo total (un «listo» deshecho y vuelto a marcar).
+   */
+  private async aliasParaElListo(pedido: any, linea: string): Promise<{ texto: string; total: number; totalTransferencia: number } | null> {
+    const datos = datosParaTransferir((await new Lineas(this.db).config(linea)) as any);
+    if (!datos) {
+      this.log.error(`pedido ${pedido.qr_retiro ?? pedido.id}: paga por transferencia y la línea ${linea} no tiene alias cargado; sale el «listo» sin alias`);
+      return null;
+    }
+    const [{ data: items }, { data: cliente }, { data: previo }] = await Promise.all([
+      this.db.from('pedidos_items').select('cantidad, precio_unitario, producto:productos(categoria:categorias(nombre))').eq('pedido_id', pedido.id),
+      pedido.cliente_id ? this.db.from('clientes').select('mayorista').eq('id', pedido.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+      this.db.from('pedidos_historial').select('detalle').eq('pedido_id', pedido.id).eq('evento', 'alias').order('creado_en', { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const total = Math.round(Number(pedido.total) || 0);
+    if (previo && Math.round(Number((previo as any).detalle?.total)) === total) return null;
+    const renglones = ((items ?? []) as any[]).map((i) => ({ cantidad: i.cantidad, precio_unitario: i.precio_unitario, categoria: i.producto?.categoria?.nombre ?? null }));
+    const totalTransferencia = totalPorTransferencia(total, renglones, (cliente as any)?.mayorista === true);
+    return { texto: avisoListoConAlias(pedido, { total, totalTransferencia, datos }), total, totalTransferencia };
+  }
+
+  /** Lo que el sistema le escribió al cliente queda en la charla del bot (como los reemplazos). */
+  private async anotarEnLaCharla(linea: string, clave: string, texto: string) {
+    try {
+      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', linea).eq('telefono', clave).maybeSingle();
+      const hist: any[] = Array.isArray((conv as any)?.mensajes) ? (conv as any).mensajes : [];
+      const en = new Date().toISOString();
+      const ult = hist[hist.length - 1];
+      // dos del mismo lado seguidos rompen el hilo del modelo: se juntan
+      const nuevos = ult && ult.role === 'assistant' && typeof ult.content === 'string' && !ult.de
+        ? [...hist.slice(0, -1), { ...ult, content: `${ult.content}\n\n${texto}` }]
+        : [...hist, { role: 'assistant', content: texto, en }];
+      await this.db.from('bot_conversaciones').upsert({ linea, telefono: clave, mensajes: nuevos.slice(-40), actualizado_en: en }, { onConflict: 'linea,telefono' });
+    } catch (e: any) {
+      this.log.warn(`no pude anotar el alias en la charla ${clave}: ${e?.message ?? e}`);
+    }
   }
 }
 

@@ -153,12 +153,13 @@ describe('el texto fijo de una operación y la consulta en el mismo turno', () =
     expect(envios).toHaveLength(0);
   });
 
-  it('el alias + consulta nueva (sin resumen): los datos de pago, sin nada de la consulta ni el texto del modelo', async () => {
+  // 21/11/2026: con el resumen esperando el «sí», el alias espera al «listo» (regla del dueño)
+  it('el alias + consulta nueva (sin resumen en el turno): «te lo paso cuando esté listo» con el mismo total, sin nada de la consulta ni el texto del modelo', async () => {
     const { s, principal } = armar({ conversacion: HIST.slice(0, 4) });
     principal.push(resp([tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), consultarCaja()]));
     principal.push(resp([{ type: 'text', text: 'Ahí te paso los datos para transferir.' }], 'end_turn'));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿A dónde te transfiero? ¿Y tienen caja para llevarlas en la valija?' });
-    expect(r.respuesta).toBe('Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.');
+    expect(r.respuesta).toBe('El alias te llega cuando tu pedido esté listo, con el total final.\nTotal: $317.100, o $285.390 por transferencia. ¿Lo confirmo?');
   });
 });
 
