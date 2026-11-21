@@ -8,6 +8,7 @@ import { hora, pesos } from '../lib/formato';
 import { coincideAproximado, terminosDeBusqueda } from '../lib/busqueda';
 import MiTurno from './MiTurno';
 import { NotasTicket, type NotaTicket } from './NotasTicket';
+import { cuentaDePedidos, EVENTO_CUENTA, type CuentaPedidos } from '../ui/AvisoPedidoNuevo';
 
 type Producto = {
   imagenUrl: string | null;
@@ -181,7 +182,8 @@ const ICONO = {
   stock: 'M3 7.5l9-4.5 9 4.5v9l-9 4.5-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9',
   devolucion: 'M9 14l-5-5 5-5M4 9h11a5 5 0 010 10h-3',
   candado: 'M7 11V7a5 5 0 0110 0v4M6 11h12v9H6z',
-  panel: 'M3 11l9-7 9 7M5.5 9.5V20h13V9.5',
+  menu: 'M4 7h16M4 12h16M4 17h16',
+  pedidos: 'M6 7h12l-1 13H7zM9 7a3 3 0 016 0',
   pausa: 'M9 6v12M15 6v12',
 };
 
@@ -190,8 +192,31 @@ const ICONO = {
 const BOTON_CABECERA =
   'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 sm:min-h-10';
 
+/** De la Caja a Pedidos, con cuántos hay abiertos en la sucursal (rojo si alguno está sin tomar). */
+function SalidaPedidos({ cuenta, className }: { cuenta: CuentaPedidos | null; className?: string }) {
+  const n = cuenta?.enCurso ?? 0;
+  return (
+    <Link href="/pedidos" className={unir(BOTON_CABECERA, 'bg-white/15 font-semibold text-white', className)}
+      aria-label={n ? `Pedidos: ${n} en curso${cuenta?.sinTomar ? `, ${cuenta.sinTomar} sin tomar` : ''}` : 'Pedidos'}>
+      <IconoCaja d={ICONO.pedidos} />
+      Pedidos
+      {n > 0 && (
+        <span className={unir('importe -mr-1 rounded-full px-1.5 text-xs font-bold leading-5', cuenta?.sinTomar ? 'bg-marca text-white' : 'bg-white text-tinta')}>{n}</span>
+      )}
+    </Link>
+  );
+}
+
 export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  // cuántos pedidos tiene abiertos la sucursal: lo publica la ventana «Llegó un pedido»
+  const [cuentaPedidos, setCuentaPedidos] = useState<CuentaPedidos | null>(null);
+  useEffect(() => {
+    setCuentaPedidos(cuentaDePedidos());
+    const oir = (e: Event) => setCuentaPedidos((e as CustomEvent<CuentaPedidos>).detail);
+    window.addEventListener(EVENTO_CUENTA, oir);
+    return () => window.removeEventListener(EVENTO_CUENTA, oir);
+  }, []);
   // MODO PRUEBA (22/10/2026, provisorio): cobrando en paralelo con el sistema
   // viejo, que es el que factura. La venta se registra (arqueo y stock) pero no
   // va a ARCA. Lo decide el servidor. Leandro: «sacá la caja normal, dejá solo
@@ -1684,7 +1709,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
   // ✕ y Escape del modal de apertura/cierre: hacen lo mismo que su botón
   // (Listo en el arqueo, Cancelar en el cierre). La apertura no se cierra:
-  // sin caja abierta no se vende (la salida es "Salir").
+  // sin caja abierta no se vende (las salidas son «Menú» e «Ir a Pedidos»).
   const cerrarModalCaja = () => {
     if (arqueo) { setArqueo(null); setSesionCerradaId(null); setModalCaja('abrir'); }
     else if (modalCaja === 'cerrar') setModalCaja(null);
@@ -1701,14 +1726,32 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   return (
     <main className="flex min-h-dvh flex-col bg-crema print:hidden lg:h-dvh lg:overflow-hidden">
       <header className="flex shrink-0 flex-col gap-2 bg-tinta px-3 py-2 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-medium tracking-widest text-white">
-            O.D.B <span className="font-normal tracking-normal text-crema/70">· Caja</span>
-          </span>
-          {sesion && <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-crema/80">{sesion.cajaNombre}</span>}
-          {sinRed && <span className="rounded-full bg-marca px-2.5 py-1 text-xs font-semibold text-white">SIN RED · {cola.length} en cola</span>}
-          {!sinRed && cola.length > 0 && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-semibold text-white">{cola.length} por enviar</span>}
-          {enPrueba && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-bold tracking-wide text-white">MODO PRUEBA · NO FACTURA</span>}
+        <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-3 lg:gap-y-1">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <span className="font-medium tracking-widest text-white">
+              O.D.B <span className="font-normal tracking-normal text-crema/70">· Caja</span>
+            </span>
+            {/* SALIR DE LA CAJA, siempre a la vista en el celular (Juan Pablo, 20/11/2026:
+                «quieren volver porque entró un pedido y no pueden volver para atrás»).
+                La única salida era el ícono «Panel», sin nombre y al final de la fila
+                de abajo, que hay que deslizar de costado. El ticket empezado no se
+                pierde: queda guardado en el aparato. */}
+            <div className="flex shrink-0 items-center gap-2 lg:hidden">
+              <SalidaPedidos cuenta={cuentaPedidos} />
+              <Link href="/inicio" className={unir(BOTON_CABECERA, 'bg-white/15 font-semibold text-white')}>
+                <IconoCaja d={ICONO.menu} />
+                Menú
+              </Link>
+            </div>
+          </div>
+          {(sesion || sinRed || cola.length > 0 || enPrueba) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              {sesion && <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-crema/80">{sesion.cajaNombre}</span>}
+              {sinRed && <span className="rounded-full bg-marca px-2.5 py-1 text-xs font-semibold text-white">SIN RED · {cola.length} en cola</span>}
+              {!sinRed && cola.length > 0 && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-semibold text-white">{cola.length} por enviar</span>}
+              {enPrueba && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-bold tracking-wide text-white">MODO PRUEBA · NO FACTURA</span>}
+            </div>
+          )}
         </div>
         {/* en el celular, una sola fila que se desliza de costado (solo íconos) */}
         <div className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 lg:justify-end [&::-webkit-scrollbar]:hidden">
@@ -1759,9 +1802,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               <span className="hidden sm:inline">Cerrar caja</span>
             </button>
           )}
-          <Link href="/inicio" className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} aria-label="Panel">
-            <IconoCaja d={ICONO.panel} />
-            <span className="hidden sm:inline">Panel</span>
+          {/* en el celular estas dos salidas van arriba, al lado del título */}
+          <SalidaPedidos cuenta={cuentaPedidos} className="hidden lg:inline-flex" />
+          <Link href="/inicio" className={unir(BOTON_CABECERA, 'hidden bg-white/10 text-crema/80 lg:inline-flex')}>
+            <IconoCaja d={ICONO.menu} />
+            Menú
           </Link>
         </div>
       </header>
@@ -2460,7 +2505,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           </Boton>
         ) : modalCaja === 'abrir' ? (
           <>
-            <BotonLink variante="secundario" href="/inicio">Salir</BotonLink>
+            {/* sin abrir la caja también se llega a los pedidos (21/11/2026) */}
+            <BotonLink variante="fantasma" href="/inicio">Menú</BotonLink>
+            <BotonLink variante="secundario" href="/pedidos">Ir a Pedidos</BotonLink>
             <Boton onClick={abrirCaja} disabled={!cajaElegida || cajas.length === 0}>
               {cajas.find((c) => c.id === cajaElegida)?.sesionAbierta ? 'Retomar sesión' : 'Abrir caja'}
             </Boton>

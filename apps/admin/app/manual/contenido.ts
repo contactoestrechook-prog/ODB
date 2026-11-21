@@ -265,6 +265,8 @@ export const SECCIONES: Seccion[] = [
           'Al teléfono de administración le llega en el acto un WhatsApp con la tarjeta del pedido y el link "Tomalo acá".',
           'En el panel, a quien atiende pedidos (dueños, caja y depósito) le aparece la ventana "Llegó un pedido", con sonido, en cualquier pantalla.',
           'El que lo va a atender toca "Lo tomo" (en la ventana, en Pedidos o desde el link del WhatsApp). Queda su nombre y la ventana se va para todos.',
+          'Desde la Caja se sale por arriba a la derecha: «Pedidos» (dice cuántos hay abiertos en la sucursal; en rojo si alguno está sin tomar) y «Menú». El ticket que estabas cargando no se pierde: al volver a la Caja sigue ahí. Con el cartel «Abrir caja» en pantalla, las salidas son «Ir a Pedidos» y «Menú».',
+          'A quien le asignan un pedido para armar le aparece la ventana «Te toca armar» en cualquier pantalla, también en la Caja, con vibración y un sonido. «Armarlo» abre el armado; al terminar, «Volver a la Caja» lo deja cobrando de nuevo.',
           'Si a los 15 minutos (en horario de 8 a 21) nadie lo tomó, sale UN reclamo por WhatsApp a administración y un aviso a los dueños. Se cierran solos cuando alguien lo toma.',
         ],
       },

@@ -5,7 +5,8 @@ import { numero } from '../../lib/formato';
 import { codigoDe, entregaDe, haceCuanto, type PedidoCola } from '../../lib/pedidos';
 import { ArmadoPantalla } from '../ArmadoPantalla';
 import { AsignarArmado } from '../AsignarArmado';
-import { Aviso, Boton, Chips, FOCO, FOCO_ADENTRO, Modal, ROTULO, Tarjeta, unir } from '../kit';
+import { Aviso, Boton, BotonLink, Chips, FOCO, FOCO_ADENTRO, Modal, ROTULO, Tarjeta, unir } from '../kit';
+import { CLAVE_VINE_DE } from '../AvisoTeTocaArmar';
 import { Recorrido } from './Recorrido';
 import {
   api, avance, iniciales, MIN_ARRANQUE_TARDE, nombrePropio, reloj, sucursalCorta, useAhora, type PedidoArmar, type Sucursal,
@@ -57,6 +58,13 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
   const terminados = useRef(new Set<string>());
   const [sacados, setSacados] = useState<string[]>([]);
   const ahora = useAhora();
+  // Vino de la Caja tocando «Armarlo» en la ventana «Te toca armar» (21/11/2026):
+  // cuando termina, o si no le queda nada, se le ofrece volver a cobrar.
+  const [vinoDeCaja, setVinoDeCaja] = useState(false);
+  useEffect(() => {
+    try { setVinoDeCaja(sessionStorage.getItem(CLAVE_VINE_DE) === '/caja'); } catch { /* modo privado */ }
+  }, []);
+  const volverACaja = vinoDeCaja ? <BotonLink href="/caja" tamano="chico" variante="secundario">Volver a la Caja</BotonLink> : undefined;
 
   const cargar = useCallback(async () => {
     try {
@@ -114,7 +122,7 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
       <div className="space-y-3">
         {pantalla}
         {avisoSacados}
-        {finalizado && <Aviso tono="ok" titulo="¡Listo!">{finalizado}</Aviso>}
+        {finalizado && <Aviso tono="ok" titulo="¡Listo!" accion={volverACaja}>{finalizado}</Aviso>}
         {error && <Aviso tono="error">{error}</Aviso>}
         {pedidos === null && !error && <p className="text-sm text-tinta/60">Buscando tus pedidos…</p>}
         {pedidos?.length === 0 && (
@@ -122,6 +130,7 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
             <div>
               <p className="text-base font-bold text-tinta">No tenés pedidos para armar</p>
               <p className="mt-1 text-sm text-tinta/70">Cuando la caja te asigne uno, se abre solo y el celular vibra.</p>
+              {vinoDeCaja && !finalizado && <div className="mt-3">{volverACaja}</div>}
             </div>
             <div className="border-t border-black/[0.06] pt-4">
               <p className="text-sm text-tinta">Mientras tanto, cargá dónde está cada producto: así la lista de armado sale en el orden en que caminás el salón.</p>

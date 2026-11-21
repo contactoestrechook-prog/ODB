@@ -47,6 +47,16 @@ const guardar = (clave: string, v: Record<string, number>) => {
 
 type Resultado = { id: string; texto: string; tono: 'ok' | 'neutro' };
 
+/** Cuántos pedidos tiene abiertos la sucursal: lo lee la Caja para su botón «Pedidos». */
+export type CuentaPedidos = { enCurso: number; sinTomar: number };
+export const EVENTO_CUENTA = 'odb-pedidos-cuenta';
+let ultimaCuenta: CuentaPedidos | null = null;
+export const cuentaDePedidos = () => ultimaCuenta;
+function publicarCuenta(c: CuentaPedidos) {
+  ultimaCuenta = c;
+  window.dispatchEvent(new CustomEvent<CuentaPedidos>(EVENTO_CUENTA, { detail: c }));
+}
+
 // 13/11/2026 (ODB empieza a recibir los pedidos en las cajas): cada caja ve los
 // de SU sucursal (todo lo del bot, la web y la app sale de la central; la otra
 // caja sonaba igual) y, si la sesión de la PC venció, la ventana lo dice en vez
@@ -79,6 +89,8 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
       if (!Array.isArray(todos)) return;
       setSinSesion(false);
       const lista = (todos as PedidoCola[]).filter((p) => esDeMiSucursal(p, sucursalId));
+      // la Caja muestra cuántos hay en su botón «Pedidos» (21/11/2026) sin pedir la cola otra vez
+      publicarCuenta({ enCurso: lista.length, sinTomar: lista.filter(sinTomar).length });
       const ahora = Date.now();
       const nuevos = lista
         .filter((p) => sinTomar(p) && ahora - Date.parse(p.creado_en) < VENTANA_MS)
@@ -206,16 +218,8 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
   const restoEscritorio = visibles.length - 2;
 
   return (
-    <div
-      aria-live="polite"
-      className={unir(
-        'flotante-ocultable fixed z-aviso flex flex-col gap-2',
-        // celular: baja debajo de la barra negra, a lo ancho; escritorio: abajo a la
-        // derecha (arriba tapaba los botones de cada pantalla, como "Pedido por WhatsApp")
-        'inset-x-0 top-(--alto-barra-movil) px-3 pt-2',
-        'lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0',
-      )}
-    >
+    // dónde flota lo decide <PilaDeAvisos> (layout): ahí también va «Te toca armar»
+    <div aria-live="polite" className="flex flex-col gap-2">
       {sinSesion && <TarjetaSinSesion />}
       {resultado && (
         <div role="status" className={unir('animate-entra-aviso rounded-2xl px-4 py-3 text-sm shadow-flotante motion-reduce:animate-none', resultado.tono === 'ok' ? 'bg-ok text-white' : 'bg-tinta text-white')}>
