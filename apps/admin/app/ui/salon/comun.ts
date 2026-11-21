@@ -6,9 +6,24 @@ import { useEffect, useState } from 'react';
 
 export type Item = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null; aclaracion?: string | null };
 export type Carga = { id: number; productoId: string; cantidad: number; creadoEn: string };
+/** Lo que la cola de pedidos dice del armado de cada pedido (21/11/2026). */
+export type NovedadesDeArmado = {
+  /** Quién se lo asignó: a quién le pregunta el que arma. */
+  asignadoPorNombre?: string | null;
+  /** Quien lo armaba dijo «No lo puedo armar» y sigue sin armador. */
+  devuelto?: { porNombre: string | null; motivo: string | null; en: string } | null;
+  /** Lo que preguntó quien arma y nadie de la caja vio. */
+  consultaSinVer?: { n: number; ultimo: string } | null;
+};
+
+/** Un mensaje de la charla del pedido entre quien arma y la caja (21/11/2026). */
+export type MensajePedido = { id: number; lado: 'armado' | 'caja'; de: string | null; deNombre: string | null; texto: string; creadoEn: string; vistoEn: string | null };
 export type PedidoArmar = {
   id: string; estado: string; canal: string; origen: string; codigo: string; cliente: string | null; notas: string | null;
   sucursal: string | null; sucursalId?: string | null; asignadoA?: string | null; asignadoNombre: string | null; asignadoEn: string;
+  /** quién se lo asignó: a quién le pregunta */
+  asignadoPorNombre?: string | null;
+  mensajes?: MensajePedido[];
   primeraCarga: string | null; cargas: Carga[]; items: Item[];
 };
 export type ProductoStock = { id: string; sku: string; nombre: string; sucursales: { sucursalId: string; sucursal: string; cantidad: number; ubicacion: string | null }[] };

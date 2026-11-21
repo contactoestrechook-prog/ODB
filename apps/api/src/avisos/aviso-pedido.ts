@@ -12,9 +12,16 @@ import { sinRestosDeMarcado } from '../comun/texto-limpio';
 
 // pedido_asignado es el único que NO va a administración: va al celular de quien
 // lo arma (16/11/2026, ver textoDeAsignado)
-export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado' | 'cambios_respondidos' | 'armado_sacado';
-/** Los que van al celular de quien arma, no a administración (ver telefonoDeQuienArma). */
-export const A_QUIEN_ARMA: readonly TipoAviso[] = ['pedido_asignado', 'cambios_respondidos', 'armado_sacado'];
+export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar' | 'pedido_asignado' | 'cambios_respondidos' | 'armado_sacado'
+  // entre quien arma y la caja (21/11/2026): devolvió el pedido, pregunta, respuesta
+  | 'armado_devuelto' | 'consulta_armado' | 'respuesta_armado';
+/**
+ * Los que van al celular de UNA persona del equipo (detalle.usuario_id), no a
+ * administración (ver telefonoDeQuienArma): a quien arma, o a quien se lo asignó.
+ */
+export const A_QUIEN_ARMA: readonly TipoAviso[] = ['pedido_asignado', 'cambios_respondidos', 'armado_sacado', 'armado_devuelto', 'consulta_armado', 'respuesta_armado'];
+/** De esos, los que traen el texto ya armado en detalle.texto. */
+export const CON_TEXTO_ARMADO: readonly TipoAviso[] = ['cambios_respondidos', 'armado_devuelto', 'consulta_armado', 'respuesta_armado'];
 
 export type PedidoParaAviso = {
   id: string;
@@ -121,6 +128,10 @@ const TITULOS: Record<TipoAviso, string> = {
   cambios_respondidos: 'CAMBIOS CONFIRMADOS',
   // al que le sacan un pedido que ya le había llegado (20/11/2026, ver textoDeSacado)
   armado_sacado: 'YA NO LO ARMÁS',
+  // quien arma devolvió el pedido, pregunta algo, o la caja le contesta (21/11/2026)
+  armado_devuelto: 'DEVOLVIERON EL PEDIDO',
+  consulta_armado: 'CONSULTA DEL ARMADO',
+  respuesta_armado: 'TE CONTESTARON',
 };
 
 /** El link al pedido en el panel: tocándolo desde el WhatsApp se abre con el botón "Lo tomo". */
@@ -242,6 +253,46 @@ export function textoDeAsignado(p: PedidoParaAviso, opciones: { nombre?: string 
     sinRestosDeMarcado(p.notas) ? `Notas: ${sinRestosDeMarcado(p.notas).slice(0, 300)}` : null,
     `Lo ves en el sistema, con dónde está cada producto: ${linkDelSalon()}`,
   ].filter(Boolean).join('\n');
+}
+
+// ENTRE QUIEN ARMA Y LA CAJA (Juan Pablo, 20/11/2026: «si tienen que devolver un
+// pedido… si le tienen que hacer una consulta a la persona que se los asignó,
+// todo eso tiene que estar previsto desde la app»). Los tres textos se arman al
+// encolar el aviso (van en detalle.texto) y salen al celular de UNA persona.
+const primerNombre = (n?: string | null) => String(n ?? '').trim().split(/\s+/)[0];
+const cita = (t: string) => `«${t.replace(/\s+/g, ' ').trim().slice(0, 400)}»`;
+
+/** A quien se lo asignó: quien arma dijo «No lo puedo armar». */
+export function textoDeDevuelto(p: Pick<PedidoParaAviso, 'id' | 'qr_retiro'>, o: { para?: string | null; de?: string | null; motivo: string; enCarro: number }): string {
+  const de = primerNombre(o.de) || 'Quien lo armaba';
+  return [
+    encabezado('armado_devuelto', codigoDe(p)),
+    `${primerNombre(o.para) ? `${primerNombre(o.para)}, ` : ''}${de} no lo puede armar: ${cita(o.motivo)}.`,
+    o.enCarro > 0 ? 'Lo que ya cargó quedó en el carro: el que siga lo ve hecho.' : null,
+    `Asignáselo a otra persona: ${linkDelPedido(p.id)}`,
+  ].filter(Boolean).join('\n');
+}
+
+/** A quien se lo asignó: lo que pregunta quien arma (todo lo que todavía no vio). */
+export function textoDeConsulta(p: Pick<PedidoParaAviso, 'id' | 'qr_retiro'>, o: { para?: string | null; de?: string | null; mensajes: string[] }): string {
+  const de = primerNombre(o.de) || 'Quien lo arma';
+  return [
+    encabezado('consulta_armado', codigoDe(p)),
+    `${primerNombre(o.para) ? `${primerNombre(o.para)}, ` : ''}${de} pregunta mientras arma:`,
+    ...o.mensajes.slice(-4).map(cita),
+    `Contestale acá: ${linkDelPedido(p.id)}`,
+  ].join('\n');
+}
+
+/** A quien arma: lo que le contestó la caja. */
+export function textoDeRespuesta(p: Pick<PedidoParaAviso, 'id' | 'qr_retiro'>, o: { para?: string | null; de?: string | null; mensajes: string[] }): string {
+  const de = primerNombre(o.de) || 'La caja';
+  return [
+    encabezado('respuesta_armado', codigoDe(p)),
+    `${primerNombre(o.para) ? `${primerNombre(o.para)}, ` : ''}${de} te escribió:`,
+    ...o.mensajes.slice(-4).map(cita),
+    `Seguí armando acá: ${linkDelSalon()}`,
+  ].join('\n');
 }
 
 /** A los 15 minutos (de horario de atención) nadie lo tomó: UN reclamo, nunca más. */

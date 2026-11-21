@@ -183,6 +183,14 @@ html[data-modal-abierto] .flotante-ocultable {
   display: none;
 }
 
+/* Con el armado de un pedido abierto a pantalla completa, la pila de avisos de
+   pedidos no lo tapa (cubría la cámara y los botones «Preguntarle» y «No lo
+   puedo armar»): el armado muestra una franja propia si entra un pedido nuevo
+   (21/11/2026). La alarma suena igual. El atributo lo pone ArmadoPantalla. */
+html[data-armado-abierto] .pila-avisos {
+  display: none;
+}
+
 @media print {
   body { background: white; }
 }

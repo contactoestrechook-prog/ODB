@@ -283,6 +283,33 @@ export const SECCIONES: Seccion[] = [
           ['Entregado', 'Quién lo entregó y cómo pagó (efectivo, tarjeta o transferencia). El efectivo entra en la caja abierta.'],
           ['Faltaba stock', 'Qué se sacó, qué se puso en su lugar y cómo cambió el total, con el nombre de quien lo hizo.'],
           ['Cancelar', 'Quién lo canceló. Se devuelve el stock y le llega la baja a administración.'],
+          ['Devolvió el pedido', 'Quien lo armaba, cuándo y por qué. Si la caja le sacó el armado a alguien, también queda.'],
+          ['Preguntó / le escribieron', 'Cada mensaje entre quien arma y la caja, con nombre y hora.'],
+          ['Deshizo un paso', 'Quién volvió atrás un «Listo» o un «Salió», y quién soltó un pedido que había tomado.'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Si hay que devolver, deshacer o consultar',
+        pasos: [
+          'Quien arma tiene arriba del armado, siempre a la vista, «Preguntarle a …» (el nombre de quien se lo asignó) y «No lo puedo armar».',
+          '«Preguntarle a …»: escribe o dicta la duda y la manda. A la caja de esa sucursal le aparece la ventana «Pregunta del armado» en cualquier pantalla, con sonido, y a quien se lo asignó le llega además por WhatsApp. Se contesta ahí mismo, o en Pedidos › Detalle › «Mensajes con …».',
+          'La respuesta le llega a quien arma en el armado (el botón se pone rojo: «… te escribió», suena y vibra) y por WhatsApp. La caja también le puede escribir primero, desde el detalle del pedido.',
+          '«No lo puedo armar»: pide el motivo y devuelve el pedido. Queda sin quién lo arme, con lo que ya estaba cargado en el carro, y a la caja le aparece «Devolvieron un pedido» con el motivo y el botón «Dárselo a otra persona». A quien se lo asignó le llega por WhatsApp.',
+          'Para sacarle el armado a alguien sin dárselo todavía a otro: Pedidos › «Lo arma … · Cambiar» › «Sacárselo».',
+          'Finalizó sin querer: apenas termina, el cartel «¡Listo!» trae «Lo finalicé sin querer» (dura 20 segundos) y el pedido se le abre de nuevo. Después de eso lo vuelve atrás la caja: Pedidos › Detalle › «Volver a En preparación».',
+          'Se marcó «Despachar» y no salió: Pedidos › Terminados › el pedido › «No salió: volver a Listos». Queda con el mismo repartidor.',
+          'Tomó un pedido por error: Pedidos › Detalle › «Soltarlo». Vuelve a quedar sin tomar y suena de nuevo en las cajas. Solo mientras nadie lo empezó a preparar; lo suelta quien lo tomó o un encargado.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        titulo: 'Lo que no se deshace desde Pedidos',
+        puntos: [
+          'Un pedido entregado ya tiene su venta y su cobro: lo que vuelve se hace con «Devolución» en la Caja.',
+          'Un pedido cancelado no vuelve: se liberó el stock y se avisó la baja. Se carga de nuevo.',
+          'Al deshacer «Listo» o «Salió» no se le escribe solo al cliente. Si ya le había llegado el WhatsApp de que estaba listo o en camino, la pantalla lo dice para que le avises; cuando esté listo o salga de verdad, le llega otra vez.',
+          'De 22 a 8 no sale ningún WhatsApp entre quien arma y la caja: queda para las 8. En la pantalla se ve igual, en el momento.',
         ],
       },
       {

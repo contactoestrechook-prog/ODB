@@ -135,6 +135,47 @@ export class SalonController {
     return this.salon.anularCambio(id, cambio, req.usuario ?? {});
   }
 
+  // --- devolver, deshacer y consultar (21/11/2026) ---
+  // «No lo puedo armar» (quien lo arma, con el motivo) o «Sacárselo» (la caja)
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/devolver')
+  devolver(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.salon.devolver(id, dto?.motivo, req.usuario ?? {});
+  }
+
+  // «Lo finalicé sin querer»: vuelve de Listos a En preparación
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/reabrir')
+  reabrir(@Param('id') id: string, @Req() req: any) {
+    return this.salon.reabrir(id, req.usuario ?? {});
+  }
+
+  // la charla del pedido entre quien arma y la caja
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Get('pedidos/:id/mensajes')
+  mensajes(@Param('id') id: string, @Req() req: any) {
+    return this.salon.mensajes(id, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/mensajes')
+  escribir(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.salon.escribir(id, dto?.texto, req.usuario ?? {});
+  }
+
+  @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/mensajes/vistos')
+  vistos(@Param('id') id: string, @Req() req: any) {
+    return this.salon.marcarVistos(id, req.usuario ?? {});
+  }
+
+  // lo que espera a la caja: preguntas sin ver y pedidos devueltos
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Get('consultas')
+  consultas(@Req() req: any) {
+    return this.salon.consultas(req.usuario ?? {});
+  }
+
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Post('pedidos/:id/terminar')
   terminar(@Param('id') id: string, @Req() req: any) {

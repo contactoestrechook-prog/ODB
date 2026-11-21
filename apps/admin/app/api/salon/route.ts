@@ -32,6 +32,9 @@ export async function GET(req: Request) {
     case 'fiambreria': return reenviar('/salon/fiambreria');
     // «Tengo parecido» (20/11/2026): lo que se parece al que falta, con stock y precio
     case 'parecidos': return reenviar(`/salon/${q.get('fiambreria') === '1' ? 'fiambreria' : 'pedidos'}/${id(q.get('pedidoId'))}/parecidos?productoId=${id(q.get('productoId'))}${q.get('faltan') ? `&faltan=${id(q.get('faltan'))}` : ''}`);
+    // devolver y consultar (21/11/2026): lo que espera a la caja y la charla de un pedido
+    case 'consultas': return reenviar('/salon/consultas');
+    case 'mensajes': return reenviar(`/salon/pedidos/${id(q.get('pedidoId'))}/mensajes`);
     default: return NextResponse.json({ message: 'Recurso desconocido' }, { status: 400 });
   }
 }
@@ -58,6 +61,11 @@ export async function POST(req: Request) {
     case 'consultar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/consultar`, cuerpo({}));
     case 'decidir-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}/decidir`, cuerpo({ acepta: b.acepta === true, elegida: typeof b.elegida === 'string' ? b.elegida : undefined }));
     case 'anular-cambio': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/cambios/${id(b.cambioId)}`, { method: 'DELETE' });
+    // devolver, deshacer y consultar (21/11/2026)
+    case 'devolver': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/devolver`, cuerpo({ motivo: typeof b.motivo === 'string' ? b.motivo : undefined }));
+    case 'reabrir': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/reabrir`, cuerpo({}));
+    case 'mensaje': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/mensajes`, cuerpo({ texto: b.texto }));
+    case 'mensajes-vistos': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/mensajes/vistos`, cuerpo({}));
     case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     // «No hay» desde la ventana de fiambrería (19/11/2026)
     case 'fiambreria-falta': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/falta`, cuerpo({ productoId: b.productoId, hay: b.hay, reemplazoId: b.reemplazoId, cantidad: b.cantidad }));

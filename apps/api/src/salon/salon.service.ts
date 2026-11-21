@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
-import { rolesDe } from '../auth/roles';
+import { rolesDe, soloArma } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { terminosDeBusqueda } from '../comun/busqueda';
@@ -10,6 +10,8 @@ import { tiemposPorPreparador } from './tiempos';
 import { reservadoDelRenglon } from '../pedidos/sin-stock';
 import { aclaracionDe, aclaracionesDeNotas, sinAclaraciones } from '../comun/aclaraciones';
 import { resumirLugares, tieneLugar, type FilaStockLugar } from './lugares';
+import { codigoDe, textoDeConsulta, textoDeDevuelto, textoDeRespuesta, type TipoAviso } from '../avisos/aviso-pedido';
+import { ladoDe, limpiarMensaje, MOTIVO_MINIMO, type Lado } from './consultas';
 
 // OP SALÓN (Leandro, 5/11/2026). Tres trabajos del que está en el salón:
 //  1. el stock y DÓNDE está cada cosa (stock.ubicacion, por sucursal);
@@ -88,6 +90,11 @@ type Usuario = { sub?: string; rol?: string; roles?: unknown };
 export function sirveEnSucursal(u: { rol: string; roles?: unknown; sucursal_id?: string | null }, sucursalId: string) {
   if (!u.sucursal_id && rolesFila(u).some(deSuSucursal)) return false;
   return !u.sucursal_id || u.sucursal_id === sucursalId;
+}
+
+/** Un mensaje de la charla del pedido, como lo muestran las pantallas. */
+function mensajeLegible(m: any, nombres: Map<string, string>) {
+  return { id: Number(m.id), lado: String(m.lado) as Lado, de: m.de ?? null, deNombre: m.de ? nombres.get(String(m.de)) ?? null : null, texto: String(m.texto), creadoEn: m.creado_en, vistoEn: m.visto_en ?? null };
 }
 
 @Injectable()
@@ -557,7 +564,8 @@ export class SalonService {
     if ((pedido as any).estado !== 'en_preparacion') await this.pedidos.avanzar(pedidoId, 'en_preparacion', usuarioId);
     const { error: e2 } = await this.db
       .from('pedidos')
-      .update({ asignado_a: usuarioId, asignado_en: ahora, asignado_por: quien.sub ?? null, preparado_por: usuarioId, armado_terminado_en: null })
+      // con armador nuevo, la devolución anterior deja de mostrarse (21/11/2026)
+      .update({ asignado_a: usuarioId, asignado_en: ahora, asignado_por: quien.sub ?? null, preparado_por: usuarioId, armado_terminado_en: null, devuelto_por: null, devuelto_en: null, devuelto_motivo: null })
       .eq('id', pedidoId);
     if (e2) throw new BadRequestException(e2.message);
     // CADA PEDIDO, AL CELULAR DE QUIEN LO ARMA (Leandro, 16/11/2026): sale por la
@@ -593,7 +601,7 @@ export class SalonService {
   async misPedidos(quien: Usuario, todos = false) {
     let q = this.db
       .from('pedidos')
-      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, asignado_a, asignado_en, sucursal_id, contacto_nombre, reserva_stock,
+      .select(`id, estado, canal, origen, qr_retiro, notas, creado_en, asignado_a, asignado_en, asignado_por, sucursal_id, contacto_nombre, reserva_stock,
         cliente:clientes(nombre), sucursal:sucursales(nombre),
         items:pedidos_items(producto_id, cantidad, reservado, producto:productos(sku, nombre))`)
       .in('estado', ESTADOS_ABIERTOS)
@@ -606,7 +614,7 @@ export class SalonService {
     if (!pedidos.length) return [];
     const ids = pedidos.map((p) => p.id);
     const productos = [...new Set(pedidos.flatMap((p) => (p.items ?? []).map((i: any) => i.producto_id)))];
-    const [{ data: carro }, { data: lugares }, nombres, cambios, conocidas] = await Promise.all([
+    const [{ data: carro }, { data: lugares }, nombres, cambios, conocidas, { data: mensajes }] = await Promise.all([
       this.db.from('pedidos_carro').select('id, pedido_id, producto_id, cantidad, creado_en').in('pedido_id', ids).order('creado_en'),
       this.db.from('stock').select('producto_id, sucursal_id, ubicacion, cantidad').in('producto_id', productos),
       this.nombres(),
@@ -614,6 +622,8 @@ export class SalonService {
       this.reemplazos.dePedidos(ids),
       // las variedades que se conocen de cada producto (20/11/2026): el armado las sugiere
       this.reemplazos.variedadesDe(productos.map(String)).catch(() => new Map<string, string[]>()),
+      // la charla con la caja (21/11/2026)
+      this.db.from('pedidos_mensajes').select('id, pedido_id, de, lado, texto, creado_en, visto_en').in('pedido_id', ids).order('creado_en'),
     ]);
     const lugar = new Map(((lugares ?? []) as any[]).map((l) => [`${l.producto_id}|${l.sucursal_id}`, l.ubicacion]));
     // lo que dice el sistema que hay (20/11/2026): si no alcanza, el armado lo marca
@@ -653,6 +663,9 @@ export class SalonService {
         asignadoA: p.asignado_a,
         asignadoNombre: nombres.get(p.asignado_a) ?? null,
         asignadoEn: p.asignado_en,
+        // a quién preguntarle: quien se lo asignó
+        asignadoPorNombre: p.asignado_por ? nombres.get(p.asignado_por) ?? null : null,
+        mensajes: ((mensajes ?? []) as any[]).filter((m) => m.pedido_id === p.id).map((m) => mensajeLegible(m, nombres)),
         primeraCarga: cargas[0]?.creado_en ?? null,
         ultimaCarga: cargas[cargas.length - 1]?.creado_en ?? null,
         cargas: cargas.map((c) => ({ id: c.id, productoId: c.producto_id, cantidad: Number(c.cantidad), creadoEn: c.creado_en })),
@@ -822,6 +835,209 @@ export class SalonService {
     return { ok: true, terminadoEn: ahora };
   }
 
+  // ---------- 4. Devolver, deshacer y consultar (21/11/2026) ----------
+  // Juan Pablo, 20/11/2026: «si tienen que devolver un pedido, si tienen que
+  // deshacer algo, si le tienen que hacer una consulta a la persona que se los
+  // asignó. Todo eso tiene que estar previsto desde la app».
+
+  /**
+   * «No lo puedo armar»: quien lo arma lo devuelve con el motivo. Queda sin
+   * armador (vuelve a «Esperan quién lo arme») con lo que ya cargó en el carro, y
+   * a quien se lo asignó le llega por WhatsApp y le aparece en el panel. La caja
+   * también puede sacarle el armado a alguien («Sacárselo»): ahí no hace falta
+   * motivo y al que lo armaba le llega el «YA NO LO ARMÁS» de siempre.
+   */
+  async devolver(pedidoId: string, motivo: string | undefined, quien: Usuario) {
+    const { data, error } = await this.db.from('pedidos')
+      .select('id, qr_retiro, estado, asignado_a, asignado_por').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    if (!data) throw new BadRequestException('No existe el pedido');
+    const p = data as any;
+    if (!ESTADOS_ABIERTOS.includes(p.estado)) throw new BadRequestException('Ese pedido ya no se está armando');
+    if (!p.asignado_a) return { ok: true, yaEstaba: true };
+    const propio = p.asignado_a === quien.sub;
+    if (!propio && !veTodoElArmado(quien)) throw new ForbiddenException('Ese pedido no te lo asignaron a vos');
+    const texto = limpiarMensaje(motivo);
+    if (propio && texto.length < MOTIVO_MINIMO) throw new BadRequestException('Contá en dos palabras por qué no lo podés armar: así la caja sabe a quién dárselo');
+    const ahora = new Date().toISOString();
+    const { data: filas, error: e2 } = await this.db.from('pedidos')
+      .update({
+        asignado_a: null, asignado_en: null, cambio_por: quien.sub ?? null, cambio_en: ahora,
+        // la devolución queda a la vista de la caja hasta que se lo asigna a otro
+        ...(propio ? { devuelto_por: quien.sub, devuelto_en: ahora, devuelto_motivo: texto } : { devuelto_por: null, devuelto_en: null, devuelto_motivo: null }),
+      })
+      .eq('id', pedidoId).eq('asignado_a', p.asignado_a).in('estado', ESTADOS_ABIERTOS).select('id');
+    if (e2) throw new BadRequestException(this.faltaMigracion(e2.message));
+    if (!filas?.length) throw new BadRequestException('El pedido cambió mientras tanto: actualizá la pantalla');
+    const nombres = await this.nombres();
+    const de = nombres.get(String(p.asignado_a)) ?? null;
+    await this.db.from('pedidos_historial').insert({
+      pedido_id: pedidoId, evento: 'devuelto', estado_despues: p.estado, usuario_id: quien.sub ?? null,
+      detalle: { motivo: propio ? texto : null, de, por_caja: !propio },
+    }).then(() => null, () => null);
+    const { count } = await this.db.from('pedidos_carro').select('id', { count: 'exact', head: true }).eq('pedido_id', pedidoId);
+    // a quien se lo asignó, por WhatsApp (si lo devolvió el que armaba y no es la misma persona)
+    let avisado: string | null = null;
+    if (propio && p.asignado_por && p.asignado_por !== quien.sub) {
+      avisado = nombres.get(String(p.asignado_por)) ?? null;
+      const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
+      await this.encolarAvisoA(pedidoId, 'armado_devuelto', {
+        usuario_id: p.asignado_por, nombre: avisado,
+        texto: textoDeDevuelto({ id: p.id, qr_retiro: p.qr_retiro }, { para: avisado, de, motivo: texto, enCarro: count ?? 0 }).replace(/^([^\n]+)/, `$1 · ${hora}`),
+      }).catch((e) => this.log.error(`no pude encolar la devolución del pedido ${pedidoId}: ${e instanceof Error ? e.message : e}`));
+    }
+    return { ok: true, propio, avisado, enCarro: count ?? 0 };
+  }
+
+  /**
+   * «Lo finalicé sin querer»: el pedido vuelve de Listos a En preparación y sigue
+   * a nombre de quien lo armaba. Lo puede hacer el que lo armó o la caja.
+   */
+  async reabrir(pedidoId: string, quien: Usuario) {
+    const { data, error } = await this.db.from('pedidos').select('id, estado, asignado_a').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    if (!data) throw new BadRequestException('No existe el pedido');
+    const p = data as any;
+    if (p.asignado_a !== quien.sub && !veTodoElArmado(quien)) throw new ForbiddenException('Ese pedido no lo armaste vos');
+    if (p.estado !== 'listo') {
+      throw new BadRequestException(ESTADOS_ABIERTOS.includes(p.estado) ? 'Ese pedido ya está abierto para armar' : 'Ese pedido ya salió de la mesa: pedile a la caja que lo vuelva atrás');
+    }
+    return this.pedidos.deshacer(pedidoId, quien.sub);
+  }
+
+  /** El pedido y de qué lado habla esta persona (quien lo arma o la caja). */
+  private async pedidoDeLaCharla(pedidoId: string, quien: Usuario): Promise<{ p: any; lado: Lado }> {
+    const { data, error } = await this.db.from('pedidos')
+      .select('id, qr_retiro, estado, asignado_a, asignado_por, tomado_por').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    if (!data) throw new BadRequestException('No existe el pedido');
+    const lado = ladoDe(data as any, quien);
+    if (!lado) throw new ForbiddenException('Ese pedido no te lo asignaron a vos');
+    return { p: data as any, lado };
+  }
+
+  /** La charla del pedido entre quien arma y la caja. */
+  async mensajes(pedidoId: string, quien: Usuario) {
+    await this.pedidoDeLaCharla(pedidoId, quien);
+    const [{ data, error }, nombres] = await Promise.all([
+      this.db.from('pedidos_mensajes').select('id, de, lado, texto, creado_en, visto_en').eq('pedido_id', pedidoId).order('creado_en'),
+      this.nombres(),
+    ]);
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    return ((data ?? []) as any[]).map((m) => mensajeLegible(m, nombres));
+  }
+
+  /**
+   * Escribir en la charla. Quien arma le pregunta a quien se lo asignó; la caja
+   * le contesta (o le avisa algo). Queda en el pedido, le aparece al otro lado en
+   * su pantalla y le llega por WhatsApp. Contestar da por visto lo anterior.
+   */
+  async escribir(pedidoId: string, textoCrudo: string | undefined, quien: Usuario) {
+    const { p, lado } = await this.pedidoDeLaCharla(pedidoId, quien);
+    if (['cancelado', 'entregado'].includes(p.estado)) throw new BadRequestException('Ese pedido ya está cerrado');
+    const texto = limpiarMensaje(textoCrudo);
+    if (!texto) throw new BadRequestException('Escribí el mensaje');
+    if (lado === 'caja' && !p.asignado_a) throw new BadRequestException('Ese pedido no tiene quién lo arme: asignáselo a alguien primero');
+    const ahora = new Date().toISOString();
+    await this.db.from('pedidos_mensajes').update({ visto_en: ahora, visto_por: quien.sub ?? null })
+      .eq('pedido_id', pedidoId).neq('lado', lado).is('visto_en', null);
+    const { error } = await this.db.from('pedidos_mensajes').insert({ pedido_id: pedidoId, de: quien.sub ?? null, lado, texto });
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+
+    // al otro lado, por WhatsApp: todo lo suyo que todavía no vio, en un solo mensaje
+    const nombres = await this.nombres();
+    const paraId = lado === 'armado' ? (p.asignado_por ?? p.tomado_por) : p.asignado_a;
+    let avisado: string | null = null;
+    if (paraId && paraId !== quien.sub) {
+      avisado = nombres.get(String(paraId)) ?? null;
+      const [{ data: pendientes }, { count }] = await Promise.all([
+        this.db.from('pedidos_mensajes').select('texto').eq('pedido_id', pedidoId).eq('lado', lado).is('visto_en', null).order('creado_en'),
+        this.db.from('pedidos_mensajes').select('id', { count: 'exact', head: true }).eq('pedido_id', pedidoId),
+      ]);
+      const textos = ((pendientes ?? []) as any[]).map((m) => String(m.texto));
+      const armar = lado === 'armado' ? textoDeConsulta : textoDeRespuesta;
+      const cuerpo = armar({ id: p.id, qr_retiro: p.qr_retiro }, { para: avisado, de: nombres.get(String(quien.sub ?? '')) ?? null, mensajes: textos.length ? textos : [texto] });
+      await this.encolarAvisoA(pedidoId, lado === 'armado' ? 'consulta_armado' : 'respuesta_armado', {
+        usuario_id: paraId, nombre: avisado,
+        // el número de mensaje hace único el encabezado: un reintento no lo confunde con uno anterior
+        texto: cuerpo.replace(/^([^\n]+)/, `$1 · mensaje ${count ?? 1}`),
+      }).catch((e) => this.log.error(`no pude encolar el WhatsApp de la charla del pedido ${pedidoId}: ${e instanceof Error ? e.message : e}`));
+    }
+    return { ok: true, lado, avisado, mensajes: await this.mensajes(pedidoId, quien) };
+  }
+
+  /** Vio lo que le escribió el otro lado (se va el aviso de su pantalla). */
+  async marcarVistos(pedidoId: string, quien: Usuario) {
+    const { lado } = await this.pedidoDeLaCharla(pedidoId, quien);
+    const { error } = await this.db.from('pedidos_mensajes').update({ visto_en: new Date().toISOString(), visto_por: quien.sub ?? null })
+      .eq('pedido_id', pedidoId).neq('lado', lado).is('visto_en', null);
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    return { ok: true };
+  }
+
+  /**
+   * Lo que espera a la caja: preguntas de quien arma que nadie vio y pedidos
+   * devueltos que siguen sin armador. Es lo que muestra la ventana del panel.
+   */
+  async consultas(quien: Usuario) {
+    if (soloArma(quien)) return [];
+    const { data, error } = await this.db.from('pedidos')
+      .select('id, qr_retiro, estado, canal, sucursal_id, contacto_nombre, asignado_a, asignado_por, devuelto_por, devuelto_en, devuelto_motivo, cliente:clientes(nombre)')
+      .in('estado', ESTADOS_ABIERTOS)
+      .gte('creado_en', new Date(Date.now() - 3 * 86400_000).toISOString());
+    if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    const pedidos = (data ?? []) as any[];
+    if (!pedidos.length) return [];
+    const [{ data: msjs }, nombres] = await Promise.all([
+      this.db.from('pedidos_mensajes').select('id, pedido_id, de, lado, texto, creado_en, visto_en').in('pedido_id', pedidos.map((p) => p.id)).order('creado_en'),
+      this.nombres(),
+    ]);
+    const salida: any[] = [];
+    for (const p of pedidos) {
+      const suyos = ((msjs ?? []) as any[]).filter((m) => m.pedido_id === p.id);
+      const sinVer = suyos.filter((m) => m.lado === 'armado' && !m.visto_en);
+      const devuelto = p.devuelto_en && !p.asignado_a;
+      if (!sinVer.length && !devuelto) continue;
+      salida.push({
+        pedidoId: p.id,
+        codigo: p.qr_retiro ?? String(p.id).slice(0, 6).toUpperCase(),
+        cliente: p.cliente?.nombre?.trim() || p.contacto_nombre?.trim() || null,
+        sucursalId: p.sucursal_id ?? null,
+        // quien lo arma no ve su propia pregunta en la ventana de la caja
+        armaId: p.asignado_a ?? null,
+        armaNombre: p.asignado_a ? nombres.get(String(p.asignado_a)) ?? null : null,
+        // a quién le toca primero: quien se lo asignó
+        asignadoPor: p.asignado_por ?? null,
+        devuelto: devuelto ? { porId: p.devuelto_por ?? null, porNombre: p.devuelto_por ? nombres.get(String(p.devuelto_por)) ?? null : null, motivo: p.devuelto_motivo ?? null, en: p.devuelto_en } : null,
+        sinVer: sinVer.length,
+        mensajes: suyos.map((m) => mensajeLegible(m, nombres)),
+      });
+    }
+    return salida;
+  }
+
+  /**
+   * Un WhatsApp a UNA persona del equipo por un pedido (avisos_pedidos es uno por
+   * pedido y tipo): si ya había uno de ese tipo, se rearma con el texto nuevo.
+   */
+  private async encolarAvisoA(pedidoId: string, tipo: TipoAviso, detalle: Record<string, unknown>) {
+    const { data: previo, error } = await this.db.from('avisos_pedidos').select('id').eq('pedido_id', pedidoId).eq('tipo', tipo).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!previo) {
+      const { error: e } = await this.db.from('avisos_pedidos').insert({ pedido_id: pedidoId, tipo, detalle });
+      if (!e || (e as any).code !== '23505') { if (e) throw new Error(e.message); return; }
+    }
+    const { data: fila } = previo ? { data: previo } : await this.db.from('avisos_pedidos').select('id').eq('pedido_id', pedidoId).eq('tipo', tipo).maybeSingle();
+    if (!fila) return;
+    const ahora = new Date().toISOString();
+    const { error: e } = await this.db.from('avisos_pedidos').update({
+      detalle, estado: 'pendiente', pendiente_desde: ahora, proximo_intento: ahora, intentos: 0, tomado_hasta: null,
+      destino: null, waha_id: null, waha_ids: [], enviado_en: null, entregado_en: null, ack: null, incierto: false,
+      ultimo_error: null, motivo: null,
+    }).eq('id', (fila as any).id);
+    if (e) throw new Error(e.message);
+  }
+
   /** La medición: por preparador, los últimos N días. */
   async tiempos(dias = 7) {
     const d = Math.min(Math.max(Math.round(Number(dias) || 7), 1), 90);
@@ -843,6 +1059,7 @@ export class SalonService {
   }
 
   private faltaMigracion(mensaje: string) {
+    if (/pedidos_mensajes|devuelto_/.test(mensaje)) return 'Falta aplicar la migración de devolver y consultar (db/migracion-armado-devolver-consultar.sql)';
     return /ingresos_puerta|pedidos_carro|asignado_a|ubicacion|op_salon|fiambreria_/.test(mensaje)
       ? 'Falta aplicar la migración de op salón (db/migracion-op-salon.sql)'
       : mensaje;

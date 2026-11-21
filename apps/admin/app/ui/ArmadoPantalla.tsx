@@ -1,9 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Aviso, Boton, Entrada, Modal, unir, useConfirmar } from './kit';
+import { AreaTexto, Aviso, Boton, Entrada, Modal, unir, useConfirmar } from './kit';
 import { numero, pesos } from '../lib/formato';
 import { cantidadDe, FaltaEnGondola, traerParecidos } from './FaltaEnGondola';
+import { CharlaPedido } from './CharlaPedido';
+import { nombrePropio, type MensajePedido } from './salon/comun';
+import { cuentaDePedidos, EVENTO_CUENTA, type CuentaPedidos } from './AvisoPedidoNuevo';
 
 // EL ARMADO A PANTALLA COMPLETA (Leandro, 5/11/2026: «una vez que tienen el
 // pedido se les abre en casi toda la pantalla; a medida que escanean se va
@@ -32,6 +35,8 @@ export type CambioArmado = {
 export type PedidoArmado = {
   id: string; codigo: string; canal?: string | null; cliente: string | null; notas: string | null; sucursal: string | null;
   asignadoEn: string; cargas: CargaArmado[]; items: ItemArmado[]; cambios?: CambioArmado[];
+  /** quién se lo asignó (a quién le pregunta) y la charla con la caja (21/11/2026) */
+  asignadoPorNombre?: string | null; mensajes?: MensajePedido[];
 };
 const ABIERTO = ['propuesto', 'en_cola', 'preguntado'];
 /** «2 × Manteca x 100 gr», «Manteca x 100 gr», «250 g de Jamón». */
@@ -110,10 +115,12 @@ function reloj(desde: string, ahora: number) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, enviar }: {
+export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onDevuelto, onCambio, enviar }: {
   p: PedidoArmado;
   ahora: number;
   onVolver: () => void;
+  /** «No lo puedo armar»: lo devolvió a la caja (con lo que se le dice después) */
+  onDevuelto?: (texto: string) => void;
   /** Finalizado: con el texto de a dónde va (mesa de retiro o salida) */
   onTerminado: (texto: string) => void;
   onCambio: () => Promise<void>;
@@ -132,6 +139,31 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   desconocidoRef.current = desconocido;
   const [verCarro, setVerCarro] = useState(false);
   const [terminando, setTerminando] = useState(false);
+  // DEVOLVER Y CONSULTAR (Juan Pablo, 20/11/2026: «si tienen que devolver un
+  // pedido… si le tienen que hacer una consulta a la persona que se los asignó,
+  // todo eso tiene que estar previsto desde la app»)
+  const [charla, setCharla] = useState(false);
+  const [devolver, setDevolver] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const [devolviendo, setDevolviendo] = useState(false);
+  const [errorDevolver, setErrorDevolver] = useState<string | null>(null);
+  // lo recién mandado se ve en el acto; después manda lo que trae el pedido
+  const [recienMandados, setRecienMandados] = useState<MensajePedido[] | null>(null);
+  useEffect(() => { setRecienMandados(null); }, [p.mensajes]);
+  const mensajes = recienMandados ?? p.mensajes ?? [];
+  const quienAsigno = nombrePropio(p.asignadoPorNombre).split(' ')[0] || 'la caja';
+  // Con el armado abierto, la pila de avisos de pedidos no lo tapa (cubría la
+  // cámara y estos botones): si entra un pedido nuevo, se dice en una franja
+  // propia. La alarma suena igual.
+  const [sinTomar, setSinTomar] = useState(0);
+  useEffect(() => {
+    document.documentElement.dataset.armadoAbierto = '1';
+    setSinTomar(cuentaDePedidos()?.sinTomar ?? 0);
+    const oir = (e: Event) => setSinTomar((e as CustomEvent<CuentaPedidos>).detail?.sinTomar ?? 0);
+    window.addEventListener(EVENTO_CUENTA, oir);
+    return () => { delete document.documentElement.dataset.armadoAbierto; window.removeEventListener(EVENTO_CUENTA, oir); };
+  }, []);
+  const respuestasSinVer = mensajes.filter((m) => m.lado === 'caja' && !m.vistoEn);
   const [camara, setCamara] = useState(true);
   const [codigo, setCodigo] = useState('');
   // el último que se escaneó: si son varios (12 latas), se escanea UNO y se
@@ -188,6 +220,15 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
   }, []);
   const avisarRef = useRef(avisar);
   avisarRef.current = avisar;
+
+  // la caja le escribió: suena, vibra y queda en la franja (una vez por mensaje)
+  const respuestasAvisadas = useRef(new Set<number>());
+  const ultimaSinVer = respuestasSinVer[respuestasSinVer.length - 1];
+  useEffect(() => {
+    if (!ultimaSinVer || respuestasAvisadas.current.has(ultimaSinVer.id)) return;
+    respuestasAvisadas.current.add(ultimaSinVer.id);
+    if (!charla) avisarRef.current('ok', `${nombrePropio(ultimaSinVer.deNombre).split(' ')[0] || 'La caja'} te escribió: «${ultimaSinVer.texto}»`);
+  }, [ultimaSinVer, charla]);
 
   // «Tengo parecido» (20/11/2026): lo propuesto, lo que espera al cliente y lo que contestó
   const cambios = useMemo(() => p.cambios ?? [], [p.cambios]);
@@ -406,6 +447,17 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     catch (e: any) { avisar('error', String(e?.message ?? 'No pude sacarlo')); }
   }
 
+  /** «No lo puedo armar»: vuelve a la caja con el motivo; lo cargado queda en el carro. */
+  async function devolverPedido() {
+    setDevolviendo(true); setErrorDevolver(null);
+    try {
+      const r = await enviar({ accion: 'devolver', pedidoId: p.id, motivo: motivo.trim() });
+      vibrar([80, 60, 80]);
+      const aQuien = nombrePropio(r?.avisado).split(' ')[0];
+      onDevuelto?.(`Devolviste el ${p.codigo}. ${aQuien ? `Le avisé a ${aQuien}` : 'La caja ya lo ve'}: se lo dan a otra persona.${r?.enCarro ? ' Lo que cargaste quedó en el carro.' : ''}`);
+    } catch (e: any) { setErrorDevolver(String(e?.message ?? 'No pude devolverlo')); setDevolviendo(false); }
+  }
+
   async function terminar() {
     if (faltan.length && !(await confirmar({
       titulo: `Faltan ${faltan.length} producto${faltan.length === 1 ? '' : 's'}`,
@@ -424,13 +476,13 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
 
   // el lector de mano escribe en el campo y manda Enter: que el foco vuelva solo
   useEffect(() => {
-    if (manual || falta) return;
+    if (manual || falta || charla || devolver) return;
     const t = setInterval(() => {
       const activo = document.activeElement;
       if (!activo || activo === document.body) lector.current?.focus({ preventScroll: true });
     }, 1200);
     return () => clearInterval(t);
-  }, [manual, falta]);
+  }, [manual, falta, charla, devolver]);
 
   async function leerFoto(archivo?: File | null) {
     if (!archivo) return;
@@ -451,7 +503,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
     }
   }
 
-  const cerrado = !!manual || terminando || leyendoFoto;
+  const cerrado = !!manual || terminando || leyendoFoto || charla || devolver;
   // las sugerencias de «Tengo parecido» del producto que falta (una función estable: la ventanita las pide al abrir)
   const faltaId = falta?.productoId ?? null;
   const parecidosDeLaFalta = useMemo(() => (faltaId ? (faltan: number) => traerParecidos(p.id, faltaId, faltan) : undefined), [p.id, faltaId]);
@@ -470,6 +522,25 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
         </div>
         <p className="importe text-4xl font-bold tabular-nums leading-none" aria-label="Tiempo desde que te lo asignaron">{reloj(p.asignadoEn, ahora)}</p>
       </header>
+
+      {/* una duda o no lo puede armar: siempre a la vista, sin salir del armado */}
+      <div className="flex gap-2 bg-tinta px-4 pb-3">
+        <button type="button" onClick={() => setCharla(true)}
+          className={unir('flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-white', respuestasSinVer.length ? 'bg-marca hover:bg-marca-hondo' : 'bg-white/10 hover:bg-white/20')}>
+          {respuestasSinVer.length > 0 && <span className="importe shrink-0 rounded-full bg-white px-1.5 text-xs font-bold leading-5 text-marca">{respuestasSinVer.length}</span>}
+          <span className="truncate">{respuestasSinVer.length ? `${quienAsigno === 'la caja' ? 'La caja' : quienAsigno} te escribió` : `Preguntarle a ${quienAsigno}`}</span>
+        </button>
+        <button type="button" onClick={() => { setErrorDevolver(null); setDevolver(true); }}
+          className="min-h-10 shrink-0 rounded-xl bg-white/10 px-3 text-sm font-semibold text-white/85 hover:bg-white/20">
+          No lo puedo armar
+        </button>
+      </div>
+      {sinTomar > 0 && (
+        <button type="button" onClick={onVolver} className="flex items-center justify-between gap-3 bg-marca px-4 py-2 text-left text-sm font-semibold text-white">
+          <span className="min-w-0">{sinTomar === 1 ? 'Entró un pedido nuevo y nadie lo tomó' : `Entraron ${sinTomar} pedidos nuevos y nadie los tomó`}</span>
+          <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-marca">Verlo</span>
+        </button>
+      )}
 
       {hayVersion && (
         <button type="button" onClick={() => window.location.reload()} className="bg-atencion-suave px-4 py-2 text-left text-sm font-semibold text-tinta">
@@ -615,6 +686,28 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, envi
       {manual && <CantidadEnCarro item={items.find((i) => i.productoId === manual.productoId) ?? manual} onCerrar={() => setManual(null)} onFijar={(total) => { const it = manual; setManual(null); fijar(it, total); }}
         onFalta={() => { const it = items.find((i) => i.productoId === manual.productoId) ?? manual; setManual(null); setFalta(it); }} />}
       {falta && <FaltaEnGondola item={falta} onCerrar={() => setFalta(null)} onListo={(d) => resolverFalta(falta, d)} buscarParecidos={parecidosDeLaFalta} conCliente pedida={falta.aclaracion ?? null} sugerencias={falta.variedades ?? []} />}
+      {charla && (
+        <Modal abierto ancho="chico" onCerrar={() => setCharla(false)} titulo={`Preguntarle a ${quienAsigno}`}
+          descripcion={`Sobre el ${p.codigo}. Le aparece en su pantalla y le llega por WhatsApp; lo que conteste lo ves acá.`}
+          pie={<Boton variante="secundario" onClick={() => setCharla(false)}>Seguir armando</Boton>}>
+          <CharlaPedido pedidoId={p.id} miLado="armado" mensajes={mensajes} otro={p.asignadoPorNombre ?? null} autoFoco
+            etiquetaCampo={`Tu pregunta para ${quienAsigno}`}
+            onCambio={(m) => { setRecienMandados(m); onCambio(); }} />
+        </Modal>
+      )}
+      {devolver && (
+        <Modal abierto ancho="chico" onCerrar={() => { if (!devolviendo) setDevolver(false); }} bloquearCierre={devolviendo} titulo="¿No lo podés armar?"
+          descripcion={`El ${p.codigo} vuelve a la caja para que se lo den a otra persona.${cargas.length ? ' Lo que ya cargaste queda en el carro: el que siga lo ve hecho.' : ''}`}
+          pie={<>
+            <Boton variante="secundario" onClick={() => setDevolver(false)} disabled={devolviendo}>Seguir armando</Boton>
+            <Boton variante="peligro" onClick={devolverPedido} cargando={devolviendo} disabled={motivo.trim().length < 3}>Devolver el pedido</Boton>
+          </>}>
+          <label htmlFor="motivo-devolver" className="block text-sm font-semibold text-tinta">¿Por qué?</label>
+          <AreaTexto id="motivo-devolver" rows={2} autoFocus value={motivo} maxLength={300} onChange={(e) => setMotivo(e.target.value)} className="mt-1.5 min-h-16" />
+          <p className="mt-2 text-xs text-tinta/60">Le llega a {quienAsigno} con lo que escribas. Si es una duda y lo podés seguir armando, mejor preguntale.</p>
+          {errorDevolver && <Aviso tono="error" className="mt-3">{errorDevolver}</Aviso>}
+        </Modal>
+      )}
       {desconocido && (
         <Modal abierto onCerrar={() => { callados.current.set(desconocido, Date.now() + 30_000); setDesconocido(null); }} ancho="chico" titulo="Ese código no está en el sistema"
           descripcion={`Leí ${desconocido}. Si es uno de estos, tocalo: va al carro y el código queda guardado para la próxima vez (y para la caja).`}

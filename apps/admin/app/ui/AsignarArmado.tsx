@@ -37,6 +37,22 @@ export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: ()
     finally { setOcupado(false); }
   }
 
+  // «SACÁRSELO» (21/11/2026): el pedido queda sin quién lo arme (a quien lo tenía
+  // le llega «YA NO LO ARMÁS» y se le va de la pantalla). Lo cargado queda en el carro.
+  async function sacar() {
+    setOcupado(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/salon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'devolver', pedidoId: p.id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.message ?? 'No se pudo sacar la asignación');
+      setRecien(null);
+      setElegido('');
+      onAsignado();
+    } catch (e: any) { setError(e.message); }
+    finally { setOcupado(false); }
+  }
+
   const nombre = recien ?? p.asignadoNombre ?? null;
   return (
     <section aria-label="Quién lo arma" className="space-y-2 rounded-xl border border-black/[0.08] bg-crema-claro p-3">
@@ -59,9 +75,16 @@ export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: ()
       </div>
       {error && <Aviso tono="error">{error}</Aviso>}
       {nombre && (
-        <Boton tamano="chico" variante="secundario" onClick={() => imprimirComanda({ ...p, asignadoNombre: nombre })}>
-          Imprimir comanda para {nombre.split(' ')[0]}
-        </Boton>
+        <div className="flex flex-wrap gap-2">
+          <Boton tamano="chico" variante="secundario" onClick={() => imprimirComanda({ ...p, asignadoNombre: nombre })}>
+            Imprimir comanda para {nombre.split(' ')[0]}
+          </Boton>
+          {(p.asignado_a || recien) && (
+            <Boton tamano="chico" variante="fantasma" onClick={sacar} disabled={ocupado} title="Queda sin quién lo arme, para dárselo después a otra persona">
+              Sacárselo
+            </Boton>
+          )}
+        </div>
       )}
     </section>
   );

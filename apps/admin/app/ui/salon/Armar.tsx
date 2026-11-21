@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { numero } from '../../lib/formato';
-import { codigoDe, entregaDe, haceCuanto, type PedidoCola } from '../../lib/pedidos';
+import { codigoDe, entregaDe, haceCuanto, type PedidoCola as PedidoDeLaCola } from '../../lib/pedidos';
 import { ArmadoPantalla } from '../ArmadoPantalla';
 import { AsignarArmado } from '../AsignarArmado';
 import { Aviso, Boton, BotonLink, Chips, FOCO, FOCO_ADENTRO, Modal, ROTULO, Tarjeta, unir } from '../kit';
 import { CLAVE_VINE_DE } from '../AvisoTeTocaArmar';
 import { Recorrido } from './Recorrido';
 import {
-  api, avance, iniciales, MIN_ARRANQUE_TARDE, nombrePropio, reloj, sucursalCorta, useAhora, type PedidoArmar, type Sucursal,
+  api, avance, iniciales, MIN_ARRANQUE_TARDE, nombrePropio, reloj, sucursalCorta, useAhora, type NovedadesDeArmado, type PedidoArmar, type Sucursal,
 } from './comun';
+
+/** El pedido de la cola, con lo que trae del armado (devuelto, pregunta sin ver). */
+type PedidoCola = PedidoDeLaCola & NovedadesDeArmado;
 
 // ARMAR PEDIDOS (rediseño del 17/11/2026; Leandro: «pantalla digna, hoy es una
 // poronga»). Para el que manda en el salón (dueño, gerente, caja, depósito) es
@@ -41,12 +44,17 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
   const [abierto, setAbierto] = useState<string | null>(null);
   // los que cerró a mano no se le vuelven a abrir solos
   const cerrados = useRef(new Set<string>());
-  const [finalizado, setFinalizado] = useState<string | null>(null);
+  // lo recién finalizado: el cartel y de qué pedido es, para poder deshacerlo
+  const [finalizado, setFinalizado] = useState<{ texto: string; pedidoId: string } | null>(null);
+  const [deshaciendo, setDeshaciendo] = useState(false);
+  // «No lo puedo armar»: lo que se le dice después de devolverlo (21/11/2026)
+  const [devuelto, setDevuelto] = useState<string | null>(null);
   // terminado el pedido, la pantalla vuelve a quedar libre (Leandro, 20/11/2026:
   // «que le salga de su pantalla, que le quede libre de vuelta, que no le quede cargada»)
   useEffect(() => {
     if (!finalizado) return;
-    const t = setTimeout(() => setFinalizado(null), 12_000);
+    // 20 s (eran 12): es el rato que tiene para «Deshacer» si lo finalizó sin querer
+    const t = setTimeout(() => setFinalizado(null), 20_000);
     return () => clearTimeout(t);
   }, [finalizado]);
   // LOS QUE LE SACARON (20/11/2026: «lo cambié pero a él no le llegó una alerta
@@ -105,10 +113,38 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
       p={actual}
       ahora={ahora}
       onVolver={() => { cerrados.current.add(actual.id); setAbierto(null); }}
-      onTerminado={(texto) => { cerrados.current.add(actual.id); terminados.current.add(actual.id); setAbierto(null); setFinalizado(texto); }}
+      onTerminado={(texto) => { cerrados.current.add(actual.id); terminados.current.add(actual.id); setAbierto(null); setDevuelto(null); setFinalizado({ texto, pedidoId: actual.id }); }}
+      onDevuelto={(texto) => { cerrados.current.add(actual.id); terminados.current.add(actual.id); setAbierto(null); setFinalizado(null); setDevuelto(texto); cargar(); }}
       onCambio={cargar}
       enviar={(cuerpo) => api('POST', cuerpo)}
     />
+  );
+  // «LO FINALICÉ SIN QUERER» (Juan Pablo, 20/11/2026: «si tienen que deshacer
+  // algo»): vuelve de Listos a En preparación y se le abre de nuevo. Pasado el
+  // cartel, lo vuelve atrás la caja desde Pedidos.
+  async function deshacerFinalizado() {
+    if (!finalizado) return;
+    const id = finalizado.pedidoId;
+    setDeshaciendo(true);
+    try {
+      await api('POST', { accion: 'reabrir', pedidoId: id });
+      cerrados.current.delete(id); terminados.current.delete(id);
+      setFinalizado(null);
+      await cargar();
+    } catch (e: any) { setError(e.message); }
+    finally { setDeshaciendo(false); }
+  }
+  const avisoFinalizado = finalizado && (
+    <Aviso tono="ok" titulo="¡Listo!" accion={<>
+      {volverACaja}
+      <Boton tamano="chico" variante="fantasma" onClick={deshacerFinalizado} cargando={deshaciendo}>Lo finalicé sin querer</Boton>
+    </>}>{finalizado.texto}</Aviso>
+  );
+  const avisoDevuelto = devuelto && (
+    <Aviso tono="info" titulo="Pedido devuelto" accion={<>
+      {volverACaja}
+      <Boton tamano="chico" variante="secundario" onClick={() => setDevuelto(null)}>Entendido</Boton>
+    </>}>{devuelto}</Aviso>
   );
   const avisoSacados = sacados.length > 0 && (
     <Aviso tono="atencion" titulo={sacados.length === 1 ? `Ya no armás el ${sacados[0]}` : `Ya no armás ${sacados.length} pedidos: ${sacados.join(', ')}`}
@@ -122,7 +158,8 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
       <div className="space-y-3">
         {pantalla}
         {avisoSacados}
-        {finalizado && <Aviso tono="ok" titulo="¡Listo!" accion={volverACaja}>{finalizado}</Aviso>}
+        {avisoFinalizado}
+        {avisoDevuelto}
         {error && <Aviso tono="error">{error}</Aviso>}
         {pedidos === null && !error && <p className="text-sm text-tinta/60">Buscando tus pedidos…</p>}
         {pedidos?.length === 0 && (
@@ -130,7 +167,7 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
             <div>
               <p className="text-base font-bold text-tinta">No tenés pedidos para armar</p>
               <p className="mt-1 text-sm text-tinta/70">Cuando la caja te asigne uno, se abre solo y el celular vibra.</p>
-              {vinoDeCaja && !finalizado && <div className="mt-3">{volverACaja}</div>}
+              {vinoDeCaja && !finalizado && !devuelto && <div className="mt-3">{volverACaja}</div>}
             </div>
             <div className="border-t border-black/[0.06] pt-4">
               <p className="text-sm text-tinta">Mientras tanto, cargá dónde está cada producto: así la lista de armado sale en el orden en que caminás el salón.</p>
@@ -149,6 +186,8 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
     <>
       {pantalla}
       {avisoSacados}
+      {avisoFinalizado && <div className="mb-4">{avisoFinalizado}</div>}
+      {avisoDevuelto && <div className="mb-4">{avisoDevuelto}</div>}
       {/* lo que tiene a su nombre va primero, antes que la sala de control */}
       {mios.length > 0 && (
         <Seccion id="salon-mios" color="dato-3" titulo={mios.length === 1 ? 'Te toca armar este pedido' : 'Te toca armar estos pedidos'} cuenta={mios.length}
@@ -159,16 +198,16 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
         </Seccion>
       )}
       <SalaDeControl pedidos={pedidos} error={error} ahora={ahora} sucursales={sucursales} onCuenta={onCuenta} recargar={cargar}
-        onVer={(id) => { cerrados.current.delete(id); setAbierto(id); }} finalizado={finalizado} irAStock={irAStock} />
+        onVer={(id) => { cerrados.current.delete(id); setAbierto(id); }} irAStock={irAStock} />
     </>
   );
 }
 
 // ───────────────────────── la sala de control ─────────────────────────
 
-function SalaDeControl({ pedidos, error, ahora, sucursales, onCuenta, recargar, onVer, finalizado, irAStock }: {
+function SalaDeControl({ pedidos, error, ahora, sucursales, onCuenta, recargar, onVer, irAStock }: {
   pedidos: PedidoArmar[] | null; error: string | null; ahora: number; sucursales: Sucursal[];
-  onCuenta: (n: number) => void; recargar: () => void; onVer: (id: string) => void; finalizado: string | null; irAStock: () => void;
+  onCuenta: (n: number) => void; recargar: () => void; onVer: (id: string) => void; irAStock: () => void;
 }) {
   const [cola, setCola] = useState<PedidoCola[] | null>(null);
   const [gente, setGente] = useState<Preparador[] | null>(null);
@@ -242,7 +281,6 @@ function SalaDeControl({ pedidos, error, ahora, sucursales, onCuenta, recargar, 
           linea={resumen ? `${numero(resumen.pedidos)} pedidos${resumen.arranque != null ? ` · arrancan en ${numero(resumen.arranque, 1)} min` : ''}` : tiempos ? 'Todavía nadie terminó uno con el celular' : ''} />
       </div>
 
-      {finalizado && <Aviso tono="ok" titulo="¡Listo!">{finalizado}</Aviso>}
       {error && <Aviso tono="error">{error}</Aviso>}
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -421,6 +459,10 @@ function PedidoEsperando({ p, ahora, onAsignar }: { p: PedidoCola; ahora: number
           <a href={`/pedidos?pedido=${p.id}`} className={unir('importe truncate text-sm font-semibold text-tinta underline-offset-2 hover:underline', FOCO)}>{codigoDe(p)}</a>
         </div>
         <p className="truncate text-sm text-tinta/70">{p.clienteNombre || 'Cliente sin nombre'} · {entregaDe(p)}</p>
+        {/* quien lo armaba dijo «No lo puedo armar» (21/11/2026) */}
+        {p.devuelto && (
+          <p className="mt-0.5 text-xs font-semibold text-marca-hondo">Lo devolvió {nombrePropio(p.devuelto.porNombre).split(' ')[0] || 'quien lo armaba'}: «{p.devuelto.motivo ?? 'sin motivo'}»</p>
+        )}
       </div>
       <span className="w-24 shrink-0 text-sm text-tinta/70">{items.length} {items.length === 1 ? 'producto' : 'productos'}</span>
       <span className={unir('w-36 shrink-0 whitespace-nowrap text-sm', min >= 15 ? 'font-semibold text-marca-hondo' : 'text-tinta/70')}>entró {haceCuanto(p.creado_en, ahora)}</span>

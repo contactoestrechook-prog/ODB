@@ -7,11 +7,12 @@ import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrad
 import { cuandoLegible } from '../comun/cuando';
 import { hayWhatsapp, Lineas, sesionDeAvisos, wahaUrlDe } from '../comun/lineas';
 import {
-  A_QUIEN_ARMA, codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
+  A_QUIEN_ARMA, CON_TEXTO_ARMADO, codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
   textoDeAsignado, textoDelAviso, textoDePagado, textoDeSacado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
 import { aclaracionDe, aclaracionesDeNotas, sinAclaraciones } from '../comun/aclaraciones';
+import { enHorarioDeMensajes } from '../reemplazos/reemplazos';
 
 // TODA CONFIRMACIÓN DE PEDIDO SALE AL TELÉFONO DE ADMINISTRACIÓN (regla de
 // Leandro, 3/10/2026). El 3/10 el bot confirmó PICKUP-5F2451C6C111 y no se le
@@ -231,10 +232,24 @@ export class AvisosPedidosService {
       const pedido = a.pedido_id ? await this.pedidoParaAviso(a.pedido_id) : null;
       if (!pedido) return this.fallo(a, 'no encontré el pedido', false);
       cabeza = encabezado(a.tipo, codigoDe(pedido));
-      if (a.tipo === 'cambios_respondidos') {
-        // lo que contestó el cliente a los «Tengo parecido» (20/11/2026): el texto viene armado
+      if (CON_TEXTO_ARMADO.includes(a.tipo)) {
+        // lo que contestó el cliente a los «Tengo parecido» (20/11/2026) y lo que se
+        // dicen quien arma y la caja (21/11/2026): el texto viene armado
         if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return this.omitir(a, `el pedido ya está ${pedido.estado}`);
-        texto = String(a.detalle?.texto ?? '').trim() || `${cabeza}\nEl cliente contestó los cambios: miralos en el sistema.`;
+        // de 22 a 8 no se le escribe a nadie (regla del 18/11/2026): sale a las 8
+        if (a.tipo !== 'cambios_respondidos' && !enHorarioDeMensajes()) {
+          await this.actualizar(a.id, { tomado_hasta: null, intentos: Math.max(0, a.intentos - 1), proximo_intento: new Date(Date.now() + 10 * 60_000).toISOString() });
+          return;
+        }
+        // devolvió el pedido y ya se lo asignaron a otra persona: no hay nada que pedirle a la caja
+        if (a.tipo === 'armado_devuelto') {
+          const { data: asig } = await this.db.from('pedidos').select('asignado_a').eq('id', pedido.id).maybeSingle();
+          if ((asig as any)?.asignado_a) return this.omitir(a, 'ya se lo asignaron a otra persona');
+        }
+        texto = String(a.detalle?.texto ?? '').trim() || `${cabeza}\n${a.tipo === 'cambios_respondidos' ? 'El cliente contestó los cambios' : 'Hay una novedad del armado'}: miralo en el sistema.`;
+        // cada mensaje de la charla trae su propio encabezado («… · mensaje 3»): antes
+        // de reintentar se busca ESE en el chat, no uno anterior del mismo pedido
+        if (a.tipo !== 'cambios_respondidos') cabeza = texto.split('\n')[0].trim();
       } else if (a.tipo === 'armado_sacado') {
         // al que le sacaron el pedido (20/11/2026): si mientras tanto se lo
         // devolvieron, o ya se entregó, no hay nada que avisar

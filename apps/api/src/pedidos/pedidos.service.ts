@@ -1,11 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { rolesDe } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
-import { transicionValida } from './transiciones';
+import { esPasoAtras, motivoSinPasoAtras, pasoAtras, transicionValida } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
@@ -747,7 +747,8 @@ export class PedidosService {
       .from('pedidos')
       .select(
         `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja, sucursal_id,
-         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en, reserva_stock,
+         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, asignado_por, armado_terminado_en, reserva_stock,
+         devuelto_por, devuelto_en, devuelto_motivo,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),
          items:pedidos_items(producto_id, cantidad, precio_unitario, reservado, producto:productos(sku, nombre))`,
@@ -764,6 +765,13 @@ export class PedidosService {
     const stock = seArman.length
       ? await stockDe(this.db, seArman.flatMap((p) => ((p.items ?? []) as any[]).map((i) => String(i.producto_id)))).catch(() => null)
       : null;
+    // lo que quien arma le escribió a la caja y nadie vio todavía (21/11/2026)
+    const sinVer = new Map<string, { n: number; ultimo: string }>();
+    if (seArman.length) {
+      const { data: msjs } = await this.db.from('pedidos_mensajes').select('pedido_id, texto')
+        .in('pedido_id', seArman.map((p) => p.id)).eq('lado', 'armado').is('visto_en', null).order('creado_en');
+      for (const m of (msjs ?? []) as any[]) sinVer.set(String(m.pedido_id), { n: (sinVer.get(String(m.pedido_id))?.n ?? 0) + 1, ultimo: String(m.texto) });
+    }
     const sinStockDe = (p: any) => stock && seArman.includes(p)
       ? faltasEnSistema(((p.items ?? []) as any[]).map((i) => ({
           productoId: String(i.producto_id), nombre: String(i.producto?.nombre ?? 'Producto'), cantidad: Number(i.cantidad),
@@ -790,6 +798,13 @@ export class PedidosService {
       repartidorNombre: p.repartidor_id ? nombres.get(String(p.repartidor_id)) ?? null : null,
       // quién lo arma (op salón, 5/11/2026): lo asigna la caja al imprimir la comanda
       asignadoNombre: p.asignado_a ? nombres.get(String(p.asignado_a)) ?? null : null,
+      asignadoPorNombre: p.asignado_por ? nombres.get(String(p.asignado_por)) ?? null : null,
+      // quien lo armaba dijo «No lo puedo armar» y todavía no tiene otro armador (21/11/2026)
+      devuelto: p.devuelto_en && !p.asignado_a && seArman.includes(p)
+        ? { porNombre: p.devuelto_por ? nombres.get(String(p.devuelto_por)) ?? null : null, motivo: p.devuelto_motivo ?? null, en: p.devuelto_en }
+        : null,
+      // lo que le preguntó quien arma y nadie de la caja vio
+      consultaSinVer: sinVer.get(String(p.id)) ?? null,
       minutosArmado: p.asignado_en && p.armado_terminado_en
         ? Math.max(0, Math.round((new Date(p.armado_terminado_en).getTime() - new Date(p.asignado_en).getTime()) / 60000))
         : null,
@@ -812,15 +827,76 @@ export class PedidosService {
     return data;
   }
 
+  // «Soltarlo»: deshace el «Lo tomo» (Juan Pablo, 20/11/2026: «si tienen que
+  // deshacer algo… tiene que estar previsto desde la app»). El pedido vuelve a
+  // quedar sin tomar: la ventana «Llegó un pedido» y la alarma suenan de nuevo en
+  // las cajas. Solo mientras nadie lo empezó a preparar; lo suelta quien lo tomó
+  // (o un encargado).
+  async soltar(pedidoId: string, quien: { sub?: string; rol?: string; roles?: unknown }) {
+    if (!quien?.sub) throw new BadRequestException('No sé quién sos: volvé a entrar al sistema');
+    const { data: p, error } = await this.db.from('pedidos').select('id, estado, tomado_por, asignado_a').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!p) throw new BadRequestException('No existe el pedido');
+    if (!(p as any).tomado_por) return { ok: true, yaEstabaSuelto: true };
+    if (!['recibido', 'pagado'].includes((p as any).estado) || (p as any).asignado_a) {
+      throw new BadRequestException('Ese pedido ya se está preparando: no se suelta. Si lo sigue otra persona, cambiá quién lo arma.');
+    }
+    const manda = rolesDe(quien).some((r) => r === 'dueno' || r === 'gerente');
+    if ((p as any).tomado_por !== quien.sub && !manda) {
+      const nombres = await this.nombresDelEquipo();
+      throw new ForbiddenException(`Lo tomó ${nombres.get(String((p as any).tomado_por)) ?? 'otra persona'}: lo suelta esa persona o un encargado.`);
+    }
+    const ahora = new Date().toISOString();
+    const { data: filas, error: e2 } = await this.db.from('pedidos')
+      .update({ tomado_por: null, tomado_en: null, cambio_por: quien.sub, cambio_en: ahora })
+      .eq('id', pedidoId).eq('tomado_por', (p as any).tomado_por).in('estado', ['recibido', 'pagado']).select('id');
+    if (e2) throw new BadRequestException(e2.message);
+    if (!filas?.length) throw new BadRequestException('El pedido cambió mientras tanto: actualizá la pantalla');
+    await this.db.from('pedidos_historial').insert({ pedido_id: pedidoId, evento: 'soltado', estado_despues: (p as any).estado, usuario_id: quien.sub })
+      .then(() => null, () => null);
+    return { ok: true };
+  }
+
+  // UN PASO ATRÁS: un «listo» o un «salió» marcados por error (ver pasoAtras).
+  // No toca stock ni plata. Al cliente NO se le escribe solo: si ya le llegó el
+  // WhatsApp de que estaba listo o en camino, se le dice a quien lo deshace para
+  // que le avise.
+  async deshacer(pedidoId: string, usuarioId?: string) {
+    const { data: p, error } = await this.db.from('pedidos')
+      .select('id, estado, canal, qr_retiro, contacto_telefono, cliente:clientes(telefono)').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!p) throw new BadRequestException('No existe el pedido');
+    const antes = String((p as any).estado);
+    const atras = pasoAtras(antes);
+    if (!atras) throw new BadRequestException(motivoSinPasoAtras(antes));
+    const ahora = new Date().toISOString();
+    const { data: filas, error: e2 } = await this.db.from('pedidos')
+      .update({
+        estado: atras,
+        ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
+        // se borra la hora del paso deshecho: la eficiencia y «lo armó en N min» salen de ahí
+        ...(antes === 'listo' ? { listo_en: null, armado_terminado_en: null } : { en_camino_en: null }),
+      })
+      .eq('id', pedidoId).eq('estado', antes).select('id');
+    if (e2) throw new BadRequestException(e2.message);
+    if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
+    const telefono = (p as any).cliente?.telefono || (p as any).contacto_telefono;
+    // ¿el cliente recibió el aviso del paso que se deshace? (solo si hay a dónde y por dónde)
+    const clienteAvisado = !!telefono && hayWhatsapp() && !!avisoAlCliente(p as any, antes);
+    return { estado: atras, antes, clienteAvisado };
+  }
+
   // Todo lo que pasó con un pedido, con quién y cuándo: el historial de la base
   // (cada cambio de estado, quién lo tomó, el repartidor, el pago) más los
   // WhatsApp a administración (cuándo salió, cuándo llegó, quién marcó "Ya avisé").
   async historial(pedidoId: string) {
-    const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }] = await Promise.all([
+    const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }, { data: mensajes }] = await Promise.all([
       this.db.from('pedidos_historial').select('evento, estado_antes, estado_despues, usuario_id, detalle, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
       this.db.from('avisos_pedidos').select('tipo, estado, enviado_en, entregado_en, visto_en, visto_por, escalado_en, motivo, detalle').eq('pedido_id', pedidoId),
       this.nombresDelEquipo(),
       this.db.from('pedidos').select('origen, qr_retiro, canal').eq('id', pedidoId).maybeSingle(),
+      // lo que se escribieron quien arma y la caja (21/11/2026)
+      this.db.from('pedidos_mensajes').select('de, lado, texto, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
     ]);
     if (error) throw new BadRequestException(error.message);
     const origenPedido = pedido ? origenDe(pedido as any) : null;
@@ -835,6 +911,11 @@ export class PedidosService {
       } else if (h.evento === 'estado') {
         // el pago por Mercado Pago ya tiene su línea (evento 'pago')
         if (h.estado_despues === 'pagado') continue;
+        // un paso atrás (21/11/2026): se dice qué se deshizo, no «En preparación» a secas
+        if (esPasoAtras(String(h.estado_antes), String(h.estado_despues))) {
+          lineas.push({ cuando: h.creado_en, que: h.estado_antes === 'en_camino' ? 'Deshizo «Salió»: el pedido volvió a Listos' : 'Deshizo «Listo»: el pedido volvió a En preparación', quien: quien(h.usuario_id), tono: 'atencion' });
+          continue;
+        }
         lineas.push({ cuando: h.creado_en, que: ETIQUETA_ESTADO[String(h.estado_despues)] ?? String(h.estado_despues), quien: quien(h.usuario_id) ?? (h.estado_despues === 'pagado' ? 'Mercado Pago' : null), tono: h.estado_despues === 'cancelado' ? 'error' : h.estado_despues === 'entregado' ? 'ok' : 'neutro', reconstruido });
       } else if (h.evento === 'repartidor') {
         lineas.push({ cuando: h.creado_en, que: h.detalle?.repartidor ? `Repartidor: ${h.detalle.repartidor}` : 'Se sacó el repartidor', quien: quien(h.usuario_id), tono: 'neutro' });
@@ -849,15 +930,30 @@ export class PedidosService {
         // un código que el sistema no conocía, asociado al armar (20/11/2026)
         const d = h.detalle ?? {};
         lineas.push({ cuando: h.creado_en, que: `${d.aprendido ? 'Se aprendió el código' : 'Se usó el código'} ${d.codigo ?? ''} para ${d.producto ?? 'un producto'}`, quien: quien(h.usuario_id), tono: 'neutro' });
+      } else if (h.evento === 'devuelto') {
+        // quien lo armaba lo devolvió, o la caja le sacó el armado (21/11/2026)
+        const d = h.detalle ?? {};
+        lineas.push({ cuando: h.creado_en, que: d.por_caja ? `Le sacó el armado a ${d.de ?? 'quien lo armaba'}: quedó sin armador` : `Devolvió el pedido sin armar: «${d.motivo ?? 'sin motivo'}»`, quien: quien(h.usuario_id), tono: 'atencion' });
+      } else if (h.evento === 'soltado') {
+        lineas.push({ cuando: h.creado_en, que: 'Lo soltó: el pedido volvió a quedar sin tomar', quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
       } else if (h.evento === 'envio') {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeEnvio(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       }
     }
+    for (const m of (mensajes ?? []) as any[]) {
+      lineas.push({ cuando: m.creado_en, que: `${m.lado === 'armado' ? 'Preguntó mientras armaba' : 'Le escribió a quien arma'}: «${String(m.texto).slice(0, 300)}»`, quien: quien(m.de), tono: 'info' });
+    }
     const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
     for (const a of (avisos ?? []) as any[]) {
       // el aviso a quien lo arma va a su celular, no a administración (16/11/2026)
+      // lo que se dicen quien arma y la caja ya está arriba, mensaje por mensaje (21/11/2026)
+      if (a.tipo === 'consulta_armado' || a.tipo === 'respuesta_armado') continue;
+      if (a.tipo === 'armado_devuelto') {
+        if (a.entregado_en || a.enviado_en) lineas.push({ cuando: a.entregado_en ?? a.enviado_en, que: `Le llegó por WhatsApp a ${a.detalle?.nombre ? String(a.detalle.nombre) : 'quien lo asignó'} que devolvieron el pedido`, quien: null, tono: 'neutro' });
+        continue;
+      }
       if (a.tipo === 'pedido_asignado' || a.tipo === 'cambios_respondidos' || a.tipo === 'armado_sacado') {
         const a_quien = a.detalle?.nombre ? String(a.detalle.nombre) : 'quien lo arma';
         if (a.tipo === 'armado_sacado') {

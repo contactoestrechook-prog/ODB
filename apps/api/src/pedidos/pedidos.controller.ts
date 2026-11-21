@@ -139,6 +139,22 @@ export class PedidosController {
     return this.pedidos.tomar(id, req.usuario?.sub);
   }
 
+  // «Soltarlo»: deshace el «Lo tomo» (21/11/2026). Vuelve a sonar en las cajas.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/soltar')
+  soltar(@Param('id') id: string, @Req() req: any) {
+    if (soloArma(req.usuario)) throw new ForbiddenException('Los pedidos los toma y los suelta la caja');
+    return this.pedidos.soltar(id, req.usuario ?? {});
+  }
+
+  // Un paso atrás: un «listo» o un «salió» marcados por error (21/11/2026).
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/deshacer')
+  deshacer(@Param('id') id: string, @Req() req: any) {
+    if (soloArma(req.usuario)) throw new ForbiddenException('Eso lo vuelve atrás la caja. Si lo finalizaste sin querer, usá «Deshacer» apenas lo terminás.');
+    return this.pedidos.deshacer(id, req.usuario?.sub);
+  }
+
   // Quién hizo cada cosa con el pedido, y cuándo.
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('pedidos/:id/historial')

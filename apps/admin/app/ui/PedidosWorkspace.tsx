@@ -5,7 +5,7 @@ import { numero, pesos as pesosFmt } from '../lib/formato';
 import { textoVisible } from '../lib/texto';
 import {
   cantidadLegible, codigoDe, entregaDe, esDomicilio, ESTADOS, haceCuanto, linkWhatsapp, origenDe, pideMedioAlEntregar, siguientePaso, sinTomar,
-  telefonoLegible, type PedidoCola,
+  telefonoLegible, type PedidoCola as PedidoDeLaCola,
 } from '../lib/pedidos';
 import { BotonMicrofono } from './BotonMicrofono';
 import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
@@ -19,6 +19,11 @@ import { imprimirComanda } from '../lib/comanda';
 import { ComandasEstaPc } from './ComandasEstaPc';
 import { AsignarArmado } from './AsignarArmado';
 import { CharlasDeWhatsapp, paraRevisar, useCharlas } from './CharlasDeWhatsapp';
+import { CharlaPedido } from './CharlaPedido';
+import { nombrePropio, type NovedadesDeArmado } from './salon/comun';
+
+/** El pedido de la cola, con lo que trae del armado (devuelto, pregunta sin ver). */
+type PedidoCola = PedidoDeLaCola & NovedadesDeArmado;
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 // Las cifras de arriba, igual que en Aprobaciones: rótulo chico y número grande.
@@ -118,6 +123,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
   const [terminados, setTerminados] = useState<PedidoCola[] | null>(null);
   const [filtro, setFiltro] = useState('todos');
   const [aviso, setAviso] = useState('');
+  // lo que hay que saber después de deshacer un paso (no es un error)
+  const [nota, setNota] = useState('');
   const [wa, setWa] = useState(false);
   const [abierto, setAbierto] = useState<PedidoCola | null>(null);
   // «¿Quién lo arma?» desde la tarjeta, sin abrir el detalle (5/11/2026)
@@ -209,6 +216,38 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
     setTrabajando(null);
   }
 
+  // DESHACER (Juan Pablo, 20/11/2026: «si tienen que deshacer algo… tiene que
+  // estar previsto desde la app»). Soltar un pedido tomado por error, y volver un
+  // paso atrás un «listo» o un «salió». Lo entregado se devuelve en la Caja.
+  async function soltar(p: PedidoCola) {
+    const ok = await confirmar({
+      titulo: `¿Soltar el pedido ${codigoDe(p)}?`,
+      texto: 'Vuelve a quedar sin tomar: la ventana «Llegó un pedido» y la alarma suenan de nuevo en las cajas hasta que alguien lo tome.',
+      textoConfirmar: 'Soltarlo', textoCancelar: 'Volver',
+    });
+    if (!ok) return;
+    setTrabajando(p.id); setNota('');
+    await post({ accion: 'soltar', pedidoId: p.id });
+    setTrabajando(null);
+  }
+  async function deshacer(p: PedidoCola) {
+    const salio = p.estado === 'en_camino';
+    const ok = await confirmar({
+      titulo: salio ? `¿El pedido ${codigoDe(p)} no salió?` : `¿Volver ${codigoDe(p)} a En preparación?`,
+      texto: salio
+        ? 'Vuelve a Listos, con el mismo repartidor puesto. No cambia el stock ni se cobra nada.'
+        : `Vuelve a En preparación${p.asignadoNombre ? ` y le aparece de nuevo a ${nombrePropio(p.asignadoNombre).split(' ')[0]} para seguir armándolo` : ''}. No cambia el stock ni se cobra nada.`,
+      textoConfirmar: salio ? 'No salió: a Listos' : 'Volver a En preparación', textoCancelar: 'Dejarlo así',
+    });
+    if (!ok) return;
+    setTrabajando(p.id); setNota('');
+    const d = await post({ accion: 'deshacer', pedidoId: p.id });
+    setTrabajando(null);
+    if (!d) return;
+    if (salio) { setVista('curso'); cargarTerminados(); }
+    if (d.clienteAvisado) setNota(`Al cliente ya le había llegado el WhatsApp de que su pedido ${salio ? 'estaba en camino' : 'estaba listo'}: avisale vos que todavía no. Cuando ${salio ? 'salga' : 'esté listo'} de verdad, le llega de nuevo.`);
+  }
+
   async function cancelar(p: PedidoCola) {
     const ok = await confirmar({
       titulo: `¿Cancelar el pedido ${codigoDe(p)}?`,
@@ -272,6 +311,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
       </div>
 
       {aviso && <Aviso tono="error" accion={<Boton tamano="chico" variante="secundario" onClick={() => setAviso('')}>Entendido</Boton>}>{aviso}</Aviso>}
+      {nota && <Aviso tono="atencion" titulo="Paso deshecho" accion={<Boton tamano="chico" variante="secundario" onClick={() => setNota('')}>Entendido</Boton>}>{nota}</Aviso>}
 
       {vista === 'charlas' ? (
         <CharlasDeWhatsapp
@@ -356,6 +396,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
           onTomar={() => tomar(abierto)}
           onAvanzar={(estado) => avanzar(abierto, estado)}
           onCancelar={() => cancelar(abierto)}
+          onSoltar={() => soltar(abierto)}
+          onDeshacer={() => deshacer(abierto)}
           onAsignado={async () => {
             const r = await fetch('/api/pedidos', { cache: 'no-store' }).catch(() => null);
             if (r?.ok) { const d = await r.json(); if (Array.isArray(d)) { setPedidos(d); const nuevo = d.find((x: PedidoCola) => x.id === abierto.id); if (nuevo) setAbierto(nuevo); } }
@@ -469,6 +511,17 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }
           <span className="shrink-0 text-xs font-semibold text-tinta/60">{p.asignadoNombre ? 'Cambiar' : 'Asignar'}</span>
         </button>
       )}
+      {/* quien lo armaba lo devolvió, o pregunta algo (21/11/2026) */}
+      {seArma && p.devuelto && (
+        <p className="mt-2 rounded-lg bg-marca-suave px-2.5 py-1.5 text-xs leading-snug text-marca-hondo">
+          <b className="font-semibold">Lo devolvió {nombrePropio(p.devuelto.porNombre).split(' ')[0] || 'quien lo armaba'}:</b> «{p.devuelto.motivo ?? 'sin motivo'}». Dáselo a otra persona.
+        </p>
+      )}
+      {seArma && p.consultaSinVer && (
+        <button type="button" onClick={onAbrir} className={unir('mt-2 block w-full rounded-lg bg-tinta px-2.5 py-1.5 text-left text-xs leading-snug text-white hover:bg-tinta-2', FOCO)}>
+          <b className="font-semibold">{nombrePropio(p.asignadoNombre).split(' ')[0] || 'Quien lo arma'} pregunta:</b> «{p.consultaSinVer.ultimo}» · Contestar
+        </button>
+      )}
       {p.estado === 'listo' && !esDomicilio(p) && (
         <p className="mt-3 rounded-xl bg-ok px-3 py-2 text-sm font-semibold text-white">
           En la mesa de retiro{p.asignadoNombre ? ` · lo armó ${p.asignadoNombre}` : ''}{p.minutosArmado != null ? ` en ${p.minutosArmado} min` : ''}
@@ -493,8 +546,9 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }
   );
 }
 
-function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar, onAsignado }: {
-  p: PedidoCola; trabajando: boolean; onCerrar: () => void; onTomar: () => void; onAvanzar: (estado: string) => void; onCancelar: () => void; onAsignado: () => void;
+function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar, onSoltar, onDeshacer, onAsignado }: {
+  p: PedidoCola; trabajando: boolean; onCerrar: () => void; onTomar: () => void; onAvanzar: (estado: string) => void; onCancelar: () => void;
+  onSoltar: () => void; onDeshacer: () => void; onAsignado: () => void;
 }) {
   const [historial, setHistorial] = useState<LineaHistorial[] | null>(null);
   const [error, setError] = useState(false);
@@ -503,8 +557,12 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
   const tel = telefonoLegible(p.clienteTelefono);
   const wa = linkWhatsapp(p.clienteTelefono);
   const terminado = ['entregado', 'cancelado'].includes(p.estado);
+  const seArma = ['recibido', 'pagado', 'en_preparacion'].includes(p.estado);
+  // deshacer (21/11/2026): soltar lo tomado por error, o volver atrás un «listo» o un «salió»
+  const sePuedeSoltar = !!p.tomado_por && ['recibido', 'pagado'].includes(p.estado) && !p.asignado_a;
+  const pasoAtras = p.estado === 'listo' ? 'Volver a En preparación' : p.estado === 'en_camino' ? 'No salió: volver a Listos' : null;
   // la clave cambia con cada paso: el historial se vuelve a leer después de tocar un botón
-  const clave = `${p.id}|${p.estado}|${p.tomado_por ?? ''}`;
+  const clave = `${p.id}|${p.estado}|${p.tomado_por ?? ''}|${p.asignado_a ?? ''}|${p.consultaSinVer?.n ?? 0}`;
 
   useEffect(() => {
     let vivo = true;
@@ -530,6 +588,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           <>
             {/* si la impresora se trabó o no tenía papel */}
             <Boton variante="fantasma" onClick={() => imprimirComanda(p)}>Imprimir comanda</Boton>
+            {sePuedeSoltar && <Boton variante="fantasma" onClick={onSoltar} disabled={trabajando}>Soltarlo</Boton>}
+            {pasoAtras && <Boton variante="fantasma" onClick={onDeshacer} disabled={trabajando}>{pasoAtras}</Boton>}
             <Boton variante="peligro" onClick={onCancelar} disabled={trabajando}>Cancelar pedido</Boton>
             {sinTomar(p) && <Boton variante={sig ? 'secundario' : 'primario'} onClick={onTomar} cargando={trabajando}>Lo tomo</Boton>}
             {sig && <Boton onClick={() => onAvanzar(sig.estado)} cargando={trabajando && !sinTomar(p)} disabled={trabajando}>{sig.label}</Boton>}
@@ -558,8 +618,23 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
             <p className="mt-1">Quien lo arme lo ve marcado. Si en la góndola no está, toca «No hay» y le ofrece un parecido al cliente.</p>
           </Aviso>
         )}
+        {/* quien lo armaba lo devolvió (21/11/2026): por qué, y a elegir a otra persona acá abajo */}
+        {seArma && p.devuelto && (
+          <Aviso tono="atencion" titulo={`${nombrePropio(p.devuelto.porNombre).split(' ')[0] || 'Quien lo armaba'} no lo puede armar`}>
+            «{p.devuelto.motivo ?? 'sin motivo'}». Quedó sin quién lo arme: elegí a otra persona. Lo que ya cargó sigue en el carro.
+          </Aviso>
+        )}
         {/* op salón (5/11/2026): a quién se le da la comanda para armarlo */}
-        {['recibido', 'pagado', 'en_preparacion'].includes(p.estado) && <AsignarArmado key={`${p.id}|${p.asignado_a ?? ''}`} p={p} onAsignado={onAsignado} />}
+        {seArma && <AsignarArmado key={`${p.id}|${p.asignado_a ?? ''}`} p={p} onAsignado={onAsignado} />}
+        {/* la charla con quien lo arma (21/11/2026): lo que pregunta y lo que se le contesta */}
+        {seArma && p.asignado_a && (
+          <section aria-label="Mensajes con quien lo arma" className="space-y-2 rounded-xl border border-black/[0.08] bg-crema-claro p-3">
+            <h3 className="text-sm font-semibold text-tinta">Mensajes con {nombrePropio(p.asignadoNombre).split(' ')[0] || 'quien lo arma'}</h3>
+            <CharlaPedido key={p.id} pedidoId={p.id} miLado="caja" otro={p.asignadoNombre ?? null}
+              etiquetaCampo={`Mensaje para ${nombrePropio(p.asignadoNombre).split(' ')[0] || 'quien lo arma'}`}
+              vacio="Si te pregunta algo mientras arma, aparece acá. También le podés escribir vos: le llega al armado y por WhatsApp." />
+          </section>
+        )}
 
         {items.length > 0 && (
           <PlacaRoja

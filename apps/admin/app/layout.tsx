@@ -7,9 +7,10 @@ import { ReportarProblema } from "./ui/ReportarProblema";
 import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
 import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
 import { AvisoTeTocaArmar } from "./ui/AvisoTeTocaArmar";
+import { AvisoConsultasArmado } from "./ui/AvisoConsultasArmado";
 import { AvisoFiambreria } from "./ui/AvisoFiambreria";
 import { cookies } from "next/headers";
-import { esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
+import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
 // Quién ve la ventana de "Llegó un pedido" (6/10/2026): los que pueden tomarlo
 // y prepararlo. Administración lo recibe por WhatsApp, con el link para tomarlo.
@@ -17,6 +18,9 @@ const ATIENDEN_PEDIDOS = ["dueno", "gerente", "cajero", "deposito"];
 // A quién se le puede asignar un armado y tiene más pantallas que Salón: le sale
 // «Te toca armar» donde esté (los mismos roles que la API deja leer /salon/pedidos).
 const PUEDEN_ARMAR = ["dueno", "gerente", "cajero", "deposito", "op_salon"];
+// Del lado de la caja en la charla de un pedido: los que manejan los pedidos de
+// todos (la misma lista que la API, salon/consultas.ts).
+const MANEJAN_PEDIDOS = ["dueno", "gerente", "administrativo", "cajero"];
 
 // La letra del panel (decisión del dueño, octubre 2026): más suave que Arial y
 // angosta, así no aparecen desbordes nuevos. next/font la sirve desde el mismo
@@ -71,9 +75,11 @@ export default async function RootLayout({
         {/* La pila de avisos de pedidos: en el celular baja debajo de la barra negra,
             a lo ancho; en escritorio, abajo a la derecha (arriba tapaba los botones
             de cada pantalla). La caja vacía no se ve ni frena los toques. */}
-        <div className="flotante-ocultable pointer-events-none fixed inset-x-0 top-(--alto-barra-movil) z-aviso flex flex-col gap-2 px-3 pt-2 *:pointer-events-auto lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0">
+        <div className="pila-avisos flotante-ocultable pointer-events-none fixed inset-x-0 top-(--alto-barra-movil) z-aviso flex flex-col gap-2 px-3 pt-2 *:pointer-events-auto lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0">
           {/* a quien le asignan un pedido para armar, en cualquier pantalla (21/11/2026) */}
           {!encerrado && roles.some((r) => PUEDEN_ARMAR.includes(r)) && <AvisoTeTocaArmar />}
+          {/* lo que quien arma le pregunta a la caja, y los pedidos que devuelve (21/11/2026) */}
+          {roles.some((r) => MANEJAN_PEDIDOS.includes(r)) && <AvisoConsultasArmado sucursalId={sucursalDesdeToken(token)} miId={datosDesdeToken(token).sub} />}
           {roles.some((r) => ATIENDEN_PEDIDOS.includes(r)) && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} />}
         </div>
         {/* fiambrería: la ventana de lo que tiene que preparar de cada pedido (19/11/2026) */}
