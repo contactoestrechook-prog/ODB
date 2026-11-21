@@ -2,7 +2,8 @@
 // Distri-Sur: 00007-00060714 del 19/11 (lectura 18e53d5d, la que Anabella no pudo
 // registrar: Nutella, Ferrero T12, T24 y T8 con su regalo) y 00007-00057487 del
 // 9/11 (lectura 08d976fb: Ferrero T3 y T8, Maní sin renglón pago).
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, juntarRegalos, papelDeLectura, paresDeRegalo, separarRegalos, separarRenglon, sinCargoDe, tablaParaIA, unidadesDelPapel } from '../../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, juntarRegalos, papelDeLectura, paresDeRegalo, regalosAlAbrir, separarRegalos, separarRenglon, sinCargoDe, tablaParaIA, unidadesDelPapel } from '../../../admin/app/lib/tabla-factura';
+import { aplicarBorrador, borradorDe } from '../../../admin/app/lib/borrador-factura';
 import { atribuirDescuentos, esRenglonDescuento } from '../../../admin/app/lib/descuentos-compras';
 
 // un renglón como lo arma la pantalla al abrir la lectura (lo justo para la cuenta)
@@ -210,5 +211,57 @@ describe('juntarRegalos: lo sin cargo es más cantidad del mismo artículo, por 
     expect(entraDeRenglon(r.items[3], r.items[3].papel)).toEqual({ como: 'unidades' });
     expect(entraDeRenglon(r.items[6], r.items[6].papel)).toEqual({ como: 'cajas', de: 12 });
     expect(unidadesDelPapel(r.items[9].papel)).toBe(48);
+  });
+});
+
+describe('regalosAlAbrir: el juntado y el borrador de la persona', () => {
+  // abrir como la pantalla: lo leído, encima el borrador (si hay) y encima el juntado
+  const abrir = (leido: Record<string, any>[], b: any) => {
+    const filas = b ? aplicarBorrador(leido, {}, b).filas : leido;
+    return regalosAlAbrir(filas, b, atribuirDescuentos(filas).destinos, esRenglonDescuento);
+  };
+  const entranDe = (items: Record<string, any>[], sku: string) =>
+    items.filter((f) => f.sku === sku && f.incluir && !f.juntadoEn && !esRenglonDescuento(f)).reduce((s, f) => s + Number(f.cantidad), 0);
+
+  it('abrir, pasar el T12 a cajas, guardar y volver a abrir: 6 cajas, nunca 6 + 1 (los 12 de regalo no se cuentan dos veces)', () => {
+    const leido = factura6071().map((f) => (f.esDescuento ? f : aplicarPapel(f, f.papel, { como: 'unidades' })));
+    const abierta = abrir(leido, null);
+    expect(entranDe(abierta, 'L3544')).toBe(72);
+    // la persona dice «van en cajas de 12» sobre el renglón juntado
+    const enCajasYa = abierta.map((f, k) => (k === 6 ? aplicarPapel(f, f.papel, { como: 'cajas', de: 12 }) : f));
+    expect(entranDe(enCajasYa, 'L3544')).toBe(6);
+    const b = borradorDe(leido, enCajasYa, {}, {}, []);
+    const otraVez = abrir(leido, b);
+    expect(entranDe(otraVez, 'L3544')).toBe(6);
+    expect(otraVez[4]).toMatchObject({ juntadoEn: 7, cantidad: 0 });
+    expect(entranDe(otraVez, 'L4467')).toBe(48 / 1);
+  });
+
+  it('lo que la persona separó queda separado al volver a abrir', () => {
+    const leido = factura6071();
+    const abierta = abrir(leido, null);
+    const separada = separarRegalos(abierta, 6);
+    const b = borradorDe(leido, separada, {}, {}, [{ quien: 'Vos', renglon: 7, campo: 'sinCargo', antes: 'junto', despues: 'separado' }]);
+    const otraVez = abrir(leido, b);
+    expect(otraVez[4].juntadoEn ?? null).toBeNull();
+    expect(otraVez[6].regalos ?? null).toBeNull();
+    // los otros regalos siguen juntos
+    expect(otraVez[9].regalos).toHaveLength(1);
+  });
+
+  it('un borrador de antes del arreglo que ya tocó la cuenta de esos renglones queda como lo dejó la persona', () => {
+    const leido = factura6071();
+    const b = { renglones: [{ renglon: 6, descripcion: leido[6].descripcion, campos: { cantidad: 5, envaseAplicado: 12 } }], pie: {}, cambios: [] };
+    const otraVez = abrir(leido, b);
+    expect(otraVez[4].juntadoEn ?? null).toBeNull();
+    expect(otraVez[6].cantidad).toBe(5);
+    // lo que no tocó, se junta
+    expect(otraVez[9].regalos).toHaveLength(1);
+  });
+
+  it('un borrador con solo el margen o el producto no impide juntar', () => {
+    const leido = factura6071();
+    const b = { renglones: [{ renglon: 4, descripcion: leido[4].descripcion, campos: { margenPct: 40, sku: 'L3544' } }], pie: {}, cambios: [] };
+    expect(abrir(leido, b)[6].regalos).toHaveLength(1);
   });
 });

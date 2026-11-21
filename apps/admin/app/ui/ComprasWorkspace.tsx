@@ -30,7 +30,7 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel, juntarRegalos, paresDeRegalo, separarRegalos, sinCargoDe } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel, juntarRegalos, paresDeRegalo, separarRegalos, sinCargoDe, regalosAlAbrir } from '../lib/tabla-factura';
 import { AgregarRenglon } from './AgregarRenglon';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -825,19 +825,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         // descuenta otra vez: queda como dato a la vista (22/10/2026)
         x.papel?.descIncluido ? { ...x, bonificacionPct: null, bonifIncluidaPct: x.papel.descIncluido } : x
       ));
-      // LO SIN CARGO ENTRA JUNTO CON LO QUE SE PAGA (21/11/2026, Ferrero de Distri-Sur:
-      // «sumamos el renglón bonificado que trae 12 + el que trae 60 = 72, lo dividimos en
-      // cajas de 12»). Es parte de lo que leyó el sistema: el renglón sin cargo y su
-      // «Descuento» se suman al pago del mismo artículo (ver juntarRegalos). Si una
-      // persona ya había trabajado alguno de esos renglones, ese par queda como lo dejó.
-      const b0 = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
-      const tocadosAntes = new Set<number>((b0?.renglones ?? []).map((r: any) => Number(r?.renglon)));
-      const paresLeidos = paresDeRegalo(filasDelPapel, atribuirDescuentos(filasDelPapel).destinos);
-      const prueba = juntarRegalos(filasDelPapel, paresLeidos, esRenglonDescuento);
-      const libres = prueba.juntados.filter((j) => ![j.regalo, j.descuento, j.en].some((k) => k != null && tocadosAntes.has(k)));
-      const filas = libres.length === prueba.juntados.length
-        ? prueba.items
-        : juntarRegalos(filasDelPapel, libres.map((j) => ({ regalo: j.regalo, descuento: j.descuento, en: j.en })), esRenglonDescuento).items;
+      const filas = filasDelPapel;
       // LA FACTURA A MEDIO CARGAR (3/11/2026): lo que leyó el sistema queda como
       // punto de partida; si alguien ya la había trabajado, encima van sus
       // cambios (los guarda el efecto de abajo, solos, mientras se edita)
@@ -848,7 +836,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
       proveedorAlCargar.current = String((b?.form && typeof b.form === 'object' && 'proveedorId' in b.form ? b.form.proveedorId : d.proveedor?.match?.id) ?? '');
       if (b) {
         const r = aplicarBorrador(filas, pieLeido, b);
-        setFotoItems(r.filas);
+        setFotoItems(conRegalosJuntos(r.filas, b));
         setFotoImp(r.pie);
         setCambiosFactura(Array.isArray(b.cambios) ? b.cambios : []);
         if (b.form && typeof b.form === 'object') {
@@ -858,11 +846,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
         setBorradorRecuperado({ aplicados: r.aplicados, descartados: r.descartados, en: b.en ?? null, por: b.por ?? null });
         ultimoBorrador.current = JSON.stringify(b.renglones ?? []) + JSON.stringify(b.pie ?? {}) + JSON.stringify(b.form ?? {}) + JSON.stringify(b.cambios ?? []) + JSON.stringify(b.agregados ?? []);
       } else {
-        setFotoItems(filas);
+        setFotoItems(conRegalosJuntos(filas, null));
         setBorradorRecuperado(null);
         ultimoBorrador.current = '';
       }
   }
+
+  // LO SIN CARGO ENTRA JUNTO CON LO QUE SE PAGA (21/11/2026, Ferrero de Distri-Sur:
+  // «sumamos el renglón bonificado que trae 12 + el que trae 60 = 72, lo dividimos en
+  // cajas de 12»). Lo que leyó el sistema queda como vino (es la base del borrador);
+  // al abrir, encima de lo que ya hizo la persona, cada renglón sin cargo y su
+  // «Descuento» se suman al pago del mismo artículo (ver juntarRegalos). El juntado
+  // queda en el borrador como cualquier cambio: al volver a abrir ya está hecho. No se
+  // junta lo que la persona separó («Separar») ni los renglones cuya cuenta ya tocó.
+  const conRegalosJuntos = (filas: any[], b: any) => regalosAlAbrir(filas, b, atribuirDescuentos(filas).destinos, esRenglonDescuento);
 
   // Lo que cambió la persona se guarda solo, 1,5 s después del último cambio
   // (3/11/2026): al recargar o abrir la factura desde la bandeja, se recupera.
@@ -898,7 +895,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
   const descartarBorrador = () => {
     const o = fotoOriginal.current;
     if (!o) return;
-    setFotoItems(o.items);
+    // de cero es como recién leída: lo sin cargo, junto con lo pago
+    setFotoItems(conRegalosJuntos(o.items, null));
     setFotoImp(o.pie);
     setCambiosFactura([]);
     setF((x: any) => ({ ...x, ...o.form }));

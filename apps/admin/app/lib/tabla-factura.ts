@@ -716,6 +716,33 @@ export function paresDeRegalo(items: any[], destinos: Map<number, { renglon: num
 }
 
 /**
+ * AL ABRIR LA FACTURA (21/11/2026): lo que leyó el sistema queda como vino (es la base
+ * del borrador); encima de lo que ya hizo la persona (`b`, el borrador ya aplicado a
+ * `filas`), cada renglón sin cargo se junta con su pago. El juntado queda en el
+ * borrador como cualquier cambio, así que al volver a abrir ya está hecho y no se
+ * repite. No se junta lo que la persona separó (cambio «sinCargo» en la constancia)
+ * ni un par cuya cuenta ya tocó (lo de antes de este arreglo: queda como lo dejó).
+ */
+const CAMPOS_DE_LA_CUENTA = ['papel', 'cantidad', 'precio', 'importe', 'bonificacionPct', 'juntadoEn', 'junta', 'envaseAplicado', 'unidadesPorBulto', 'bultoAplicado', 'esDescuento', 'noAplicar', 'esDevolucion', 'recibidoAMano', 'devueltoAMano', 'incluir'];
+export function regalosAlAbrir<T extends Record<string, any>>(
+  filas: T[],
+  b: { renglones?: { renglon: number; campos?: Record<string, unknown> }[]; cambios?: unknown[] } | null | undefined,
+  destinos: Map<number, { renglon: number; motivo: string }>,
+  esDescuento: (fila: T) => boolean,
+): T[] {
+  const tocados = new Set<number>((b?.renglones ?? [])
+    .filter((r) => r?.campos && Object.keys(r.campos).some((k) => CAMPOS_DE_LA_CUENTA.includes(k)))
+    .map((r) => Number(r.renglon)));
+  const separados = new Set<number>((Array.isArray(b?.cambios) ? (b!.cambios as any[]) : [])
+    .filter((c) => c?.campo === 'sinCargo' && !c.deshecho && c.renglon != null)
+    .map((c) => Number(c.renglon) - 1));
+  const prueba = juntarRegalos(filas, paresDeRegalo(filas, destinos), esDescuento);
+  const libres = prueba.juntados.filter((j) => !separados.has(j.en) && ![j.regalo, j.descuento, j.en].some((k) => k != null && tocados.has(k)));
+  if (libres.length === prueba.juntados.length) return prueba.items;
+  return juntarRegalos(filas, libres.map((j) => ({ regalo: j.regalo, descuento: j.descuento, en: j.en })), esDescuento).items;
+}
+
+/**
  * Aplica los cambios que propuso la IA sobre los renglones. `renglon` empieza
  * en 1, como lo ve la persona. Lo que no se entiende se descarta (y no rompe
  * nada): un renglón que no existe, un campo desconocido, un número inválido.
