@@ -3,19 +3,19 @@
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { esDeMiSucursal } from '../lib/aviso-caja';
-import { llevaFlotantes } from '../lib/rutas';
+import { esRutaDeAcceso, llevaFlotantes } from '../lib/rutas';
 import { haceCuanto } from '../lib/pedidos';
-import { alCambiarAudio, audioActivo, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { alCambiarAudio, audioActivo, prepararAudio } from '../lib/alarma-pedido';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 import { Boton, Entrada, FOCO, unir } from './kit';
 
 // LA PREGUNTA DE UN CLIENTE SUENA EN LA CAJA (Leandro, 21/11/2026: «que no suene más en
 // administración, que no avise más administración, que no se apague el bot y que siempre
 // suene a caja, con sonido, con mucho sonido»). Lo que el bot no sabe (si el roquefort se
 // fracciona, si hay 12 Paty) aparece en la caja de la sucursal de los pedidos, en cualquier
-// pantalla, con la alarma de los pedidos: arranca fuerte y a los 2 minutos suena al máximo;
-// si el cliente insiste, al máximo de entrada. No se puede callar: se va cuando alguien la
-// contesta ahí mismo (le llega al cliente por WhatsApp) o toca «Ya no hace falta». Mientras
-// alguien escribe la respuesta, calla.
+// pantalla, con la alarma de los pedidos al máximo (regla con candado, ver lib/alarma-pedido.ts).
+// No se puede callar: se va cuando alguien la contesta ahí mismo (le llega al cliente por
+// WhatsApp) o toca «Ya no hace falta».
 
 type Mensaje = { de: 'cliente' | 'persona' | 'bot'; texto: string };
 type Pregunta = {
@@ -26,7 +26,6 @@ type Pregunta = {
 type Estado = { id: string; fase: 'mandando' | 'cerrando' | 'listo' | 'error'; texto?: string };
 
 const CADA_MS = 8_000;
-const SUBE_EN_MS = 2 * 60_000;
 const CLAVE_AVISADAS = 'odb_preguntas_avisadas';
 const QUIEN: Record<Mensaje['de'], string> = { cliente: 'Cliente', bot: 'Bot', persona: 'Casa' };
 
@@ -37,10 +36,6 @@ const guardar = (v: Record<string, number>) => {
   try { sessionStorage.setItem(CLAVE_AVISADAS, JSON.stringify(v)); } catch { /* modo privado */ }
 };
 
-/** Fuerte desde el principio (0,7) y al máximo a los 2 minutos; si insiste, al máximo ya. */
-const nivelDe = (msEsperando: number, insiste: boolean) => (insiste ? 1 : Math.min(1, 0.7 + 0.3 * Math.max(0, msEsperando) / SUBE_EN_MS));
-/** De 5 s entre toques a 2 s al máximo. */
-const esperaDe = (nivel: number) => Math.round(5_000 - 3_000 * Math.min(1, Math.max(0, (nivel - 0.7) / 0.3)));
 
 export function AvisoPreguntaCliente({ sucursalId }: { sucursalId?: string | null }) {
   const ruta = usePathname();
@@ -48,7 +43,6 @@ export function AvisoPreguntaCliente({ sucursalId }: { sucursalId?: string | nul
   const [texto, setTexto] = useState('');
   const [estado, setEstado] = useState<Estado | null>(null);
   const [verCharla, setVerCharla] = useState(false);
-  const [escribiendo, setEscribiendo] = useState(false);
   const [sinSonido, setSinSonido] = useState(false);
   const [, setReloj] = useState(0);
   const apagado = useRef(false);
@@ -119,20 +113,8 @@ export function AvisoPreguntaCliente({ sucursalId }: { sucursalId?: string | nul
     document.title = pendientes.length ? `(${pendientes.length}) Pregunta de un cliente · ${base}` : base;
   }, [pendientes.length]);
 
-  // la alarma: mientras haya una sin contestar y nadie esté escribiendo la respuesta
-  const desde = visible && pendientes.length && !escribiendo ? Math.min(...pendientes.map((x) => Date.parse(x.creadoEn))) : null;
-  const insiste = pendientes.some((x) => !!x.insistioEn);
-  useEffect(() => {
-    if (desde === null) return;
-    let t: ReturnType<typeof setTimeout>;
-    const tocar = () => {
-      const nivel = nivelDe(Date.now() - desde, insiste);
-      sonarAlarma(nivel);
-      t = setTimeout(tocar, esperaDe(nivel));
-    };
-    tocar();
-    return () => clearTimeout(t);
-  }, [desde, insiste]);
+  // la alarma: al máximo y sin parar mientras haya una sin contestar
+  useAlarmaHastaQueSeAtienda(pendientes.length > 0 && !esRutaDeAcceso(ruta));
 
   if (!visible || !p) return null;
 
@@ -150,7 +132,7 @@ export function AvisoPreguntaCliente({ sucursalId }: { sucursalId?: string | nul
       const terminada = d?.ok || /otra persona|anotada en su charla|no le llegó nada/i.test(String(d?.texto ?? ''));
       if (!terminada) { setEstado({ id: x.id, fase: 'error', texto: d?.texto ?? 'No se pudo. Probá de nuevo.' }); return; }
       setEstado({ id: x.id, fase: 'listo', texto: d?.texto });
-      setTexto(''); setVerCharla(false); setEscribiendo(false);
+      setTexto(''); setVerCharla(false);
       setTimeout(() => {
         setLista((l) => l.filter((y) => y.id !== x.id));
         setEstado((e) => (e?.id === x.id ? null : e));
@@ -223,7 +205,6 @@ export function AvisoPreguntaCliente({ sucursalId }: { sucursalId?: string | nul
               <div className="flex items-center gap-2">
                 <Entrada id={`respuesta-${p.id}`} value={texto} maxLength={1000} disabled={ocupado}
                   onChange={(e) => { setTexto(e.target.value); if (delEstado?.fase === 'error') setEstado(null); }}
-                  onFocus={() => setEscribiendo(true)} onBlur={() => setEscribiendo(false)}
                   className="min-w-0 flex-1" />
                 <Boton type="submit" tamano="chico" disabled={!texto.trim() || ocupado}>
                   {delEstado?.fase === 'mandando' ? '◔ Mandando…' : delEstado?.fase === 'error' && texto.trim() ? 'Volver a intentar' : 'Mandar'}

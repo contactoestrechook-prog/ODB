@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { cantidadLegible, haceCuanto } from '../lib/pedidos';
-import { llevaFlotantes } from '../lib/rutas';
-import { alCambiarAudio, audioActivo, esperaDe, nivelDe, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { esRutaDeAcceso, llevaFlotantes } from '../lib/rutas';
+import { alCambiarAudio, audioActivo, prepararAudio } from '../lib/alarma-pedido';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 import { Boton, FOCO, IconoCerrar, unir } from './kit';
 import { pesos } from '../lib/formato';
 import { FaltaEnGondola, cantidadDe, traerParecidos, type Reemplazo } from './FaltaEnGondola';
@@ -106,24 +107,15 @@ export function AvisoFiambreria() {
   }, [mirar]);
 
   const ahora = Date.now();
-  const visibles = partes.filter((p) => !(pospuestos[p.id] && pospuestos[p.id] > ahora) && !(p.mio && listos[p.id]));
+  // esconder 10 minutos solo vale para lo que ya estoy preparando: lo que nadie tomó no se esconde ni se calla
+  const visibles = partes.filter((p) => !(p.mio && pospuestos[p.id] && pospuestos[p.id] > ahora) && !(p.mio && listos[p.id]));
   // primero lo que nadie tomó (suena); después lo que estoy preparando
   const porTomar = visibles.filter((p) => !p.mio);
   const ordenados = [...porTomar, ...visibles.filter((p) => p.mio)];
 
-  // suena hasta que alguien de fiambrería lo toma, y crece con el tiempo (como la caja)
-  const suenaDesde = porTomar.length && llevaFlotantes(ruta) && !falta ? Math.min(...porTomar.map((p) => Date.parse(p.creadoEn))) : null;
-  useEffect(() => {
-    if (suenaDesde === null) return;
-    let t: ReturnType<typeof setTimeout>;
-    const tocar = () => {
-      const nivel = nivelDe(Date.now() - suenaDesde);
-      sonarAlarma(nivel);
-      t = setTimeout(tocar, esperaDe(nivel));
-    };
-    tocar();
-    return () => clearTimeout(t);
-  }, [suenaDesde]);
+  // REGLA CON CANDADO (21/11/2026, ver lib/alarma-pedido.ts): suena al máximo y sin parar
+  // hasta que alguien de fiambrería lo toma, aunque esté corrigiendo otro («No hay»)
+  useAlarmaHastaQueSeAtienda(porTomar.length > 0 && !esRutaDeAcceso(ruta));
 
   async function preparo(p: Parte) {
     setTomando(p.id);
@@ -223,15 +215,17 @@ export function AvisoFiambreria() {
             </p>
             <span className="flex shrink-0 items-center gap-1">
               <span className="importe text-xs text-white/80">{haceCuanto(primero.creadoEn)}</span>
-              <button
-                type="button"
-                onClick={() => posponer(primero)}
-                aria-label={`Esconder y callar el pedido ${primero.codigo} 10 minutos`}
-                title="Esconder y callar 10 minutos"
-                className={unir('flex size-10 items-center justify-center rounded-full text-white/90 hover:bg-white/15 hover:text-white', FOCO)}
-              >
-                <IconoCerrar className="size-5" />
-              </button>
+              {primero.mio && (
+                <button
+                  type="button"
+                  onClick={() => posponer(primero)}
+                  aria-label={`Esconder el pedido ${primero.codigo} 10 minutos`}
+                  title="Esconder 10 minutos"
+                  className={unir('flex size-10 items-center justify-center rounded-full text-white/90 hover:bg-white/15 hover:text-white', FOCO)}
+                >
+                  <IconoCerrar className="size-5" />
+                </button>
+              )}
             </span>
           </div>
 
@@ -269,15 +263,17 @@ export function AvisoFiambreria() {
             {primero.mio
               ? <Boton variante="ok" onClick={() => terminado(primero)} className="flex-1">Listo, ya está</Boton>
               : <Boton onClick={() => preparo(primero)} cargando={tomando === primero.id} className="flex-1">Lo preparo</Boton>}
-            <button
-              type="button"
-              onClick={() => posponer(primero)}
-              aria-label={`Esconder y callar el pedido ${primero.codigo} 10 minutos`}
-              title="Esconder y callar 10 minutos"
-              className={unir('flex size-10 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}
-            >
-              <IconoCerrar className="size-5" />
-            </button>
+            {primero.mio && (
+              <button
+                type="button"
+                onClick={() => posponer(primero)}
+                aria-label={`Esconder el pedido ${primero.codigo} 10 minutos`}
+                title="Esconder 10 minutos"
+                className={unir('flex size-10 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}
+              >
+                <IconoCerrar className="size-5" />
+              </button>
+            )}
           </div>
           {sinSonido && (
             <p role="alert" className="shrink-0 bg-marca-suave px-4 py-2 text-xs font-semibold text-marca-hondo">

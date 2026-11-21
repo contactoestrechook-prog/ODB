@@ -6,10 +6,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { pesos } from '../lib/formato';
 import { cantidadLegible, codigoDe, entregaDe, haceCuanto, origenDe, sinTomar, telefonoLegible, type PedidoCola } from '../lib/pedidos';
 import { esDeMiSucursal, lecturaDeLaCola } from '../lib/aviso-caja';
-import { llevaFlotantes } from '../lib/rutas';
-import { Boton, Etiqueta, FOCO, IconoCerrar, unir } from './kit';
+import { esRutaDeAcceso, llevaFlotantes } from '../lib/rutas';
+import { Boton, Etiqueta, FOCO, unir } from './kit';
 import { conCodigo } from '../lib/codigo-producto';
-import { alCambiarAudio, audioActivo, esperaDe, nivelDe, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { alCambiarAudio, audioActivo, pedidosQueSuenan, prepararAudio } from '../lib/alarma-pedido';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 import { estaPcImprime, imprimirSiFalta } from '../lib/comanda';
 
 // LLEGÓ UN PEDIDO (Leandro, 6/10/2026: "necesito ventanas slides emergentes
@@ -25,18 +26,20 @@ import { estaPcImprime, imprimirSiFalta } from '../lib/comanda';
 // PC) y crece con el tiempo: baja y espaciada al entrar, fuerte y seguida a los
 // 6 minutos (ver lib/alarma-pedido.ts). En las PC marcadas con «Esta PC imprime
 // las comandas» sale la comanda apenas entra el pedido (ver lib/comanda.ts).
+//
+// 21/11/2026 — REGLA CON CANDADO (Leandro: «todos los pop-ups de ODB de pedido hagan
+// un ruido escandaloso en todas las máquinas, sin excepción»): la ventana sale y suena
+// en TODAS las máquinas con sesión, de cualquier rol y de cualquier sucursal (lee
+// /pedidos/sin-tomar, abierta a todos), al máximo desde el primer toque, hasta que
+// alguien lo toma. Se fue «Más tarde» (callaba 10 minutos), el tope de 12 horas y el
+// silencio en RESPONDE a pantalla completa (ahí no se ve la ventana, pero suena).
+// «Lo tomo» queda para quien atiende pedidos en la sucursal del pedido; en las demás
+// máquinas la ventana dice quién lo tiene que tomar. Candado: alarma-escandalosa.spec.ts.
 
 const CADA_MS = 12_000;
-const POSPONER_MS = 10 * 60_000;
-// los de más de 48 h no saltan (van con "Sin tomar" en Pedidos)
-const VENTANA_MS = 48 * 3600_000;
 // la notificación de Windows y la comanda, solo para lo que entró en la última media hora
 const RECIENTE_MS = 30 * 60_000;
-// la alarma suena mientras haya uno sin tomar de las últimas 12 h (lo de anoche
-// todavía hay que tomarlo; lo de hace dos días ya no es un pedido que entra)
-const SUENA_HASTA_MS = 12 * 3600_000;
 const CLAVE_VISTOS = 'odb_pedidos_vistos';
-const CLAVE_POSPUESTOS = 'odb_pedidos_pospuestos';
 
 const leer = (clave: string): Record<string, number> => {
   try { return JSON.parse(sessionStorage.getItem(clave) ?? '{}') ?? {}; } catch { return {}; }
@@ -61,10 +64,9 @@ function publicarCuenta(c: CuentaPedidos) {
 // de SU sucursal (todo lo del bot, la web y la app sale de la central; la otra
 // caja sonaba igual) y, si la sesión de la PC venció, la ventana lo dice en vez
 // de apagarse en silencio: antes un 401 la apagaba hasta recargar la página.
-export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null }) {
+export function AvisoPedidoNuevo({ sucursalId, puedeTomar }: { sucursalId?: string | null; puedeTomar: boolean }) {
   const ruta = usePathname();
   const [pedidos, setPedidos] = useState<PedidoCola[]>([]);
-  const [pospuestos, setPospuestos] = useState<Record<string, number>>({});
   const [tomando, setTomando] = useState<string | null>(null);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,23 +80,45 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
   const mirar = useCallback(async () => {
     if (apagado.current) return;
     try {
-      const r = await fetch('/api/pedidos', { cache: 'no-store' });
+      // 1) LO QUE SUENA: los sin tomar de todas las sucursales, para cualquier rol
+      const r = await fetch('/api/pedidos?vista=sin-tomar', { cache: 'no-store' });
       const lectura = lecturaDeLaCola(r.status);
-      // sin permiso para pedidos: esta persona no recibe la ventana
-      if (lectura === 'sin_permiso') { apagado.current = true; setPedidos([]); setSinSesion(false); return; }
+      // sin permiso (no debería pasar: la ruta está abierta a todos): no se apaga en silencio, se reintenta
+      if (lectura === 'sin_permiso') return;
       // sin sesión: se avisa y se sigue mirando (vuelve sola al entrar de nuevo)
       if (lectura === 'sin_sesion') { setSinSesion(true); setPedidos([]); return; }
       if (lectura !== 'ok') return;
       const todos = await r.json();
       if (!Array.isArray(todos)) return;
       setSinSesion(false);
-      const lista = (todos as PedidoCola[]).filter((p) => esDeMiSucursal(p, sucursalId));
+      const ahora = Date.now();
+      const nuevos = pedidosQueSuenan(todos as PedidoCola[], ahora).sort((a, b) => Date.parse(b.creado_en) - Date.parse(a.creado_en));
+      // la notificación de Windows: una vez por pedido (en esta pestaña), y solo si es reciente
+      const vistos = leer(CLAVE_VISTOS);
+      const recienLlegados = nuevos.filter((p) => !vistos[p.id] && ahora - Date.parse(p.creado_en) < RECIENTE_MS);
+      for (const p of nuevos) vistos[p.id] = vistos[p.id] ?? ahora;
+      guardar(CLAVE_VISTOS, vistos);
+      if (recienLlegados.length && document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+        const p = recienLlegados[0];
+        try {
+          new Notification(`Pedido nuevo · ${codigoDe(p)}`, {
+            body: `${origenDe(p).label} · ${pesos(Number(p.total) || 0)}${p.clienteNombre ? ` · ${p.clienteNombre}` : ''}`,
+            tag: `pedido-${p.id}`,
+            icon: '/icon-192.png',
+          });
+        } catch { /* algunos navegadores no dejan crearla desde la página */ }
+      }
+      setPedidos(nuevos);
+
+      // 2) LA CAJA: la cuenta de su botón «Pedidos» y la comanda (solo quien atiende pedidos)
+      if (!puedeTomar) return;
+      const rc = await fetch('/api/pedidos', { cache: 'no-store' });
+      if (lecturaDeLaCola(rc.status) !== 'ok') return;
+      const cola = await rc.json();
+      if (!Array.isArray(cola)) return;
+      const lista = (cola as PedidoCola[]).filter((p) => esDeMiSucursal(p, sucursalId));
       // la Caja muestra cuántos hay en su botón «Pedidos» (21/11/2026) sin pedir la cola otra vez
       publicarCuenta({ enCurso: lista.length, sinTomar: lista.filter(sinTomar).length });
-      const ahora = Date.now();
-      const nuevos = lista
-        .filter((p) => sinTomar(p) && ahora - Date.parse(p.creado_en) < VENTANA_MS)
-        .sort((a, b) => Date.parse(b.creado_en) - Date.parse(a.creado_en));
       // la comanda: en esta PC, si está marcada, una sola vez por pedido aunque
       // haya varias pestañas (también los cargados a mano que ya tienen dueño)
       if (estaPcImprime()) {
@@ -104,29 +128,10 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
           }
         }
       }
-      // la notificación de Windows: una vez por pedido (en esta pestaña), y solo si es reciente
-      const vistos = leer(CLAVE_VISTOS);
-      const recienLlegados = nuevos.filter((p) => !vistos[p.id] && ahora - Date.parse(p.creado_en) < RECIENTE_MS);
-      for (const p of nuevos) vistos[p.id] = vistos[p.id] ?? ahora;
-      guardar(CLAVE_VISTOS, vistos);
-      if (recienLlegados.length) {
-        if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
-          const p = recienLlegados[0];
-          try {
-            new Notification(`Pedido nuevo · ${codigoDe(p)}`, {
-              body: `${origenDe(p).label} · ${pesos(Number(p.total) || 0)}${p.clienteNombre ? ` · ${p.clienteNombre}` : ''}`,
-              tag: `pedido-${p.id}`,
-              icon: '/icon-192.png',
-            });
-          } catch { /* algunos navegadores no dejan crearla desde la página */ }
-        }
-      }
-      setPedidos(nuevos);
     } catch { /* sin red: la próxima vuelta */ }
-  }, [sucursalId]);
+  }, [sucursalId, puedeTomar]);
 
   useEffect(() => {
-    setPospuestos(leer(CLAVE_POSPUESTOS));
     if ('Notification' in window) setPermisoNotif(Notification.permission);
     // con el acceso directo de las PC con impresora, el audio arranca solo; si
     // no, se despierta con el primer toque o tecla
@@ -138,7 +143,7 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
     window.addEventListener('keydown', despertar);
     mirar();
     const t = setInterval(mirar, CADA_MS);
-    // el "hace N min" y los pospuestos que vencen
+    // el "hace N min"
     const r = setInterval(() => setReloj((n) => n + 1), 30_000);
     const alVolver = () => { if (document.visibilityState === 'visible') mirar(); };
     document.addEventListener('visibilitychange', alVolver);
@@ -151,8 +156,7 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
     };
   }, [mirar]);
 
-  const ahora = Date.now();
-  const visibles = pedidos.filter((p) => !(pospuestos[p.id] && pospuestos[p.id] > ahora));
+  const visibles = pedidos;
 
   // con la pestaña en segundo plano, el título avisa cuántos esperan
   useEffect(() => {
@@ -161,23 +165,10 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
     document.title = sinSesion ? `(!) Sesión vencida · ${base}` : visibles.length ? `(${visibles.length}) Pedido nuevo · ${base}` : base;
   }, [visibles.length, sinSesion]);
 
-  // la alarma se repite hasta que lo toman (o lo esconden 10 min en esta PC) y
-  // crece con lo que lleva sin tomar el más viejo; donde la ventana no se ve
-  // (RESPONDE a pantalla completa) no suena
-  const sonables = llevaFlotantes(ruta) ? visibles.filter((p) => ahora - Date.parse(p.creado_en) < SUENA_HASTA_MS) : [];
-  const suenaDesde = sonables.length ? Math.min(...sonables.map((p) => Date.parse(p.creado_en))) : null;
-  const suena = suenaDesde !== null;
-  useEffect(() => {
-    if (suenaDesde === null) return;
-    let t: ReturnType<typeof setTimeout>;
-    const tocar = () => {
-      const nivel = nivelDe(Date.now() - suenaDesde);
-      sonarAlarma(nivel);
-      t = setTimeout(tocar, esperaDe(nivel));
-    };
-    tocar();
-    return () => clearTimeout(t);
-  }, [suenaDesde]);
+  // LA ALARMA: al máximo y sin parar mientras haya uno sin tomar, en cualquier pantalla
+  // con sesión (también donde la ventana no se ve, como RESPONDE a pantalla completa)
+  const suena = visibles.length > 0 && !esRutaDeAcceso(ruta);
+  useAlarmaHastaQueSeAtienda(suena);
 
   async function tomar(p: PedidoCola) {
     setTomando(p.id); setError(null);
@@ -197,12 +188,6 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
     } finally {
       setTomando(null);
     }
-  }
-
-  function posponer(p: PedidoCola) {
-    const v = { ...leer(CLAVE_POSPUESTOS), [p.id]: Date.now() + POSPONER_MS };
-    guardar(CLAVE_POSPUESTOS, v);
-    setPospuestos(v);
   }
 
   async function activarNotificaciones() {
@@ -233,14 +218,15 @@ export function AvisoPedidoNuevo({ sucursalId }: { sucursalId?: string | null })
           tomando={tomando === primero.id}
           error={error}
           onTomar={() => tomar(primero)}
-          onPosponer={() => posponer(primero)}
+          puedeTomarlo={puedeTomar && esDeMiSucursal(primero, sucursalId)}
+          verPedidos={puedeTomar}
           pedirNotif={permisoNotif === 'default' ? activarNotificaciones : undefined}
           sinSonido={suena && sinSonido}
         />
       )}
       {segundo && (
         <div className="hidden lg:block">
-          <TarjetaPedido key={segundo.id} p={segundo} compacta tomando={tomando === segundo.id} onTomar={() => tomar(segundo)} onPosponer={() => posponer(segundo)} />
+          <TarjetaPedido key={segundo.id} p={segundo} compacta tomando={tomando === segundo.id} onTomar={() => tomar(segundo)} puedeTomarlo={puedeTomar && esDeMiSucursal(segundo, sucursalId)} verPedidos={puedeTomar} />
         </div>
       )}
       {restoMovil > 0 && <MasSinTomar n={restoMovil} className="lg:hidden" />}
@@ -278,11 +264,13 @@ function MasSinTomar({ n, className }: { n: number; className?: string }) {
 }
 
 function TarjetaPedido({
-  p, compacta, tomando, error, onTomar, onPosponer, pedirNotif, sinSonido,
+  p, compacta, tomando, error, onTomar, puedeTomarlo, verPedidos, pedirNotif, sinSonido,
 }: {
   p: PedidoCola; compacta?: boolean; tomando: boolean; error?: string | null;
-  onTomar: () => void; onPosponer: () => void; pedirNotif?: () => void; sinSonido?: boolean;
+  onTomar: () => void; puedeTomarlo: boolean; verPedidos: boolean; pedirNotif?: () => void; sinSonido?: boolean;
 }) {
+  // en las máquinas que no lo pueden tomar (otra sucursal, otro rol) suena igual y dice quién lo toma
+  const sucursal = (p as any).sucursal?.nombre as string | undefined;
   const origen = origenDe(p);
   const tel = telefonoLegible(p.clienteTelefono);
   const items = p.items ?? [];
@@ -338,22 +326,17 @@ function TarjetaPedido({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] px-4 py-2.5 lg:py-3">
-        <Boton tamano="chico" onClick={onTomar} cargando={tomando} className="flex-1">Lo tomo</Boton>
-        <Link
-          href={`/pedidos?pedido=${p.id}`}
-          className={unir('inline-flex min-h-9 items-center justify-center rounded-full border border-black/15 bg-white px-4 text-sm font-semibold text-tinta hover:bg-crema-claro', FOCO)}
-        >
-          Ver
-        </Link>
-        <button
-          type="button"
-          onClick={onPosponer}
-          aria-label={`Esconder y callar el pedido ${codigoDe(p)} 10 minutos`}
-          title="Esconder y callar 10 minutos"
-          className={unir('ml-auto flex size-9 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}
-        >
-          <IconoCerrar className="size-5" />
-        </button>
+        {puedeTomarlo
+          ? <Boton tamano="chico" onClick={onTomar} cargando={tomando} className="flex-1">Lo tomo</Boton>
+          : <p className="min-w-0 flex-1 text-sm font-semibold text-tinta">Lo toma la caja{sucursal ? ` de ${sucursal}` : ''}: suena hasta que lo tomen.</p>}
+        {verPedidos && (
+          <Link
+            href={`/pedidos?pedido=${p.id}`}
+            className={unir('inline-flex min-h-9 items-center justify-center rounded-full border border-black/15 bg-white px-4 text-sm font-semibold text-tinta hover:bg-crema-claro', FOCO)}
+          >
+            Ver
+          </Link>
+        )}
       </div>
       {sinSonido && (
         <p role="alert" className="bg-marca-suave px-4 py-2 text-xs font-semibold text-marca-hondo">

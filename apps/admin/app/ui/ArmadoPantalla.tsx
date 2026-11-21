@@ -7,6 +7,7 @@ import { cantidadDe, FaltaEnGondola, traerParecidos } from './FaltaEnGondola';
 import { CharlaPedido } from './CharlaPedido';
 import { nombrePropio, type MensajePedido } from './salon/comun';
 import { cuentaDePedidos, EVENTO_CUENTA, type CuentaPedidos } from './AvisoPedidoNuevo';
+import { sonarRafaga } from '../lib/usar-alarma';
 
 // EL ARMADO A PANTALLA COMPLETA (Leandro, 5/11/2026: «una vez que tienen el
 // pedido se les abre en casi toda la pantalla; a medida que escanean se va
@@ -227,6 +228,8 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onDevuelto, on
   useEffect(() => {
     if (!ultimaSinVer || respuestasAvisadas.current.has(ultimaSinVer.id)) return;
     respuestasAvisadas.current.add(ultimaSinVer.id);
+    // aviso de pedido en la pantalla de trabajo: ráfaga de la alarma (regla con candado, 21/11/2026)
+    sonarRafaga();
     if (!charla) avisarRef.current('ok', `${nombrePropio(ultimaSinVer.deNombre).split(' ')[0] || 'La caja'} te escribió: «${ultimaSinVer.texto}»`);
   }, [ultimaSinVer, charla]);
 
@@ -238,7 +241,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onDevuelto, on
   const [consultando, setConsultando] = useState(false);
   // el cliente no tiene WhatsApp: lo llama y anota lo que dijo en cada cambio
   const [sinWhatsapp, setSinWhatsapp] = useState(false);
-  // cada respuesta del cliente se avisa (pitido y franja) apenas llega con el refresco
+  // cada respuesta del cliente se avisa (ráfaga de la alarma y franja) apenas llega con el refresco
   const estadosVistos = useRef<Map<string, string> | null>(null);
   const otrasVistas = useRef(new Set<string>());
   useEffect(() => {
@@ -248,6 +251,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onDevuelto, on
     const nuevas = cambios.filter((c) => (c.estado === 'aceptado' || c.estado === 'rechazado') && c.porWhatsapp && antes.get(c.id) && antes.get(c.id) !== c.estado);
     if (nuevas.length) {
       const c = nuevas[nuevas.length - 1];
+      sonarRafaga();
       avisarRef.current('ok', c.estado === 'aceptado' ? `El cliente dijo SÍ: va ${conCantidad(c.cantidad, c.reemplazo, c.reemplazoPorPeso)}` : `El cliente dijo NO: ${c.falta} ${c.hay > 0 ? `queda en ${cantidadDe(c.hay, c.faltaPorPeso)}` : 'sale del pedido'}`);
     }
     // contestó otra cosa (preguntó algo): lo lee quien arma y anota lo que quiere
@@ -256,6 +260,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onDevuelto, on
       const clave = `${c.id}|${c.otraRespuestaEn}`;
       if (otrasVistas.current.has(clave)) continue;
       otrasVistas.current.add(clave);
+      if (Date.now() - Date.parse(c.otraRespuestaEn) < 60_000) sonarRafaga();
       if (Date.now() - Date.parse(c.otraRespuestaEn) < 60_000) avisarRef.current('error', `El cliente escribió: «${c.otraRespuesta}». Leelo y anotá lo que quiere.`);
     }
   }, [cambios]);

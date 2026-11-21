@@ -7,6 +7,7 @@ import { ArmadoPantalla } from '../ArmadoPantalla';
 import { AsignarArmado } from '../AsignarArmado';
 import { Aviso, Boton, BotonLink, Chips, FOCO, FOCO_ADENTRO, Modal, ROTULO, Tarjeta, unir } from '../kit';
 import { CLAVE_VINE_DE } from '../AvisoTeTocaArmar';
+import { sonarRafaga } from '../../lib/usar-alarma';
 import { Recorrido } from './Recorrido';
 import {
   api, avance, iniciales, MIN_ARRANQUE_TARDE, nombrePropio, reloj, sucursalCorta, useAhora, type NovedadesDeArmado, type PedidoArmar, type Sucursal,
@@ -63,6 +64,8 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
   // otra persona o se canceló. Antes se iba sin decir nada (y si lo tenía
   // abierto, se le cerraba la pantalla de golpe).
   const propiosAntes = useRef<Map<string, string> | null>(null);
+  // los pedidos asignados por los que ya sonó la alarma en esta pantalla
+  const sonados = useRef(new Set<string>());
   const terminados = useRef(new Set<string>());
   const [sacados, setSacados] = useState<string[]>([]);
   const ahora = useAhora();
@@ -90,14 +93,21 @@ export function Armar({ verTodos, miId = null, sucursales, onCuenta, irAStock }:
         const idos = [...antes].filter(([id]) => !ids.has(id) && !terminados.current.has(id)).map(([, codigo]) => codigo);
         if (idos.length) {
           setSacados((s) => [...new Set([...s, ...idos])]);
-          try { navigator.vibrate?.([300, 100, 300]); } catch { /* sin vibración */ }
+          // aviso de pedido: ráfaga de la alarma (regla con candado, 21/11/2026; antes solo vibraba)
+          sonarRafaga();
         }
       }
       propiosAntes.current = new Map(propios.map((p) => [p.id, p.codigo]));
+      // le asignaron un pedido nuevo: ráfaga de la alarma, una vez por pedido (regla con
+      // candado, 21/11/2026; antes solo vibraba) — también si tiene otro abierto
+      const recienAsignados = propios.filter((p) => !cerrados.current.has(p.id) && !sonados.current.has(p.id));
+      if (recienAsignados.length) {
+        for (const p of recienAsignados) sonados.current.add(p.id);
+        sonarRafaga();
+      }
       setAbierto((ya) => {
         if (ya && d.some((p) => p.id === ya)) return ya;
         const nuevo = propios.find((p) => !cerrados.current.has(p.id));
-        if (nuevo) { try { navigator.vibrate?.([200, 100, 200]); } catch { /* sin vibración */ } }
         return nuevo?.id ?? null;
       });
       setError(null);

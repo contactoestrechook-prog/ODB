@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { esDeMiSucursal } from '../lib/aviso-caja';
-import { llevaFlotantes } from '../lib/rutas';
-import { prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { esRutaDeAcceso, llevaFlotantes } from '../lib/rutas';
+import { useAlarmaHastaQueSeAtienda } from '../lib/usar-alarma';
 import { mandarMensaje, marcarVistos } from './CharlaPedido';
-import { Boton, Entrada, FOCO, IconoCerrar, unir } from './kit';
+import { Boton, Entrada, FOCO, unir } from './kit';
 import { nombrePropio, type MensajePedido } from './salon/comun';
 
 // LO QUE QUIEN ARMA LE DICE A LA CAJA (Juan Pablo, 20/11/2026: «si tienen que
@@ -17,8 +17,12 @@ import { nombrePropio, type MensajePedido } from './salon/comun';
 //  · la PREGUNTA de quien arma, con la caja para contestarle ahí mismo;
 //  · el pedido que DEVOLVIERON («No lo puedo armar»), con el motivo y el botón
 //    para dárselo a otra persona.
-// Suena una vez por cada novedad. La pregunta se va cuando alguien la contesta o
-// la marca vista; la devolución, cuando el pedido tiene armador de nuevo.
+// La pregunta se va cuando alguien la contesta o la marca vista; la devolución,
+// cuando el pedido tiene armador de nuevo.
+//
+// 21/11/2026 — REGLA CON CANDADO (ver lib/alarma-pedido.ts): mientras haya una
+// pregunta o una devolución esperando, suena al máximo y sin parar (antes sonaba una
+// vez); la devolución ya no se esconde 10 minutos.
 
 type Consulta = {
   pedidoId: string; codigo: string; cliente: string | null; sucursalId: string | null;
@@ -28,26 +32,11 @@ type Consulta = {
 };
 
 const CADA_MS = 10_000;
-const ESCONDER_MS = 10 * 60_000;
-const CLAVE_OIDAS = 'odb_consultas_oidas';
-const CLAVE_ESCONDIDAS = 'odb_consultas_escondidas';
-const leer = (clave: string): Record<string, number> => {
-  try { return JSON.parse(sessionStorage.getItem(clave) ?? '{}') ?? {}; } catch { return {}; }
-};
-const guardar = (clave: string, v: Record<string, number>) => {
-  try { sessionStorage.setItem(clave, JSON.stringify(v)); } catch { /* modo privado */ }
-};
 const primerNombre = (n?: string | null) => nombrePropio(n).split(' ')[0] || '';
-/** Qué novedad es: cambia con cada mensaje nuevo o cada devolución. */
-const claveDe = (c: Consulta) => {
-  const ultimo = c.mensajes.filter((m) => m.lado === 'armado' && !m.vistoEn).at(-1);
-  return `${c.pedidoId}|${ultimo ? `m${ultimo.id}` : `d${c.devuelto?.en ?? ''}`}`;
-};
 
 export function AvisoConsultasArmado({ sucursalId, miId }: { sucursalId?: string | null; miId?: string | null }) {
   const ruta = usePathname();
   const [lista, setLista] = useState<Consulta[]>([]);
-  const [escondidas, setEscondidas] = useState<Record<string, number>>({});
   const [texto, setTexto] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,21 +55,11 @@ export function AvisoConsultasArmado({ sucursalId, miId }: { sucursalId?: string
         .filter((c) => esDeMiSucursal({ sucursal_id: c.sucursalId }, sucursalId))
         // lo que preguntó o devolvió uno mismo no le vuelve como aviso
         .filter((c) => (c.sinVer > 0 && c.armaId !== miId) || (!!c.devuelto && c.devuelto.porId !== miId));
-      const oidas = leer(CLAVE_OIDAS);
-      const nuevas = mias.filter((c) => !oidas[claveDe(c)]);
-      if (nuevas.length) {
-        for (const c of nuevas) oidas[claveDe(c)] = Date.now();
-        guardar(CLAVE_OIDAS, oidas);
-        try { navigator.vibrate?.([200, 100, 200]); } catch { /* sin vibración */ }
-        prepararAudio();
-        sonarAlarma(0.5);
-      }
       setLista(mias);
     } catch { /* sin red: la próxima vuelta */ }
   }, [sucursalId, miId]);
 
   useEffect(() => {
-    setEscondidas(leer(CLAVE_ESCONDIDAS));
     mirar();
     const t = setInterval(mirar, CADA_MS);
     const alVolver = () => { if (document.visibilityState === 'visible') mirar(); };
@@ -93,18 +72,14 @@ export function AvisoConsultasArmado({ sucursalId, miId }: { sucursalId?: string
     return () => clearTimeout(t);
   }, [hecho]);
 
+  // suena al máximo y sin parar mientras haya una pregunta o una devolución esperando
+  useAlarmaHastaQueSeAtienda(lista.length > 0 && !esRutaDeAcceso(ruta));
   if (!llevaFlotantes(ruta)) return null;
-  const ahora = Date.now();
-  const visibles = lista.filter((c) => !(escondidas[claveDe(c)] && escondidas[claveDe(c)] > ahora));
+  const visibles = lista;
   if (!visibles.length && !hecho) return null;
   // primero las preguntas: alguien está parado esperando la respuesta
   const [c, ...resto] = [...visibles].sort((a, b) => Number(b.sinVer > 0) - Number(a.sinVer > 0));
 
-  function esconder(x: Consulta) {
-    const v = { ...leer(CLAVE_ESCONDIDAS), [claveDe(x)]: Date.now() + ESCONDER_MS };
-    guardar(CLAVE_ESCONDIDAS, v);
-    setEscondidas(v);
-  }
   async function contestar(x: Consulta) {
     const t = texto.trim();
     if (!t || ocupado) return;
@@ -169,10 +144,6 @@ export function AvisoConsultasArmado({ sucursalId, miId }: { sucursalId?: string
                   className={unir('inline-flex min-h-9 flex-1 items-center justify-center rounded-full bg-marca px-4 text-sm font-semibold text-white hover:bg-marca-hondo', FOCO)}>
                   Dárselo a otra persona
                 </Link>
-                <button type="button" onClick={() => esconder(c)} aria-label={`Esconder 10 minutos el aviso del pedido ${c.codigo}`} title="Esconder 10 minutos"
-                  className={unir('flex size-9 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}>
-                  <IconoCerrar className="size-5" />
-                </button>
               </div>
             </>
           )}

@@ -13,8 +13,11 @@ async function conToken(): Promise<Record<string, string>> {
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const historial = q.get('historial');
+  // ?vista=sin-tomar: lo que hace sonar «Llegó un pedido» en TODAS las máquinas (21/11/2026)
   const ruta = historial
     ? `/pedidos/${encodeURIComponent(historial)}/historial`
+    : q.get('vista') === 'sin-tomar'
+      ? '/pedidos/sin-tomar'
     : q.get('vista') === 'terminados'
       ? `/pedidos/terminados?dias=${encodeURIComponent(q.get('dias') ?? '7')}`
       : '/pedidos';
