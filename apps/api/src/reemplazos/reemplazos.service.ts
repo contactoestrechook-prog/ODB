@@ -7,6 +7,7 @@ import { celularWhatsapp, enviarWhatsapp } from '../comun/whatsapp';
 import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { linkDelSalon } from '../avisos/aviso-pedido';
+import { pasarAliasPendiente } from '../pedidos/alias-pendiente';
 import {
   cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo, leerVariedad,
   ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDeNoHay, textoDePregunta, textoParaQuienArma, variedadesLimpias, claveVariedad,
@@ -627,6 +628,8 @@ export class ReemplazosService {
         .catch((e) => this.log.error(`pedido ${codigo}: no pude encolar el aviso de cambios confirmados: ${e instanceof Error ? e.message : e}`));
     }
     this.log.log(`pedido ${codigo}: cambios cerrados (${cambios.map((c) => `${c.nombre_falta}: ${c.estado}`).join(', ')})`);
+    // contestado todo: si el pedido ya estaba listo y paga por transferencia, ahora le llega el alias con el total que quedó (21/11/2026)
+    await pasarAliasPendiente(this.db, pedidoId);
     return true;
   }
 

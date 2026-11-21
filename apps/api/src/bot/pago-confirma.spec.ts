@@ -167,8 +167,9 @@ describe('el alias, con el pedido listo (Leandro, 21/11/2026; antes «el alias y
   });
 
   // con un pedido ya confirmado: armándose, «te llega cuando esté listo» con su código; listo, el alias con el total
-  const conPedido = (estado: string, extraPedido: any = {}) => {
+  const conPedido = (estado: string, extraPedido: any = {}, cambiosAbiertos: any[] = []) => {
     const db = dbPorOperacion({
+      pedidos_reemplazos: { select: { data: cambiosAbiertos } },
       lineas_whatsapp: { select: { data: CFG } },
       alertas_internas: { select: { data: null } },
       bot_cotizaciones: { select: { data: [{ ...COT, confirmada_en: new Date().toISOString(), pedido_id: 'p-st' }] } },
@@ -193,6 +194,13 @@ describe('el alias, con el pedido listo (Leandro, 21/11/2026; antes «el alias y
     const c = ctx({ ultimoBot: 'Pedido DOM-1284BEF14D1D confirmado.' });
     await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
     expect(c.fija.texto).toBe('Total a transferir: $38.200.\nAlias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander).\nCuando transfieras, mandame el comprobante por acá.');
+  });
+
+  it('listo pero con un cambio sin contestar: todavía no sabemos el total → «te llega cuando esté listo»', async () => {
+    const { s } = conPedido('listo', { forma_pago: 'transferencia' }, [{ id: 'r1' }]);
+    const c = ctx({ ultimoBot: 'Pedido DOM-1284BEF14D1D confirmado.' });
+    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
+    expect(c.fija.texto).toBe('El alias te llega cuando tu pedido DOM-1284BEF14D1D esté listo, con el total final.');
   });
 
   it('un pedido entregado o cancelado no cuenta: sin resumen abierto, el alias sale como siempre', async () => {

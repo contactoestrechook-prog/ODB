@@ -92,10 +92,13 @@ export function bloqueDeAlias(o: { total: number; totalTransferencia: number; da
 export function avisoListoConAlias(
   p: { canal?: string | null; qr_retiro?: string | null },
   o: { total: number; totalTransferencia: number; datos: string },
+  estado = 'listo',
 ): string {
   const codigo = p.qr_retiro ? ` ${p.qr_retiro}` : '';
-  const arriba = p.canal === 'domicilio'
-    ? `Tu pedido${codigo} ya está listo y en breve sale hacia tu domicilio.`
-    : `Tu pedido${codigo} ya está listo para retirar en la sucursal Saint Thomas (Castex 3601).`;
+  const arriba = estado === 'en_camino'
+    ? `Tu pedido${codigo} ya salió y está en camino a tu domicilio.`
+    : p.canal === 'domicilio'
+      ? `Tu pedido${codigo} ya está listo y en breve sale hacia tu domicilio.`
+      : `Tu pedido${codigo} ya está listo para retirar en la sucursal Saint Thomas (Castex 3601).`;
   return `${arriba}\n\n${bloqueDeAlias(o)}`;
 }

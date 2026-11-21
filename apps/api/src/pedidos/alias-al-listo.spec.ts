@@ -21,6 +21,7 @@ jest.mock('../comun/lineas', () => {
 
 import { enviarTextoWhatsapp } from '../comun/whatsapp';
 import { PedidosService } from './pedidos.service';
+import { pasarAliasPendiente } from './alias-pendiente';
 import {
   aliasAlListo, avisoListoConAlias, bloqueDeAlias, datosParaTransferir, formaDePagoDeNotas, pasaAliasAlListo, totalPorTransferencia,
 } from './alias-al-listo';
@@ -87,7 +88,7 @@ describe('las piezas', () => {
 // El aviso de «listo» que sale del servicio de pedidos
 // ---------------------------------------------------------------------------
 
-function armar(o: { previo?: any; items?: any[]; mayorista?: boolean; conversacion?: any[] } = {}) {
+function armar(o: { previo?: any; items?: any[]; mayorista?: boolean; conversacion?: any[]; cambios?: any[]; faltan?: any[]; pedido?: any } = {}) {
   const escrituras: { tabla: string; op: string; fila: any }[] = [];
   const respuesta = (tabla: string, op: string): any => {
     if (op !== 'select') return { data: null, error: null };
@@ -96,10 +97,13 @@ function armar(o: { previo?: any; items?: any[]; mayorista?: boolean; conversaci
     if (tabla === 'clientes') return { data: { mayorista: o.mayorista === true }, error: null };
     if (tabla === 'pedidos_historial') return { data: o.previo ?? null, error: null };
     if (tabla === 'bot_conversaciones') return { data: { mensajes: o.conversacion ?? [{ role: 'user', content: 'Por transferencia' }] }, error: null };
+    if (tabla === 'pedidos_reemplazos') return { data: o.cambios ?? [], error: null };
+    if (tabla === 'pedidos') return { data: o.pedido ?? null, error: null };
     return { data: null, error: null };
   };
   const db: any = {
     escrituras,
+    rpc: async (nombre: string) => ({ data: nombre === 'faltantes_pedido' ? (o.faltan ?? []) : null, error: null }),
     from(tabla: string) {
       let op = 'select';
       const b: any = new Proxy({}, {
@@ -163,8 +167,8 @@ describe('el «listo» del que paga por transferencia lleva el alias', () => {
     expect(enviados()[0].texto).not.toContain('Alias');
   });
 
-  it('«en camino» no repite el alias', async () => {
-    const { svc } = armar();
+  it('«en camino» no repite el alias que ya salió con el «listo»', async () => {
+    const { svc } = armar({ previo: { detalle: { total: 38200 } } });
     await (svc as any).notificarWhatsApp(PEDIDO_ST, 'en_camino');
     expect(enviados()[0].texto).toBe('Su pedido de O.D.B (DOM-1284BEF14D1D) salió y está en camino a su domicilio.');
   });
@@ -191,5 +195,59 @@ describe('el «listo» del que paga por transferencia lleva el alias', () => {
     const { svc, escrituras } = armar();
     await (svc as any).notificarWhatsApp(PEDIDO_ST, 'listo');
     expect(escrituras.some((w) => w.tabla === 'pedidos_historial' || w.tabla === 'bot_conversaciones')).toBe(false);
+  });
+
+  it('«listo» con un cambio sin contestar: sale el «listo» de siempre y el alias espera', async () => {
+    const { svc, escrituras } = armar({ cambios: [{ id: 'r1' }] });
+    await (svc as any).notificarWhatsApp(PEDIDO_ST, 'listo');
+    expect(enviados()[0].texto).toBe('Su pedido de O.D.B (DOM-1284BEF14D1D) ya está preparado. En breve sale hacia su domicilio.');
+    expect(escrituras.some((w) => w.tabla === 'pedidos_historial')).toBe(false);
+  });
+
+  it('«listo» con un faltante en el sistema: el alias espera', async () => {
+    const { svc } = armar({ faltan: [{ producto_id: 'x', nombre: 'Leche Cindor x 200 cc', pide: 3, hay: 0 }] });
+    await (svc as any).notificarWhatsApp(PEDIDO_ST, 'listo');
+    expect(enviados()[0].texto).not.toContain('Alias');
+  });
+
+  it('si al «listo» faltaba algo, el alias sale con el «salió»', async () => {
+    const { svc } = armar();
+    await (svc as any).notificarWhatsApp(PEDIDO_ST, 'en_camino');
+    expect(enviados()[0].texto).toBe(avisoListoConAlias(PEDIDO_ST, { total: 38200, totalTransferencia: 38200, datos: DATOS }, 'en_camino'));
+    expect(enviados()[0].texto).toMatch(/^Tu pedido DOM-1284BEF14D1D ya salió y está en camino a tu domicilio\./);
+  });
+});
+
+describe('el alias pendiente sale cuando se resuelve lo que faltaba', () => {
+  const listo = { ...PEDIDO_ST, estado: 'listo' };
+
+  it('contestado el cambio (o sacado el faltante), con el pedido listo: le llega el alias con el total que quedó', async () => {
+    const { db, escrituras } = armar({ pedido: listo });
+    expect(await pasarAliasPendiente(db, 'p-st')).toBe(true);
+    expect(enviados()[0].texto).toBe(avisoListoConAlias(listo, { total: 38200, totalTransferencia: 38200, datos: DATOS }));
+    expect(enviados()[0].sesion).toBe('sesion-local');
+    expect(escrituras.find((w) => w.tabla === 'pedidos_historial')?.fila).toMatchObject({ evento: 'alias', estado_despues: 'listo' });
+  });
+
+  it('todavía armándose: no sale nada (le llega con el «listo»)', async () => {
+    const { db } = armar({ pedido: { ...PEDIDO_ST, estado: 'en_preparacion' } });
+    expect(await pasarAliasPendiente(db, 'p-st')).toBe(false);
+    expect(enviados()).toHaveLength(0);
+  });
+
+  it('todavía falta otro cambio: no sale', async () => {
+    const { db } = armar({ pedido: listo, cambios: [{ id: 'r2' }] });
+    expect(await pasarAliasPendiente(db, 'p-st')).toBe(false);
+    expect(enviados()).toHaveLength(0);
+  });
+
+  it('ya se le pasó con ese total: no se repite', async () => {
+    const { db } = armar({ pedido: listo, previo: { detalle: { total: 38200 } } });
+    expect(await pasarAliasPendiente(db, 'p-st')).toBe(false);
+  });
+
+  it('paga en efectivo: nada', async () => {
+    const { db } = armar({ pedido: { ...listo, forma_pago: 'efectivo' } });
+    expect(await pasarAliasPendiente(db, 'p-st')).toBe(false);
   });
 });

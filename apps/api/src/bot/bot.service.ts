@@ -22,6 +22,7 @@ import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, totalEfectivoDe } from './pago-confirma';
 import { aliasAlListo, bloqueDeAlias, datosParaTransferir, ESTADOS_ANTES_DE_LISTO, ESTADOS_LISTO, formaDePagoDeNotas, totalPorTransferencia } from '../pedidos/alias-al-listo';
+import { pedidoCompleto } from '../pedidos/alias-pendiente';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -3653,7 +3654,9 @@ export class BotService {
       });
       const resumenPendiente = !!compra.cotizacion || extra.hayResumen === true;
       const ped = compra.pedido;
-      if (resumenPendiente || (ped && ESTADOS_ANTES_DE_LISTO.includes(ped.estado))) {
+      // listo no alcanza: tiene que estar todo (sin cambios por contestar ni faltantes; alias-pendiente.ts)
+      const listoYCompleto = !!ped && ESTADOS_LISTO.includes(ped.estado) && (await pedidoCompleto(this.db, ped.id)).completo;
+      if (resumenPendiente || (ped && (ESTADOS_ANTES_DE_LISTO.includes(ped.estado) || !listoYCompleto))) {
         // queda anotado que paga por transferencia: el aviso de «listo» lleva el alias
         if (compra.cotizacion) await this.anotarPagaConTransferencia(compra.cotizacion);
         else if (ped) await this.marcarTransferencia(ped);
@@ -3675,7 +3678,7 @@ export class BotService {
         };
       }
       const datos = datosParaTransferir(cfg as any);
-      if (datos && ped && ESTADOS_LISTO.includes(ped.estado)) {
+      if (datos && ped && listoYCompleto) {
         await this.marcarTransferencia(ped);
         const total = Math.round(Number(ped.total) || 0);
         const totalTransferencia = await this.totalTransferenciaDelPedido(ped).catch(() => total);
