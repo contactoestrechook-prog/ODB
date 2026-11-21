@@ -1120,3 +1120,64 @@ describe('cierra con kilos (10/11/2026)', () => {
     expect(puedeVendersePorPesoConCatalogo('Malbec 750', { nombre: 'Queso' })).toBe(false);
   });
 });
+
+// ENVASE ADENTRO DE ENVASE (21/11/2026). Umami 0006-00070233, renglón 2: «LP EST
+// ICE WINE X 3 - CAJA X 2 EST X 3 BO», 9 × $138.511,34 = $1.246.602,06. La caja
+// trae 2 estuches de 3 botellas (6); se leía «caja x 2» y Juan Pablo tuvo que
+// poner el 6 a mano: entraron 54 botellas, con la botella a $17.867,96 en el catálogo.
+describe('envase adentro de envase: «CAJA X 2 EST X 3»', () => {
+  const { bultoDelRenglon, envaseAnidado } = require('./bultos');
+  const ICE_WINE = 'LP EST ICE WINE X 3 - CAJA X 2 EST X 3 BO';
+
+  it('reconoce la forma: la caja con su número y, pegado, otro envase con el suyo', () => {
+    expect(envaseAnidado(ICE_WINE)).toEqual({ afuera: 2, adentro: 3 });
+    expect(envaseAnidado('GASEOSA LIMA CJ X 4 PACK X 6')).toEqual({ afuera: 4, adentro: 6 });
+    expect(envaseAnidado('ALFAJOR TRIPLE CAJA X 6 DISPLAY X 6 UN')).toEqual({ afuera: 6, adentro: 6 });
+    // una caja sola, un tamaño de envase o lo que trae adentro cada unidad no lo son
+    expect(envaseAnidado('SBW SIG ROS caja x6')).toBeNull();
+    expect(envaseAnidado('LP EXPLORACION GEWURZTRAMINER CAJA X 4')).toBeNull();
+    expect(envaseAnidado('MALBEC CAJA X 6 X 750')).toBeNull();
+    expect(envaseAnidado('HILERET ZUCRA 8 X 50 SOBRES')).toBeNull();
+    // más de 60 unidades por caja no es un bulto de los que se leen acá
+    expect(envaseAnidado('CARAMELOS CAJA X 12 PACK X 12')).toBeNull();
+  });
+
+  it('con el costo de la botella, la caja son 6 (2 estuches × 3) y lo dice el texto', () => {
+    expect(bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: 17867.96 })).toEqual({ unidadesPorBulto: 6, origen: 'palabra', anidado: true });
+  });
+
+  it('no adivina: sin costo, o si la casa vende el estuche, queda el número de la caja', () => {
+    expect(bultoDelRenglon(ICE_WINE, 2)).toEqual({ unidadesPorBulto: 2, origen: 'palabra' });
+    expect(bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: null })).toEqual({ unidadesPorBulto: 2, origen: 'palabra' });
+    // el producto del catálogo es el estuche de 3 (cuesta la mitad de la caja)
+    expect(bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: 62000 })).toEqual({ unidadesPorBulto: 2, origen: 'palabra' });
+    // el producto del catálogo es la caja entera
+    expect(bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: 150000 })).toEqual({ unidadesPorBulto: 2, origen: 'palabra' });
+    // un costo que no cuadra con ninguna de las tres lecturas tampoco decide
+    expect(bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: 900 })).toEqual({ unidadesPorBulto: 2, origen: 'palabra' });
+  });
+
+  it('una caja común no cambia aunque venga el costo', () => {
+    expect(bultoDelRenglon('SBW SIG ROS caja x6', 0, { precio: 186063.47, costoCatalogo: 24002.19 })).toEqual({ unidadesPorBulto: 6, origen: 'palabra' });
+    expect(bultoDelRenglon('DORITOS QUESO 200GX14', 14, { precio: 4899.65, costoCatalogo: 5000 })).toEqual({ unidadesPorBulto: 14, origen: 'modelo' });
+  });
+
+  it('el renglón entero: 9 cajas de 6 quedan con la cuenta que prueba que son cajas (y entran 54)', () => {
+    const bulto = bultoDelRenglon(ICE_WINE, 2, { precio: 138511.34, costoCatalogo: 17867.96 });
+    const r = interpretarRenglon({
+      descripcion: ICE_WINE, cantidad: 9, precio: 138511.34, importe: 1246602.06, unidadesPorBulto: bulto.unidadesPorBulto, bultoOrigen: bulto.origen,
+      bonificacionPct: null, esDescuento: false, kg: null, puedePorPeso: false, costoCatalogo: 17867.96, vinculoSugerido: true,
+    });
+    expect(r.decision).toBe('bulto_pendiente');
+    expect(r.cantidad).toBe(9);
+    expect(r.unidadesPorBulto).toBe(6);
+    // «son cajas»: con esa prueba la pantalla lo abre sola (fichaPorCuenta)
+    expect(r.razonBulto).toMatchObject({ sugerencia: 'convertir', evidencia: 'costo' });
+    // con el ×2 de antes no había prueba de nada
+    const antes = interpretarRenglon({
+      descripcion: ICE_WINE, cantidad: 9, precio: 138511.34, importe: 1246602.06, unidadesPorBulto: 2, bultoOrigen: 'palabra',
+      bonificacionPct: null, esDescuento: false, kg: null, puedePorPeso: false, costoCatalogo: 17867.96, vinculoSugerido: true,
+    });
+    expect(antes.razonBulto).toBeNull();
+  });
+});

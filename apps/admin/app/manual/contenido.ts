@@ -604,6 +604,8 @@ export const SECCIONES: Seccion[] = [
           'En "Cambios" aparece a nombre de "Memoria" con la cuenta que lo prueba ("Son cajas de 4 y se abren: …"). Si alguno va distinto, deshacelo ahí.',
           'La palabra "caja" sola no alcanza: hay "cajas" que son el paquete que se vende entero (las hamburguesas "caja x 4"). Sin la prueba del costo, el renglón queda con la pregunta de siempre o lo decide la memoria del proveedor.',
           'Si el renglón no dice cuántas trae cada caja (un vino que dice solo "Malbec" con el precio de la caja), decíselo a la IA: "son cajas de 6".',
+          'Si el renglón nombra un envase adentro de otro ("CAJA X 2 EST X 3 BO": una caja de 2 estuches de 3 botellas), el sistema cuenta las unidades de más adentro —6 por caja— cuando el costo del producto vinculado lo prueba, y lo carga solo como cajas que se abren, con la cuenta a la vista en "Cambios". Si no lo puede probar (el producto no tiene costo, o la casa vende el estuche), queda con la pregunta de siempre: ahí la costumbre del proveedor no decide sola.',
+          'Tampoco decide sola la costumbre del proveedor cuando el precio del renglón no se parece al costo del producto ni contando la cantidad como unidades ni abriéndola: suele ser que el "x N" o el producto quedaron mal leídos. Lo resuelve una persona, como cualquier renglón con la pregunta.',
         ],
       },
       {

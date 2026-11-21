@@ -264,3 +264,69 @@ describe('lo que la cuenta ya prueba: son cajas, en cualquier proveedor', () => 
     expect(r.fichas[1]).toMatchObject({ por: 'cuenta', entraComo: 'abiertas', entraDe: 12 });
   });
 });
+
+// CUANDO EL «×N» NO ES DE FIAR, LA COSTUMBRE NO DECIDE (21/11/2026). Los
+// renglones son los de Umami 0006-00070233 (17/11): todo lo demás se registró
+// como cajas que se abren, y «LP EST ICE WINE X 3 - CAJA X 2 EST X 3 BO» se leyó
+// «caja x 2». La costumbre lo hubiera entrado sola como 18 botellas; eran 54.
+describe('la costumbre no decide si el «×N» no es de fiar', () => {
+  const { nombraEnvaseAnidado, precioLejosDelCatalogo } = require('../../../admin/app/lib/forma-proveedor');
+  const { envaseAnidado } = require('./bultos');
+  const conCosto = (i: any, costoCatalogo: number | null) => ({ ...enPantalla(i), costoCatalogo });
+  const rosado = sinDecidir('SBW SIG ROS caja x6', 2, 186063.47, 6);
+  const gewurz = sinDecidir('LP EXPLORACION GEWURZTRAMINER CAJA X 4', 2, 92340.89, 4);
+  const umami = formaDe([abierto(rosado), abierto(gewurz)]);
+  const iceWine = sinDecidir('LP EST ICE WINE X 3 - CAJA X 2 EST X 3 BO', 9, 138511.34, 2);
+
+  it('Umami abre sus cajas: un artículo nuevo «caja x 6» sigue entrando solo', () => {
+    const malbec = conCosto(sinDecidir('SBW SIG MALBEC caja x6', 3, 190000, 6), 24500);
+    expect(fichaDeForma(malbec, umami, 'Umami')?.entraComo).toBe('abiertas');
+  });
+
+  it('«CAJA X 2 EST X 3»: el papel nombra un envase adentro de otro y la costumbre no lo abre por 2', () => {
+    expect(nombraEnvaseAnidado(iceWine.descripcion)).toBe(true);
+    expect(fichaDeForma(conCosto(iceWine, 17867.96), umami, 'Umami')).toBeNull();
+    // tampoco sin costo en el catálogo (un artículo que la casa nunca compró)
+    expect(fichaDeForma(conCosto(iceWine, null), umami, 'Umami')).toBeNull();
+    // ni aunque el lector ya traiga el 6: ahí decide la cuenta, no la costumbre
+    expect(fichaDeForma(conCosto({ ...iceWine, unidadesPorBulto: 6, interpretado: { ...iceWine.interpretado, unidadesPorBulto: 6 } }, 17867.96), umami, 'Umami')).toBeNull();
+  });
+
+  it('con la prueba del costo que ahora trae el lector, decide la cuenta: 9 cajas de 6 = 54', () => {
+    const leido = sinDecidir(iceWine.descripcion, 9, 138511.34, 6, 'convertir');
+    const fila = conCosto(leido, 17867.96);
+    const r = fichasConForma([fila], [null], [abierto(rosado), abierto(gewurz)], 'Umami');
+    expect(r.porCuenta).toEqual([1]);
+    expect(r.porForma).toEqual([]);
+    const cambios = cambiosDeFicha(fila, r.fichas[0], 1, esRenglonDescuento as any);
+    expect(cambios.estado).toBe('aplicada');
+    expect(aplicarCambiosIA([fila], cambios.cambios, esRenglonDescuento as any).items[0].cantidad).toBe(54);
+  });
+
+  it('el panel y la API reconocen la misma forma', () => {
+    for (const d of [iceWine.descripcion, 'GASEOSA LIMA CJ X 4 PACK X 6', 'ALFAJOR CAJA X 6 DISPLAY X 6 UN', 'SBW SIG ROS caja x6', 'MALBEC CAJA X 6 X 750', 'CARAMELOS CAJA X 12 PACK X 12', 'HILERET ZUCRA 8 X 50 SOBRES', '']) {
+      expect(nombraEnvaseAnidado(d)).toBe(!!envaseAnidado(d));
+    }
+  });
+
+  it('un «×N» cuyo precio no se parece al costo ni como unidades ni como cajas tampoco se decide solo', () => {
+    // un «caja x 2» mal leído, sin estuches en el texto: $83.799 la unidad contra $17.868
+    const raro = conCosto(sinDecidir('LP ICE WINE ESTUCHADO CAJA X 2', 9, 138511.34, 2), 17867.96);
+    expect(precioLejosDelCatalogo(raro)).toBe(true);
+    expect(fichaDeForma(raro, umami, 'Umami')).toBeNull();
+  });
+
+  it('no frena lo que venía entrando bien', () => {
+    // sin costo en el catálogo no opina
+    expect(precioLejosDelCatalogo(conCosto(rosado, null))).toBe(false);
+    // Arizu: lista con IVA 2,6 veces el costo (el descuento va al pie) y la caja se abre igual
+    const insignia = conCosto(sinDecidir('LUIGI BOSCA INSIGNIA MALBEC CAJA X 6', 2, 141818.18, 6), 11140.9);
+    expect(precioLejosDelCatalogo(insignia)).toBe(false);
+    expect(fichaDeForma(insignia, umami, 'Leoncio Arizu')?.entraComo).toBe('abiertas');
+    // un renglón bonificado al 100 % no «queda lejos»: es gratis
+    const bonificado = { ...sinDecidir('La Flor - Caja x 06 Malbec', 2, 86776.86, 6), bonificacionPct: 100, importe: 0 };
+    expect(precioLejosDelCatalogo(conCosto(bonificado, 6725.5))).toBe(false);
+    // paquetes que entran tal cual (La Farina): el precio ya es el de la unidad
+    expect(precioLejosDelCatalogo(conCosto(figacita, 4200))).toBe(false);
+  });
+});

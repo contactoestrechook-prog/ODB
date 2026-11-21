@@ -738,7 +738,10 @@ export class ListasService {
       i.importe = numeroLeido(i.importe);
       // el detector de bultos también se corrige (el "12 x" de Arcor): gana el
       // texto. Lo que el texto no dice es del modelo (o de un detector viejo).
-      const bulto = bultoDelRenglon(String(i.descripcion ?? ''), i.unidadesPorBulto);
+      // con el costo del producto vinculado: «CAJA X 2 EST X 3» son 6 si la casa vende la botella (21/11/2026)
+      const bulto = bultoDelRenglon(String(i.descripcion ?? ''), i.unidadesPorBulto, { precio: numeroLeido(i.precio), costoCatalogo: i.match?.costoActual ?? null });
+      // la tabla lee las unidades por bulto del renglón: tiene que ser el mismo número que se interpreta
+      if (bulto.anidado) i.unidadesPorBulto = bulto.unidadesPorBulto;
       // el panel dice "la descripción dice ×14" solo si el texto lo dice
       // (6/10/2026); las lecturas guardadas antes no traen el origen
       i.bultoOrigen = bulto.origen;
@@ -1353,6 +1356,14 @@ export class ListasService {
     for (const i of propuesta as any[]) {
       const lectura = i._lectura;
       if (!lectura) continue;
+      // ENVASE ADENTRO DE ENVASE (21/11/2026, Umami «CAJA X 2 EST X 3 BO»): recién
+      // ahora se sabe el costo del producto vinculado, que es lo que dice si la
+      // caja se cuenta en estuches (2) o en botellas (6). Ver bultoDelRenglon.
+      const conLoDeAdentro = bultoDelRenglon(String(lectura.descripcion ?? ''), lectura.unidadesPorBulto, { precio: lectura.precio, costoCatalogo: i.match?.costoActual ?? null });
+      if (conLoDeAdentro.anidado) {
+        lectura.unidadesPorBulto = conLoDeAdentro.unidadesPorBulto;
+        i.unidadesPorBulto = conLoDeAdentro.unidadesPorBulto;
+      }
       const nombreCatalogo = i.match?.nombre ?? null;
       const internas = nombreCatalogo ? unidadesDeLaPresentacion(String(nombreCatalogo)) : null;
       i.interpretado = interpretarLecturaSegura({

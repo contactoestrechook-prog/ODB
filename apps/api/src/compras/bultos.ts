@@ -57,9 +57,57 @@ export function unidadesPorBulto(descripcion: string): number | null {
  */
 export type OrigenBulto = 'palabra' | 'texto' | 'modelo';
 
-export function bultoDelRenglon(descripcion: string, delModelo: unknown): { unidadesPorBulto: number | null; origen: OrigenBulto | null } {
+/**
+ * ENVASE ADENTRO DE ENVASE (21/11/2026). Umami, «LP EST ICE WINE X 3 - CAJA X 2
+ * EST X 3 BO», 9 × $138.511,34: la caja trae 2 estuches de 3 botellas, o sea 6
+ * botellas, y se leía «caja x 2». Con ×2 el precio no cuadraba con el costo de
+ * la botella de ninguna manera ($69.255 contra $17.868), la costumbre de Umami
+ * —sus cajas se abren— lo hubiera entrado sola como 18 botellas, y eran 54:
+ * Juan Pablo tuvo que poner el 6 a mano.
+ *
+ * La forma, no el ejemplo: una palabra de caja con su número y, pegado, otro
+ * envase con el suyo («CAJA X 2 EST X 3», «CJ X 4 PACK X 6»). El primero dice
+ * cuántos envases trae la caja; el segundo, cuántas unidades trae cada uno.
+ */
+const RE_ENVASE_ANIDADO =
+  /\b(?:cajon(?:es)?|cajas?|cja|cj|box|bultos?)\s*x?\s*(\d{1,3})\s*(?:estuches?|est|six\s?packs?|packs?|pck|displays?|bandejas?|bdj|blisters?)\b\.?\s*x\s*(\d{1,3})\b/;
+
+export function envaseAnidado(descripcion: string): { afuera: number; adentro: number } | null {
+  const m = normalizar(descripcion).match(RE_ENVASE_ANIDADO);
+  if (!m) return null;
+  const afuera = Number(m[1]);
+  const adentro = Number(m[2]);
+  return plausible(afuera) && plausible(adentro) && plausible(afuera * adentro) ? { afuera, adentro } : null;
+}
+
+/**
+ * Cuál de los dos números es el de la caja lo dice el producto del catálogo, y
+ * no se adivina: se cuentan las unidades de más adentro (afuera × adentro) SOLO
+ * si el precio dividido por ese total cuadra con el costo del producto vinculado
+ * y no cuadra ni tal cual ni dividido por los envases de afuera. Si la casa
+ * vende el estuche, o el producto no tiene costo, queda como siempre.
+ */
+function unidadesDeMasAdentro(descripcion: string, n: number, pista?: { precio?: number | null; costoCatalogo?: number | null } | null): number | null {
+  const anidado = envaseAnidado(descripcion);
+  const precio = Number(pista?.precio) || 0;
+  const costo = Number(pista?.costoCatalogo) || 0;
+  if (!anidado || anidado.afuera !== n || !(precio > 0) || !(costo > 0)) return null;
+  const total = anidado.afuera * anidado.adentro;
+  return enBanda(precio / total / costo) && !enBanda(precio / n / costo) && !enBanda(precio / costo) ? total : null;
+}
+
+export function bultoDelRenglon(
+  descripcion: string,
+  delModelo: unknown,
+  /** el precio del renglón y el costo del producto vinculado, cuando ya se saben */
+  pista?: { precio?: number | null; costoCatalogo?: number | null } | null,
+): { unidadesPorBulto: number | null; origen: OrigenBulto | null; anidado?: true } {
   const delTexto = detectarBulto(descripcion);
-  if (delTexto) return { unidadesPorBulto: delTexto.n, origen: delTexto.conPalabra ? 'palabra' : 'texto' };
+  if (delTexto) {
+    const total = unidadesDeMasAdentro(descripcion, delTexto.n, pista);
+    if (total) return { unidadesPorBulto: total, origen: 'palabra', anidado: true };
+    return { unidadesPorBulto: delTexto.n, origen: delTexto.conPalabra ? 'palabra' : 'texto' };
+  }
   const m = Number(delModelo);
   return m > 1 && Number.isFinite(m) ? { unidadesPorBulto: Math.round(m), origen: 'modelo' } : { unidadesPorBulto: null, origen: null };
 }

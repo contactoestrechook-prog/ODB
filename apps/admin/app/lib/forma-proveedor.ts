@@ -169,6 +169,58 @@ export function cuentaParecida(fila: any, firma: Firma, forma: Forma | null | un
   return cuentas.length === 1 ? cuentas[0] : null;
 }
 
+// ============================================================
+// CUANDO EL «×N» NO ES DE FIAR, LA COSTUMBRE NO DECIDE (21/11/2026). Umami,
+// «LP EST ICE WINE X 3 - CAJA X 2 EST X 3 BO», 9 × $138.511,34: la caja trae 2
+// estuches de 3 botellas (son 6) y el lector tomó «caja x 2». La costumbre de
+// Umami —sus cajas se abren— lo hubiera entrado sola como 18 botellas a
+// $69.255, con la botella a $17.868 en el catálogo. Eran 54: Juan Pablo puso el
+// 6 a mano, y el repaso de facturas lo marcó recién al publicar otra cosa.
+//
+// La costumbre del proveedor contesta UNA pregunta: si la cantidad son paquetes
+// que entran tal cual o cajas que se abren. Da por bueno el N. Hay dos señales
+// de que ese N no es el de la caja, y con cualquiera de las dos no decide (el
+// renglón queda para una persona, como cualquier «×N» sin decidir):
+//
+//  · EL PAPEL NOMBRA UN ENVASE ADENTRO DE OTRO («CAJA X 2 EST X 3»): el número
+//    leído es uno de los dos y el bueno depende de qué vende la casa. Cuando el
+//    costo del catálogo lo prueba, el lector ya trae el número bueno con su
+//    cuenta (apps/api/src/compras/bultos.ts › bultoDelRenglon) y decide «la
+//    cuenta» (fichaPorCuenta), antes que la costumbre.
+//  · EL PRECIO NO SE PARECE AL COSTO DEL CATÁLOGO DE NINGUNA MANERA: ni contando
+//    la cantidad como unidades ni abriéndola por ese N queda a menos de cuatro
+//    veces (la misma holgura de «se parece a lo que el proveedor ya mostró»).
+//    Se mira con y sin el descuento del renglón: uno bonificado al 100 % no
+//    «queda lejos», es gratis. Sin costo en el catálogo no se opina.
+//
+// El freno de las reglas (tabla-factura › frenarReglasAbsurdas) no alcanzaba:
+// solo vuelve atrás lo que una regla EMPEORÓ, y este renglón ya estaba lejos del
+// catálogo antes de tocarlo.
+// ============================================================
+
+/** La misma forma que apps/api/src/compras/bultos.ts › envaseAnidado (un test compara las dos). */
+const RE_ENVASE_ANIDADO =
+  /\b(?:cajon(?:es)?|cajas?|cja|cj|box|bultos?)\s*x?\s*(\d{1,3})\s*(?:estuches?|est|six\s?packs?|packs?|pck|displays?|bandejas?|bdj|blisters?)\b\.?\s*x\s*(\d{1,3})\b/;
+export function nombraEnvaseAnidado(descripcion: unknown): boolean {
+  const t = String(descripcion ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  const m = t.match(RE_ENVASE_ANIDADO);
+  const bulto = (n: number) => n >= 2 && n <= 60;
+  return !!m && bulto(Number(m[1])) && bulto(Number(m[2])) && bulto(Number(m[1]) * Number(m[2]));
+}
+
+export function precioLejosDelCatalogo(fila: any): boolean {
+  const catalogo = num(fila?.costoCatalogo);
+  const precio = num(fila?.papel?.precio);
+  const n = num(fila?.papel?.uxb);
+  if (catalogo == null || !(catalogo > 0) || precio == null || !(precio > 0) || n == null || !(n > 1)) return false;
+  // el costo del catálogo trae el IVA: se compara con el precio del papel con su IVA
+  const iva = (num(fila.papel.iva) ?? 0) > 0 ? (num(fila.papel.iva) as number) : 21;
+  const desc = Math.min(100, Math.abs(num(fila.papel.desc) ?? 0));
+  const precios = [precio, ...(desc > 0 && desc < 100 ? [precio * (1 - desc / 100)] : [])].map((x) => x * (1 + iva / 100));
+  const lejos = (c: number) => c > catalogo * HOLGURA || c < catalogo / HOLGURA;
+  return precios.every((x) => lejos(x) && lejos(x / n));
+}
+
 /** Junta los antecedentes de un proveedor: un voto por artículo (el más nuevo manda). */
 export function formaDe(antecedentes: Antecedente[] | null | undefined): Forma {
   const forma: Forma = { sueltas: { talCual: 0, abre: 0, otra: 0 }, bultos: { talCual: 0, abre: 0, otra: 0 } };
@@ -225,6 +277,9 @@ export function fichaDeForma(fila: any, forma: Forma | null | undefined, proveed
   const sugerencia = String(fila.razonBulto?.sugerencia ?? '');
   if (d.salida === 'tal_cual' && sugerencia === 'convertir') return null;
   if (d.salida === 'abre' && (sugerencia === 'unidades' || sugerencia === 'caja')) return null;
+  // ese N no es de fiar: el papel nombra un envase adentro de otro, o el precio
+  // no se parece al costo del catálogo ni como unidades ni como cajas de N
+  if (nombraEnvaseAnidado(fila.descripcion) || precioLejosDelCatalogo(fila)) return null;
   const n = num(fila.papel.uxb) as number;
   const de = proveedor ? `los artículos de ${proveedor}` : 'los artículos de este proveedor';
   const veces = `${d.casos} de ${d.total}`;
