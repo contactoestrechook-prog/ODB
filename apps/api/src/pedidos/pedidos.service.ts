@@ -17,6 +17,7 @@ import {
   ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
 } from './envios';
 import { anotarAliasPasado, avisoConAlias, pasarAliasPendiente } from './alias-pendiente';
+import { EVENTO_AVISO, lineaDeAviso, lineaDePregunta, lineaSinAviso, sacadosSinAviso, type CambioConsultado } from './aviso-faltante';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -891,13 +892,15 @@ export class PedidosService {
   // (cada cambio de estado, quién lo tomó, el repartidor, el pago) más los
   // WhatsApp a administración (cuándo salió, cuándo llegó, quién marcó "Ya avisé").
   async historial(pedidoId: string) {
-    const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }, { data: mensajes }] = await Promise.all([
+    const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }, { data: mensajes }, { data: cambios }] = await Promise.all([
       this.db.from('pedidos_historial').select('evento, estado_antes, estado_despues, usuario_id, detalle, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
       this.db.from('avisos_pedidos').select('tipo, estado, enviado_en, entregado_en, visto_en, visto_por, escalado_en, motivo, detalle').eq('pedido_id', pedidoId),
       this.nombresDelEquipo(),
       this.db.from('pedidos').select('origen, qr_retiro, canal').eq('id', pedidoId).maybeSingle(),
       // lo que se escribieron quien arma y la caja (21/11/2026)
       this.db.from('pedidos_mensajes').select('de, lado, texto, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
+      // lo que se le preguntó al cliente porque faltaba algo (22/11/2026)
+      this.db.from('pedidos_reemplazos').select('tipo, nombre_falta, nombre_reemplazo, cantidad, pedida, variedades, preguntado_en').eq('pedido_id', pedidoId).not('preguntado_en', 'is', null),
     ]);
     if (error) throw new BadRequestException(error.message);
     const origenPedido = pedido ? origenDe(pedido as any) : null;
@@ -946,8 +949,17 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: `Le llegó al cliente el alias para transferir${monto > 0 ? ` ($${Math.round(monto).toLocaleString('es-AR')})` : ''}`, quien: null, tono: 'info' });
       } else if (h.evento === 'envio') {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeEnvio(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
+      } else if (h.evento === EVENTO_AVISO) {
+        // cuándo se le avisó al cliente que faltaba algo (Leandro, 22/11/2026: «la Cindor»)
+        const l = lineaDeAviso(h.detalle);
+        lineas.push({ cuando: h.creado_en, que: l.que, quien: h.detalle?.por === 'telefono' ? null : quien(h.usuario_id), tono: l.tono });
       }
     }
+    // la pregunta por un parecido u otra variedad también le avisa que no hay
+    const consultados = (cambios ?? []) as CambioConsultado[];
+    for (const c of consultados) lineas.push({ cuando: String(c.preguntado_en), que: lineaDePregunta(c), quien: null, tono: 'info' });
+    // y lo que se sacó sin ningún aviso al cliente, a la vista
+    for (const s of sacadosSinAviso((pasos ?? []) as any[], consultados)) lineas.push({ cuando: s.cuando, que: lineaSinAviso(s.nombre), quien: null, tono: 'error' });
     for (const m of (mensajes ?? []) as any[]) {
       lineas.push({ cuando: m.creado_en, que: `${m.lado === 'armado' ? 'Preguntó mientras armaba' : 'Le escribió a quien arma'}: «${String(m.texto).slice(0, 300)}»`, quien: quien(m.de), tono: 'info' });
     }

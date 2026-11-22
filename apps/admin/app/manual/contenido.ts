@@ -282,6 +282,7 @@ export const SECCIONES: Seccion[] = [
           ['Cambió el envío', 'Quién cambió la fecha, la franja o la dirección de un envío, y cómo quedó.'],
           ['Entregado', 'Quién lo entregó y cómo pagó (efectivo, tarjeta o transferencia). El efectivo entra en la caja abierta.'],
           ['Faltaba stock', 'Qué se sacó, qué se puso en su lugar y cómo cambió el total, con el nombre de quien lo hizo.'],
+          ['Se le avisó al cliente', 'Cuándo supo el cliente que faltaba un producto: el WhatsApp del «No hay» del armado, la pregunta por un parecido o lo que se le escribió desde el teléfono del local (con el texto). Si se sacó algo y no figura ningún aviso, lo dice en rojo. Una llamada no queda: anotala en el armado («Lo llamé y dijo que sí / que no»).'],
           ['Cancelar', 'Quién lo canceló. Se devuelve el stock y le llega la baja a administración.'],
           ['Devolvió el pedido', 'Quien lo armaba, cuándo y por qué. Si la caja le sacó el armado a alguien, también queda.'],
           ['Preguntó / le escribieron', 'Cada mensaje entre quien arma y la caja, con nombre y hora.'],

@@ -8,6 +8,7 @@ import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { linkDelSalon } from '../avisos/aviso-pedido';
 import { pasarAliasPendiente } from '../pedidos/alias-pendiente';
+import { EVENTO_AVISO } from '../pedidos/aviso-faltante';
 import {
   cantidadEquivalente, type CambioParaTexto, type CambioRespondido, type Candidato, enHorarioDeMensajes, leerSiNo, leerVariedad,
   ordenarParecidos, palabrasDe, sePesa, soloCortesia, textoDeCierre, textoDeNoHay, textoDePregunta, textoParaQuienArma, variedadesLimpias, claveVariedad,
@@ -251,6 +252,11 @@ export class ReemplazosService {
         this.registrarEnResponde?.(this.waIdDe(f), '', texto).catch(() => null);
       } else motivo = `No salió el WhatsApp (${w.motivo ?? 'sin motivo'}): avisale vos.`;
     }
+    // queda en «Quién hizo cada cosa»: cuándo se le avisó, o por qué no (22/11/2026)
+    await this.db.from('pedidos_historial').insert({
+      pedido_id: pedidoId, evento: EVENTO_AVISO, usuario_id: usuarioId ?? null,
+      detalle: { por: 'whatsapp', productos: [nombre], avisado, motivo },
+    }).then(() => null, () => null);
     this.log.log(`pedido ${pedidoId}: ${nombre}${pedida ? ` (${pedida})` : ''} no hay, salió del pedido; ${avisado ? 'se le avisó al cliente' : `no se le avisó (${motivo})`}`);
     return { ...((r as any) ?? {}), avisado, motivo };
   }

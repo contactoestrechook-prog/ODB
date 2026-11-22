@@ -75,6 +75,7 @@ import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
 import { enviarWhatsapp, ResultadoWaha } from '../comun/whatsapp';
+import { anotarAvisoDelTelefono } from '../pedidos/aviso-faltante';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
@@ -4883,6 +4884,8 @@ export class BotService {
       // vuelve solo a los 30 min del último mensaje desde el teléfono (16/10/2026)
       atendida_por: null, derivacion_vence_en: vencePausaTelefono(), acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+    // si le dice que falta algo de su pedido, queda en el historial del pedido (22/11/2026)
+    if (texto) anotarAvisoDelTelefono(this.db, { linea, chat: identidad, texto }).catch(() => null);
     await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad, null, linea);
     await this.limpiarEspera(linea, identidad); // ya la atendieron: deja de esperar
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
