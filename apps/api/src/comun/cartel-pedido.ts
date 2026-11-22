@@ -421,6 +421,24 @@ const normal = (s: string) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/
 const RE_PALABRA_VACIA = /^(cc|ml|lts?|litros?|kg|gr|x\d.*|\d.*|con|sin|de|del|la|el|los|las|y|o|en|por|para|blanco|tinto|clasico|clasica|botella|unidad)$/;
 
 /**
+ * Cada producto una sola vez (Leandro, 22/11/2026, con la tarjeta de Lali:
+ * «dos veces lo mismo»). El bot buscó «corona porrón 330» y «cerveza corona»
+ * en la misma respuesta, las dos búsquedas trajeron la Corona 0,0% y la
+ * tarjeta la dibujó dos veces. Se saca lo repetido: el mismo SKU, o el mismo
+ * nombre de tarjeta con el mismo precio (el código viejo y el «L…» del mismo
+ * producto), que en la tarjeta serían dos renglones idénticos.
+ */
+export function sinRepetidos(productos: ProductoConPrecio[]): ProductoConPrecio[] {
+  const vistos = new Set<string>();
+  return productos.filter((p) => {
+    const claves = [p.sku ? `sku:${p.sku}` : '', `${normal(nombreParaCartel(p.nombre)).replace(/\s+/g, ' ').trim()}|${Math.round(Number(p.precio))}`].filter(Boolean);
+    if (claves.some((c) => vistos.has(c))) return false;
+    for (const c of claves) vistos.add(c);
+    return true;
+  });
+}
+
+/**
  * Los productos consultados que el bot nombró en la respuesta, en el orden en
  * que los nombró. Por cada precio del texto se elige el producto de ese precio
  * cuyo nombre coincide MEJOR con lo escrito justo antes (desde el precio
@@ -428,8 +446,10 @@ const RE_PALABRA_VACIA = /^(cc|ml|lts?|litros?|kg|gr|x\d.*|\d.*|con|sin|de|del|l
  * que cuestan lo mismo. Si empatan con el nombre completo («Martini Rosso y
  * Bianco $9.400») van los dos.
  */
-export function preciosDeLaRespuesta(respuesta: string, catalogo: ProductoConPrecio[]): ProductoConPrecio[] {
+export function preciosDeLaRespuesta(respuesta: string, consultados: ProductoConPrecio[]): ProductoConPrecio[] {
   const texto = normal(respuesta);
+  // lo que trajeron dos búsquedas del mismo turno va una sola vez
+  const catalogo = sinRepetidos((consultados ?? []).filter((p) => p?.nombre));
   // un resumen de pedido ("2 × $20.500 c/u = $41.000") tiene su propia tarjeta
   if (/\d\s*[×x]\s*\$\s?\d/.test(texto)) return [];
   // palabras propias del nombre y, también, su medida ("600" de "x600cc"): el bot
@@ -494,7 +514,9 @@ export function pieSinPrecios(respuesta: string): string {
     .trim();
 }
 
-export async function cartelListaPrecios(productos: ProductoConPrecio[], fecha: string): Promise<Buffer> {
+export async function cartelListaPrecios(todos: ProductoConPrecio[], fecha: string): Promise<Buffer> {
+  // la tarjeta nunca dibuja dos renglones iguales, venga de donde venga la lista
+  const productos = sinRepetidos(todos);
   const W = 1080, M = 48, TOP = 250, SEP = 12;
   const pesosN = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
   const conEfectivo = productos.some((p) => p.precioEfectivo && p.precioEfectivo < p.precio);

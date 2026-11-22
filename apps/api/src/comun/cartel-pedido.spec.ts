@@ -277,3 +277,39 @@ describe('el epígrafe del total con precio en efectivo (9/10/2026)', () => {
     expect(r.pie).toBe('En efectivo o transferencia: $43.160. ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?');
   });
 });
+
+// «dos veces lo mismo» (Leandro, 22/11/2026, con la tarjeta de Lali): el bot
+// buscó «corona porron 330» y «cerveza corona» en la misma respuesta, las dos
+// búsquedas trajeron la Corona 0,0% (L9372) y la tarjeta salió con dos renglones iguales.
+import { sinRepetidos, leerListaDePedido as leerListaLali } from './cartel-pedido';
+describe('la tarjeta de precios no repite productos (Lali, 22/11/2026)', () => {
+  const REAL = '• Cerveza Corona 0,0% porrón 330 cc — $2.500 c/u';
+  const CORONA = { sku: 'L9372', nombre: 'Cerveza Corona 0,0% porron x 330cc', precio: 2500, precioEfectivo: null };
+  const LA355 = { sku: 'L112', nombre: 'Corona x 355c', precio: 3600, precioEfectivo: null };
+  it('lo que trajeron las dos búsquedas va una sola vez', () => {
+    const r = preciosDeLaRespuesta(REAL, [CORONA, LA355, { ...CORONA }, LA355]);
+    expect(r.map((p) => p.sku)).toEqual(['L9372']);
+  });
+  it('con un solo producto no hay tarjeta de precios: va el renglón escrito', () => {
+    expect(preciosDeLaRespuesta(REAL, [CORONA, { ...CORONA }]).length).toBeLessThan(2);
+    expect(imagenEsperada(REAL)).toBeNull();
+    expect(leerListaLali(REAL)).toBeNull();
+  });
+  it('el código viejo y el «L…» del mismo producto (mismo nombre y precio) son uno', () => {
+    expect(sinRepetidos([CORONA, { ...CORONA, sku: '9372' }]).map((p) => p.sku)).toEqual(['L9372']);
+  });
+  it('mismo nombre con otro precio, u otro producto al mismo precio, siguen siendo dos', () => {
+    expect(sinRepetidos([CORONA, { ...CORONA, sku: 'X', precio: 2700 }]).length).toBe(2);
+    const martini = [{ sku: 'R', nombre: 'Martini Rosso x1L', precio: 9400 }, { sku: 'B', nombre: 'Martini Bianco x1L', precio: 9400 }];
+    expect(preciosDeLaRespuesta('• Martini Rosso y Bianco 1 L — $9.400', [...martini, ...martini]).map((p) => p.sku)).toEqual(['R', 'B']);
+  });
+  it('dos productos repetidos por dos búsquedas: la tarjeta lleva los dos, una vez cada uno', () => {
+    const t = '• Cerveza Corona 0,0% porrón 330 cc — $2.500\n• Corona 355 cc — $3.600';
+    expect(preciosDeLaRespuesta(t, [CORONA, LA355, CORONA, LA355]).map((p) => p.sku)).toEqual(['L9372', 'L112']);
+  });
+  it('la tarjeta dibuja una sola vez lo repetido aunque le llegue dos veces', async () => {
+    const una = await cartelListaPrecios([CORONA, LA355], '22/11');
+    const repetida = await cartelListaPrecios([CORONA, CORONA, LA355], '22/11');
+    expect(repetida.equals(una)).toBe(true);
+  });
+});

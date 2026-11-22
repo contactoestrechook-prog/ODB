@@ -72,7 +72,7 @@ function bonitoTelefono(t: string): string {
 import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, ESFUERZO_BOT, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
-import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
+import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio, sinRepetidos } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
 import { enviarWhatsapp, ResultadoWaha } from '../comun/whatsapp';
 import { anotarAvisoDelTelefono } from '../pedidos/aviso-faltante';
@@ -5672,7 +5672,8 @@ export class BotService {
   // (2/10/2026; antes, la gráfica vieja). Desde 2 productos.
   private async cartelDeListado(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
     if (leerResumenDePedido(respuesta)) return null;
-    const productos = respuesta.split('\n')
+    // el mismo renglón escrito dos veces va una sola (22/11/2026, «dos veces lo mismo»)
+    const productos = sinRepetidos(respuesta.split('\n')
       .map((l) => l.trim())
       .filter((l) => l.startsWith('•') && /\$\s?[\d.]+/.test(l) && !/c\/u\s*=/.test(l))
       .map((l): ProductoConPrecio | null => {
@@ -5682,7 +5683,7 @@ export class BotService {
         const efectivo = m[3] ? Number(m[3].replace(/\./g, '')) : null;
         return { nombre: m[1].replace(/[—–:-]\s*$/, '').trim(), precio, precioEfectivo: efectivo && efectivo < precio ? efectivo : null };
       })
-      .filter((p): p is ProductoConPrecio => !!p && !!p.nombre && p.precio > 0);
+      .filter((p): p is ProductoConPrecio => !!p && !!p.nombre && p.precio > 0));
     if (productos.length < 2) return null;
     try {
       const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
