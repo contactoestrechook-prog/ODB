@@ -11,8 +11,9 @@ import { leerStock, leerVentas, mismoLocal, textoDelArchivo, type StockLeido, ty
 // parte de todos los días: stock.csv y ventas.csv.
 //
 // Los archivos se leen en el navegador (el de ventas pesa ~37 MB: viaja solo el
-// resumen por día y producto). La API arma el plan con la misma regla de la
-// carga del 10/11 y lo muestra ANTES de tocar nada; «Aplicar» lo hace todo o nada.
+// resumen por día y producto). La API arma el plan y lo muestra ANTES de tocar
+// nada; «Aplicar» lo hace todo o nada y después compara, producto por producto,
+// lo que quedó con el archivo (24/11/2026: el local manda; ver puesta-al-dia.ts).
 
 export type LocalAlDia = { sucursalId: string; nombre: string; sucursal: string; stockAl: string | null; ventasHasta: string | null; alDia: boolean };
 
@@ -24,7 +25,8 @@ type Simulacion = {
   resumen: {
     stock: {
       enArchivo: number; conProducto: number; sinProducto: number; deBaja: number; ajustes: number; suben: number; bajan: number;
-      unidadesSuben: number; unidadesBajan: number; quedanEnCero: number; comprasSoloNucleo: number; comprasQueElLocalYaTenia: number;
+      unidadesSuben: number; unidadesBajan: number; quedanEnCero: number;
+      igualAlLocal: number; conReservas: number; negativosACero: number;
       mayores: { nombre: string; antes: number; objetivo: number }[];
     };
     ventas: { desde: string | null; hasta: string | null; dias: number; renglones: number; unidades: number };
@@ -110,7 +112,12 @@ export function PuestaAlDia({ locales, onAplicada }: { locales: LocalAlDia[]; on
     if (!cuerpo) return;
     try {
       const j = await pedir('aplicar-carga', cuerpo);
-      setListo(`Listo: ${miles(j.stock_ajustes)} productos con el stock corregido y ${miles(j.ventas_renglones)} renglones de venta cargados. ${local?.sucursal ?? 'El local'} quedó con el stock del ${dia(sim?.corte)} a las ${hora(sim?.corte ?? '')}.`);
+      const c = j.control as { comparados: number; iguales: number; explicados: number; cantidadSinExplicar: number; sinExplicar: { sku: string; nombre: string; local: number; nucleo: number }[] } | undefined;
+      setListo(`Listo: ${miles(j.stock_ajustes)} productos con el stock corregido y ${miles(j.ventas_renglones)} renglones de venta cargados. ${local?.sucursal ?? 'El local'} quedó con el stock del ${dia(sim?.corte)} a las ${hora(sim?.corte ?? '')}.`
+        + (c ? ` Comparado con el archivo: ${miles(c.iguales)} productos iguales${c.explicados ? ` y ${miles(c.explicados)} distintos por pedidos reservados o negativos que quedaron en cero` : ''}.` : ''));
+      if (c?.cantidadSinExplicar) {
+        setError(`OJO: ${miles(c.cantidadSinExplicar)} productos quedaron distintos al archivo del local sin motivo (${c.sinExplicar.slice(0, 5).map((d) => `${d.nombre}: el local dice ${cant(d.local)}, NÚCLEO ${cant(d.nucleo)}`).join(' · ')}). Avisale a MetoGroup antes de usar ese stock.`);
+      }
       setStock(null); setVentas(null); setNombres({}); setSim(null);
       onAplicada();
     } catch (e) {
@@ -182,11 +189,12 @@ export function PuestaAlDia({ locales, onAplicada }: { locales: LocalAlDia[]; on
                     </>
                   )}
                 </p>
-                {(s.comprasSoloNucleo > 0 || s.comprasQueElLocalYaTenia > 0) && (
-                  <p className="mt-1 text-xs text-tinta/70">
-                    Compras cargadas en NÚCLEO desde la última carga: {miles(s.comprasSoloNucleo)} productos se conservan (el sistema del local no las tiene) y {miles(s.comprasQueElLocalYaTenia)} ya estaban también en el del local (no se cuentan dos veces).
-                  </p>
-                )}
+                <p className="mt-1 text-xs text-tinta/70">
+                  Queda igual al sistema del local en {miles(s.igualAlLocal)} de {miles(s.conProducto)} productos.
+                  {s.conReservas > 0 && <> {miles(s.conReservas)} descuentan lo reservado para pedidos abiertos.</>}
+                  {s.negativosACero > 0 && <> {miles(s.negativosACero)} negativos del local quedan en cero.</>}
+                  {' '}Mientras el local venda con su sistema, manda ese sistema: lo cargado en NÚCLEO (facturas, correcciones) no se suma. Si al local le falta algo, se carga en su sistema.
+                </p>
                 {s.mayores.length > 0 && (
                   <ul className="mt-2 space-y-0.5 text-xs text-tinta/80">
                     <li className="text-tinta/60">Los cambios más grandes:</li>

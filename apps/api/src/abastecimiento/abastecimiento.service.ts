@@ -13,7 +13,7 @@ import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 import { invalidarAbastecimiento, leerAbastecimiento } from './motor';
 import { claveNecesidad, contextoDeNecesidad, necesidadEnUnaLinea, ordenDeNivel, parteDeNecesidad, resumenDeNecesidad, sinTraspasos, type Necesidad, type ResumenNecesidad } from './necesidad';
 import { frenoDeTraspasos, leerFrescura, olvidarFrescura, type Frescura } from './frescura';
-import { planDePuestaAlDia, type BasePuestaAlDia, type EntradaPuestaAlDia } from './puesta-al-dia';
+import { controlContraElLocal, planDePuestaAlDia, type BasePuestaAlDia, type EntradaPuestaAlDia } from './puesta-al-dia';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 
@@ -388,26 +388,39 @@ export class AbastecimientoService {
     };
   }
 
-  // Cómo está ese local ahora: productos por código, stock, lo que se movió desde
-  // la última sincronización y hasta qué día hay ventas.
-  private async basePuestaAlDia(sucursalId: string): Promise<BasePuestaAlDia> {
-    const [productos, stock, sync, aplicada, ventas] = await Promise.all([
+  // Cómo está ese local ahora: productos por código, stock, lo reservado para
+  // pedidos abiertos y hasta qué día hay ventas. Para el control de después de
+  // aplicar, también lo que se movió desde `movidoDesde`.
+  private async basePuestaAlDia(sucursalId: string, movidoDesde?: string): Promise<BasePuestaAlDia> {
+    const [productos, stock, sync, aplicada, ventas, reservas] = await Promise.all([
       // toda lectura paginada lleva un orden único: si no, las páginas saltean filas (10/11/2026)
       traerTodo<any>((a, b) => this.db.from('productos').select('id, sku, nombre, codigo_legacy, activo').not('codigo_legacy', 'is', null).order('id').range(a, b) as any),
       traerTodo<any>((a, b) => this.db.from('stock').select('producto_id, cantidad').eq('sucursal_id', sucursalId).order('producto_id').range(a, b) as any),
       this.db.from('movimientos_stock').select('creado_en').eq('sucursal_id', sucursalId).eq('referencia_tipo', 'importacion').order('creado_en', { ascending: false }).limit(1).maybeSingle(),
       this.db.from('auditoria').select('creado_en').eq('accion', 'puesta_al_dia_aplicada').eq('datos_despues->>sucursal_id', sucursalId).order('creado_en', { ascending: false }).limit(1).maybeSingle(),
       this.db.from('ventas_historicas').select('hasta').eq('sucursal_id', sucursalId).order('hasta', { ascending: false }).limit(1).maybeSingle(),
+      // lo reservado hoy: los renglones de los pedidos abiertos que reservan stock
+      traerTodo<any>((a, b) => this.db.from('pedidos_items').select('pedido_id, producto_id, cantidad, reservado, pedidos!inner(sucursal_id, estado, reserva_stock)')
+        .eq('pedidos.sucursal_id', sucursalId).eq('pedidos.reserva_stock', true)
+        .in('pedidos.estado', ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'])
+        .order('pedido_id').order('producto_id').range(a, b) as any),
     ]);
     const ms = (v: unknown) => (v ? Date.parse(String(v)) : 0);
     const ultima = [(sync.data as any)?.creado_en, (aplicada.data as any)?.creado_en].filter(Boolean).sort((x, y) => ms(x) - ms(y)).pop() ?? null;
-    const movimientos = ultima
-      ? await traerTodo<any>((a, b) => this.db.from('movimientos_stock').select('producto_id, tipo, cantidad, referencia_tipo').eq('sucursal_id', sucursalId).gt('creado_en', ultima).order('id').range(a, b) as any)
+    const movimientos = movidoDesde
+      ? await traerTodo<any>((a, b) => this.db.from('movimientos_stock').select('producto_id, tipo, cantidad, referencia_tipo').eq('sucursal_id', sucursalId).gt('creado_en', movidoDesde).order('id').range(a, b) as any)
       : [];
+    const reservado = new Map<string, number>();
+    for (const r of reservas) {
+      // reservado_del_renglon(): NULL = todo lo pedido, si el pedido reserva
+      const q = r.reservado == null ? Number(r.cantidad) : Number(r.reservado);
+      if (Number.isFinite(q) && q > 0) reservado.set(r.producto_id, (reservado.get(r.producto_id) ?? 0) + q);
+    }
     return {
       productos,
       stock: new Map(stock.map((s) => [s.producto_id, Number(s.cantidad)])),
       movimientos: movimientos.map((m) => ({ producto_id: m.producto_id, tipo: m.tipo, cantidad: Number(m.cantidad), referencia_tipo: m.referencia_tipo })),
+      reservado,
       ultimaSincronizacion: ultima,
       ventasHasta: (ventas.data as any)?.hasta ? String((ventas.data as any).hasta).slice(0, 10) : null,
     };
@@ -424,6 +437,7 @@ export class AbastecimientoService {
   // (función aplicar_puesta_al_dia de la base).
   async aplicarPuestaAlDia(b: any, usuarioId?: string) {
     const entrada = this.entradaPuestaAlDia(b);
+    const leidoEn = new Date().toISOString();
     const plan = planDePuestaAlDia(entrada, await this.basePuestaAlDia(entrada.sucursalId));
     if (plan.frenos.length) throw new BadRequestException(plan.frenos.join(' '));
     const { data, error } = await this.db.rpc('aplicar_puesta_al_dia', {
@@ -439,7 +453,12 @@ export class AbastecimientoService {
     invalidarAbastecimiento();
     olvidarFrescura();
     this.log.log(`puesta al día ${plan.referencia}: ${(data as any)?.stock_ajustes ?? 0} ajustes de stock, ${(data as any)?.ventas_renglones ?? 0} renglones de venta`);
-    return { ...(data as any), resumen: plan.resumen, avisos: plan.avisos };
+    // la carga no se da por buena hasta compararla, producto por producto, con el archivo del local
+    const control = controlContraElLocal(entrada, await this.basePuestaAlDia(entrada.sucursalId, leidoEn));
+    if (control.sinExplicar.length) {
+      this.log.error(`puesta al día ${plan.referencia}: ${control.sinExplicar.length} productos distintos al archivo del local sin motivo (${control.sinExplicar.slice(0, 5).map((d) => `${d.sku} ${d.nucleo}≠${d.esperado}`).join(', ')})`);
+    }
+    return { ...(data as any), resumen: plan.resumen, avisos: plan.avisos, control: { ...control, sinExplicar: control.sinExplicar.slice(0, 30), cantidadSinExplicar: control.sinExplicar.length } };
   }
 
   // La lista de la pantalla y del agente: la fila de siempre más su contexto.

@@ -1,4 +1,4 @@
-import { planDePuestaAlDia, type BasePuestaAlDia, type EntradaPuestaAlDia } from './puesta-al-dia';
+import { controlContraElLocal, planDePuestaAlDia, type BasePuestaAlDia, type EntradaPuestaAlDia } from './puesta-al-dia';
 
 // PONER AL DÍA (11/11/2026): la misma regla de la carga del Crack del 10/11
 // (scripts/sistema-viejo/simular-csv.py). Con los archivos de ese día el lector
@@ -10,6 +10,7 @@ const base = (x: Partial<BasePuestaAlDia> = {}): BasePuestaAlDia => ({
   productos: [prod(1), prod(2), prod(3)],
   stock: new Map([['p1', 10], ['p2', 5], ['p3', 0]]),
   movimientos: [],
+  reservado: new Map(),
   ultimaSincronizacion: '2026-11-10T15:31:20+00:00', // 10/11 12:31 de acá
   ventasHasta: '2026-11-09',
   ...x,
@@ -32,39 +33,38 @@ describe('el stock', () => {
     expect(plan({ stock: [{ codigo: '1', cantidad: 10 }] }).stock).toEqual([]);
   });
 
-  it('una compra cargada solo en NÚCLEO se conserva: el local no la tiene', () => {
-    // después de la carga había 10; administración cargó 6 (hay 16); el local vendió 2 y dice 8
-    const pl = plan(
-      { stock: [{ codigo: '1', cantidad: 8 }], ventas: [{ fecha: '2026-11-10', codigo: '1', unidades: 2 }] },
-      { stock: new Map([['p1', 16]]), movimientos: [{ producto_id: 'p1', tipo: 'compra', cantidad: 6, referencia_tipo: 'compra_directa' }] },
-    );
-    expect(ajuste(pl, 'p1')).toMatchObject({ antes: 16, objetivo: 14, solo_nucleo: 6 });
-    expect(pl.resumen.stock.comprasSoloNucleo).toBe(1);
+  // 24/11/2026: mientras el local venda con su sistema, manda ese sistema. Lo que
+  // NÚCLEO tenga de más o de menos (compras, correcciones, ventas) no importa en la carga.
+  it('una factura vieja cargada en NÚCLEO después de la carga anterior NO se suma (el local ya la tenía)', () => {
+    // Malvavisco Buffys: el Crack la cargó el 18/11 a la mañana (54), Ana cargó la
+    // factura en NÚCLEO esa tarde, después de la carga (108). El Crack sigue en 54.
+    const pl = plan({ stock: [{ codigo: '1', cantidad: 54 }] }, { stock: new Map([['p1', 108]]) });
+    expect(ajuste(pl, 'p1')).toEqual({ producto_id: 'p1', antes: 108, objetivo: 54, crack: 54, reservado: 0 });
+    expect(pl.resumen.stock).toMatchObject({ igualAlLocal: 1, conReservas: 0 });
   });
 
-  it('si el local también cargó esa compra (su stock subió), no se cuenta dos veces', () => {
-    // el local: 10 − 2 vendidas + 6 que entraron = 14
-    const pl = plan(
-      { stock: [{ codigo: '1', cantidad: 14 }], ventas: [{ fecha: '2026-11-10', codigo: '1', unidades: 2 }] },
-      { stock: new Map([['p1', 16]]), movimientos: [{ producto_id: 'p1', tipo: 'compra', cantidad: 6, referencia_tipo: 'compra_directa' }] },
-    );
-    expect(ajuste(pl, 'p1')).toMatchObject({ objetivo: 14, solo_nucleo: 0 });
-    expect(pl.resumen.stock).toMatchObject({ comprasQueElLocalYaTenia: 1, comprasSoloNucleo: 0 });
+  it('una factura cargada en NÚCLEO DESPUÉS del corte tampoco se suma: la factura llega después que la mercadería', () => {
+    // Saint Felicien: el Crack tenía 40 a las 15:26; Juan Pablo cargó la factura de 40 a las 15:36
+    expect(ajuste(plan({ stock: [{ codigo: '1', cantidad: 40 }] }, { stock: new Map([['p1', 80]]) }), 'p1')).toMatchObject({ objetivo: 40 });
   });
 
-  it('las ventas de prueba de NÚCLEO no cuentan; una corrección o un traspaso, sí', () => {
+  it('una compra que el local nunca cargó tampoco se suma: se carga en su sistema', () => {
+    // Napolitanas: la factura dice 40, el Crack sumó 30. Queda lo del Crack.
+    expect(ajuste(plan({ stock: [{ codigo: '1', cantidad: 27 }] }, { stock: new Map([['p1', 37]]) }), 'p1')).toMatchObject({ objetivo: 27 });
+  });
+
+  it('lo reservado hoy para pedidos abiertos se descuenta (el local no conoce los pedidos de NÚCLEO)', () => {
     const pl = plan(
       { stock: [{ codigo: '1', cantidad: 10 }, { codigo: '2', cantidad: 5 }] },
-      {
-        stock: new Map([['p1', 7], ['p2', 3]]),
-        movimientos: [
-          { producto_id: 'p1', tipo: 'venta', cantidad: -3, referencia_tipo: 'venta' },
-          { producto_id: 'p2', tipo: 'ajuste', cantidad: -2, referencia_tipo: 'correccion_factura' },
-        ],
-      },
+      { stock: new Map([['p1', 9], ['p2', 5]]), reservado: new Map([['p1', 3]]) },
     );
-    expect(ajuste(pl, 'p1')).toMatchObject({ antes: 7, objetivo: 10 }); // la venta de prueba se deshace
-    expect(ajuste(pl, 'p2')).toBeUndefined(); // 5 − 2 = 3: ya está
+    expect(ajuste(pl, 'p1')).toMatchObject({ antes: 9, objetivo: 7, reservado: 3 });
+    expect(ajuste(pl, 'p2')).toBeUndefined();
+    expect(pl.resumen.stock).toMatchObject({ conReservas: 1, igualAlLocal: 1 });
+  });
+
+  it('si lo reservado es más que lo que dice el local, queda en cero', () => {
+    expect(ajuste(plan({ stock: [{ codigo: '1', cantidad: 2 }] }, { reservado: new Map([['p1', 5]]) }), 'p1')).toMatchObject({ objetivo: 0 });
   });
 
   it('los negativos del local quedan en cero', () => {
@@ -82,6 +82,27 @@ describe('el stock', () => {
     const pl = plan({ stock: [{ codigo: '1', cantidad: 10 }, { codigo: '99', cantidad: 4 }, { codigo: '2', cantidad: 50 }] }, { productos: [prod(1), prod(2, { activo: false })] });
     expect(pl.stock).toEqual([]);
     expect(pl.resumen.stock).toMatchObject({ enArchivo: 3, conProducto: 1, sinProducto: 1, deBaja: 1 });
+  });
+});
+
+describe('el control después de aplicar: contra el archivo del local, no contra NÚCLEO', () => {
+  const e = entrada({ stock: [{ codigo: '1', cantidad: 27 }, { codigo: '2', cantidad: 5 }, { codigo: '3', cantidad: -2 }] });
+
+  it('igual al archivo, o distinto con motivo (algo que se movió mientras se aplicaba, reservado, negativo → 0)', () => {
+    const c = controlContraElLocal(e, base({
+      stock: new Map([['p1', 27], ['p2', 9], ['p3', 0]]),
+      // mientras se aplicaba entró una compra de 4 (la carga la respeta); la carga misma no cuenta
+      movimientos: [
+        { producto_id: 'p2', tipo: 'compra', cantidad: 4, referencia_tipo: 'compra_directa' },
+        { producto_id: 'p1', tipo: 'ajuste', cantidad: -10, referencia_tipo: 'importacion' },
+      ],
+    }));
+    expect(c).toEqual({ comparados: 3, iguales: 1, explicados: 2, sinExplicar: [] });
+  });
+
+  it('las prepizzas del 24/11 (37 en NÚCLEO, 27 en el Crack) salen sin explicar', () => {
+    const c = controlContraElLocal(e, base({ stock: new Map([['p1', 37], ['p2', 5], ['p3', 0]]) }));
+    expect(c.sinExplicar).toEqual([{ sku: 'L1', nombre: 'Producto 1', local: 27, nucleo: 37, esperado: 27 }]);
   });
 });
 

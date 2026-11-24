@@ -28,7 +28,7 @@ def hoja(titulo, enc, filas):
     for f in filas: h.append(f)
     for i, _ in enumerate(enc): h.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = 18 if i else 14
     if len(enc) > 1: h.column_dimensions['B'].width = 46
-hoja('Stock', ['SKU', 'Producto', 'NÚCLEO hoy', 'Crack', 'Solo en NÚCLEO (compras)', 'Queda'], sorted([[*nom.get(a['producto_id'], ('', ''))][:2] + [a['antes'], a['crack'], a['solo_nucleo'], a['objetivo']] for a in p['stock']], key=lambda f: -abs(f[5] - f[2])))
+hoja('Stock', ['SKU', 'Producto', 'NÚCLEO hoy', 'Crack', 'Reservado para pedidos', 'Queda'], sorted([[*nom.get(a['producto_id'], ('', ''))][:2] + [a['antes'], a['crack'], a.get('reservado', 0), a['objetivo']] for a in p['stock']], key=lambda f: -abs(f[5] - f[2])))
 hoja('Precios que cambian', ['SKU', 'Producto', 'Precio nuevo'], [[*nom.get(a['producto_id'], ('', ''))][:2] + [a['precio']] for a in p['precios']])
 hoja('Precio NÚCLEO más nuevo', ['SKU', 'Producto', 'NÚCLEO (se queda)', 'Crack (actualizar la caja)'], r['precio_nucleo_mas_nuevo'])
 hoja('Precio cambió en los dos', ['SKU', 'Producto', 'NÚCLEO hoy', 'Crack en la carga anterior', 'Crack ahora'], r.get('precio_cambio_en_los_dos', []))

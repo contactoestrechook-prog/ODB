@@ -71,7 +71,10 @@ for x in todas(f"precios?select=producto_id,precio,vigente_desde,creado_por&list
 _pc = todas(f'auditoria?select=pc:datos_despues->precios_crack&accion=eq.importacion_sistema_viejo&entidad=eq.carga&creado_en=lt.{CORTE_UTC}&order=creado_en.desc&limit=1')
 crack_antes = (_pc[0]['pc'] or {}) if _pc else {}
 stock_n = {s['producto_id']: float(s['cantidad']) for s in todas(f'stock?select=producto_id,cantidad&sucursal_id=eq.{ST}&order=producto_id')}
-movs = todas(f'movimientos_stock?select=producto_id,tipo,cantidad,referencia_tipo&sucursal_id=eq.{ST}&creado_en=gt.{T_ULTIMA}&order=id')
+# lo reservado hoy para pedidos abiertos de Sant Thomas (reservado NULL = todo lo pedido)
+reservado = collections.defaultdict(float)
+for r in todas(f'pedidos_items?select=producto_id,cantidad,reservado,pedidos!inner(sucursal_id,estado,reserva_stock)&pedidos.sucursal_id=eq.{ST}&pedidos.reserva_stock=is.true&pedidos.estado=in.(recibido,pagado,en_preparacion,listo,en_camino)&order=pedido_id,producto_id'):
+    reservado[r['producto_id']] += float(r['cantidad'] if r['reservado'] is None else r['reservado'])
 barras = {b['codigo']: b['producto_id'] for b in todas('codigos_barras?select=codigo,producto_id&order=codigo')}
 clis = todas('clientes?select=id,codigo_legacy,nombre,cuit,telefono,email,barrio,condicion_iva,saldo_cta_cte,cta_cte_habilitada&order=id')
 cli_cod = {c['codigo_legacy']: c for c in clis if c['codigo_legacy']}
@@ -189,38 +192,23 @@ plan['precios_crack'] = {r[0].strip(): num(r[6]) for r in art if r[0].strip() an
 res.append(f'3. PRECIOS (lista 1 del Crack → Minorista de NÚCLEO, vigencia nueva, nunca se borra el historial): {len(precio_nuevo)} cambian; {len(precio_nucleo_mas_nuevo)} NO, porque NÚCLEO los remarcó y el Crack sigue con el precio de antes (hay que pasarlos a la caja del Crack); {len(rev["precio_cambio_en_los_dos"])} cambiaron en NÚCLEO y también en el Crack, a revisión; {len(rev["salto_mas_60"])} saltos de más de ±60 % y {len(rev["precio_basura"])} precios basura, a revisión.')
 
 # ---------- 4. stock de Sant Thomas ----------
-# objetivo = lo que dice el Crack + lo que entró o salió SOLO en NÚCLEO desde la carga anterior
-# (compras de Ana, correcciones, traspasos, reservas de pedidos). Las ventas de prueba de NÚCLEO no cuentan.
-solo_nucleo = collections.defaultdict(float); compras_n = collections.defaultdict(float); todo_desde = collections.defaultdict(float)
-for m in movs:
-    q = float(m['cantidad']); todo_desde[m['producto_id']] += q
-    if m['tipo'] == 'venta' or m['referencia_tipo'] in ('venta_prueba', 'importacion'): continue
-    solo_nucleo[m['producto_id']] += q
-    if m['tipo'] == 'compra': compras_n[m['producto_id']] += q
-# lo que vendió el Crack desde el día de la última sincronización (fecha sin hora: ese día entero
-# cuenta, alcanza para ver si el Crack tuvo compras)
-DIA_ULTIMA = dia_local(T_ULTIMA) if T_ULTIMA else datetime.date(2000, 1, 1)
-vend_crack = collections.defaultdict(float)
-for r in ven:
-    d, mm, aa = (int(x) for x in r[0].split('/'))
-    if datetime.date(aa, mm, d) >= DIA_ULTIMA: vend_crack[r[3]] += num(r[4]) or 0
-ajustes, dobles = [], 0
+# LA MISMA REGLA QUE «Poner al día» (apps/api/src/abastecimiento/puesta-al-dia.ts): mientras el
+# local venda con el Crack, el Crack es la verdad del stock (Leandro, 24/11/2026).
+# objetivo = el Crack − lo reservado hoy para pedidos abiertos de NÚCLEO. Nada de lo cargado en
+# NÚCLEO se suma encima: la factura llega siempre después que la mercadería.
+# Hasta el 24/11/2026 se sumaba lo cargado en NÚCLEO desde la carga ANTERIOR y se miraba si el Crack
+# había subido para no contar dos veces una compra: las facturas del 10 al 17/11 que Ana cargó el
+# 18/11, después de la carga, quedaron dos veces (242 productos, 3.234 u.; auditoría 1461).
+ajustes = []
 for r in stk:
     cod = r[0].strip(); p = existentes.get(cod)
     if not p: continue
     crack = num(r[2]) or 0
     pid = p['id']; antes = stock_n.get(pid, 0.0)
-    extra = solo_nucleo.get(pid, 0.0)
-    # si el Crack también tuvo esa compra (su stock subió desde la última sincronización), no se cuenta dos veces
-    if compras_n.get(pid):
-        base_t = antes - todo_desde.get(pid, 0.0)  # lo que quedó en la última sincronización (= el Crack de ese día)
-        entradas_crack = max(0.0, crack - base_t + vend_crack.get(cod, 0.0))
-        quita = min(compras_n[pid], entradas_crack)
-        if quita > 0.0005: dobles += 1; extra -= quita
-    objetivo = round(max(0.0, crack + extra), 3)
-    if abs(objetivo - antes) >= 0.001: ajustes.append({'producto_id': pid, 'objetivo': objetivo, 'antes': round(antes, 3), 'crack': crack, 'solo_nucleo': round(extra, 3)})
+    objetivo = round(max(0.0, crack - reservado.get(pid, 0.0)), 3)
+    if abs(objetivo - antes) >= 0.001: ajustes.append({'producto_id': pid, 'objetivo': objetivo, 'antes': round(antes, 3), 'crack': crack, 'reservado': round(reservado.get(pid, 0.0), 3)})
 plan['stock'] = ajustes
-res.append(f'4. STOCK SANT THOMAS: {len(ajustes)} productos se ajustan. Objetivo = el stock del Crack (corte {CORTE_TXT}) + lo que entró o salió solo en NÚCLEO desde la última sincronización, el {corto(DIA_ULTIMA)} ({sum(1 for v in solo_nucleo.values() if v)} productos: las compras de Ana y las correcciones). {dobles} compras que el Crack también tenía no se cuentan dos veces. Las ventas de prueba de NÚCLEO no cuentan. Negativos → 0. Santa Inés no se toca (no está en el Crack).')
+res.append(f'4. STOCK SANT THOMAS: {len(ajustes)} productos se ajustan. Objetivo = el stock del Crack (corte {CORTE_TXT}) − lo reservado para pedidos abiertos de NÚCLEO ({sum(1 for v in reservado.values() if v)} productos). Lo cargado en NÚCLEO (compras, correcciones) no se suma: si el Crack no lo tiene, se carga en el Crack. Negativos → 0. Santa Inés no se toca.')
 
 # ---------- 5. códigos de barras ----------
 agregar, quitar_caja = [], []
