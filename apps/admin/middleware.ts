@@ -1,10 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { landingDe, puedeVer, rolesDesdeToken } from './app/lib/permisos';
+import { COOKIES_DE_SESION, RUTAS_QUE_ESCRIBEN_LA_SESION, SESION_MAX_AGE } from './lib/sesion';
+
+// La sesión no vence (24/11/2026): cada pantalla y cada consulta del panel le
+// renueva la cookie, así nunca llega a su fecha (ver lib/sesion.ts). Las
+// sesiones abiertas antes del cambio (cookie de 12 h) también se renuevan.
+function renovar(req: NextRequest, res: NextResponse): NextResponse {
+  if (RUTAS_QUE_ESCRIBEN_LA_SESION.includes(req.nextUrl.pathname)) return res;
+  const seguro = process.env.NODE_ENV === 'production';
+  for (const c of COOKIES_DE_SESION) {
+    const valor = req.cookies.get(c.nombre)?.value;
+    if (valor) {
+      res.cookies.set(c.nombre, valor, { httpOnly: c.httpOnly, sameSite: 'lax', secure: seguro, path: '/', maxAge: SESION_MAX_AGE });
+    }
+  }
+  return res;
+}
 
 export function middleware(req: NextRequest) {
+  return renovar(req, decidir(req));
+}
+
+function decidir(req: NextRequest): NextResponse {
   const token = req.cookies.get('odb_token');
   const debeCambiar = req.cookies.get('odb_cambiar')?.value === '1';
   const { pathname } = req.nextUrl;
+  // las consultas del panel (/api/…) solo pasan por acá para renovar la sesión:
+  // cada una se cuida sola (sin token, la API contesta 401)
+  if (pathname.startsWith('/api/')) return NextResponse.next();
   // Pantallas de recuperación de clave: quien las usa, justamente, NO puede
   // entrar. Si el middleware las mandara al login, el circuito no serviría.
   const publicas = ['/login', '/olvide-clave', '/restablecer'];
@@ -39,5 +62,7 @@ export const config = {
   // sitio es instalable; si el middleware los manda a /login, no hay app.
   // comandas/: el acceso directo de las PC con impresora (lo baja depósito, que
   // no tiene esa ruta entre sus pantallas; no lleva nada privado)
-  matcher: ['/((?!_next|favicon.ico|sw.js|api/|comandas/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
+  // api/ entra (24/11/2026) solo para renovar la sesión: la caja que queda todo
+  // el día en una misma pantalla consulta /api/… sin cambiar de página
+  matcher: ['/((?!_next|favicon.ico|sw.js|comandas/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
 };

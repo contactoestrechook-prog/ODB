@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { SESION_MAX_AGE } from '@/lib/sesion';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     sameSite: 'lax',
     secure: seguro,
     path: '/',
-    maxAge: 60 * 60 * 12,
+    maxAge: SESION_MAX_AGE,
   });
   // email visible para JS (no es secreto para su propio dueño): lo necesita el
   // formulario de cambio de clave como campo username, para que el gestor de
@@ -29,11 +30,11 @@ export async function POST(req: Request) {
     sameSite: 'lax',
     secure: seguro,
     path: '/',
-    maxAge: 60 * 60 * 12,
+    maxAge: SESION_MAX_AGE,
   });
   // bandera para que el middleware obligue a cambiar la clave temporal
   if (datos.usuario?.debeCambiarClave) {
-    respuesta.cookies.set('odb_cambiar', '1', { httpOnly: true, sameSite: 'lax', secure: seguro, path: '/', maxAge: 60 * 60 * 12 });
+    respuesta.cookies.set('odb_cambiar', '1', { httpOnly: true, sameSite: 'lax', secure: seguro, path: '/', maxAge: SESION_MAX_AGE });
   } else {
     respuesta.cookies.set('odb_cambiar', '', { path: '/', maxAge: 0 });
   }

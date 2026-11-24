@@ -199,6 +199,9 @@ export class AuthService {
     return { ok: true, token, usuario: { id: u.id, nombre: u.nombre, rol: u.rol, roles: rolesDe(u), debeCambiarClave: false } };
   }
 
+  // La sesión del equipo no vence (24/11/2026): 10 años es «para siempre». Quien
+  // queda afuera es el dado de baja, y eso lo controla el AuthGuard con la ficha
+  // del usuario, no la fecha del token.
   private firmar(u: any) {
     return this.jwt.signAsync({
       sub: u.id,
@@ -207,6 +210,6 @@ export class AuthService {
       // todos sus roles, con el principal primero (19/11/2026)
       roles: rolesDe(u),
       sucursalId: u.sucursal_id,
-    });
+    }, { expiresIn: '3650d' });
   }
 }

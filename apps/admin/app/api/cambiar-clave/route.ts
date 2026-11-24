@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { SESION_MAX_AGE } from '@/lib/sesion';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   const seguro = process.env.NODE_ENV === 'production';
   if (datos.token) {
     respuesta.cookies.set('odb_token', datos.token, {
-      httpOnly: true, sameSite: 'lax', secure: seguro, path: '/', maxAge: 60 * 60 * 12,
+      httpOnly: true, sameSite: 'lax', secure: seguro, path: '/', maxAge: SESION_MAX_AGE,
     });
   }
   respuesta.cookies.set('odb_cambiar', '', { path: '/', maxAge: 0 });
