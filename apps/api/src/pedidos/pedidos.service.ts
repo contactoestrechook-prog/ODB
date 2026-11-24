@@ -18,6 +18,7 @@ import {
 } from './envios';
 import { anotarAliasPasado, avisoConAlias, pasarAliasPendiente } from './alias-pendiente';
 import { EVENTO_AVISO, lineaDeAviso, lineaDePregunta, lineaSinAviso, sacadosSinAviso, type CambioConsultado } from './aviso-faltante';
+import { cambiosAbiertos, CODIGO_CAMBIO_SIN_RESPUESTA, mensajeDeCambiosAbiertos, PASOS_QUE_CIERRAN } from './cambio-sin-respuesta';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -1031,6 +1032,11 @@ export class PedidosService {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
     }
 
+    // Con un cambio sin contestar no pasa a listo, no sale y no se entrega
+    // (23/11/2026, DOM-F0CF53FF6465: se entregó cobrando el Feta que no había y el
+    // Crottin que eligió el cliente nunca entró). La pantalla pide lo que dijo.
+    if (PASOS_QUE_CIERRAN.includes(estado)) await this.frenarSiHayCambioAbierto(pedidoId);
+
     // Un envío a domicilio se entrega DESPUÉS de salir (revisión del 21/10/2026).
     // Desde Depósito, «Entregar» un envío listo lo pasaba a entregado sin nadie
     // que lo llevara, le mandaba al cliente «fue entregado» con el paquete en el
@@ -1194,6 +1200,7 @@ export class PedidosService {
       });
     }
     // antes de tocar el estado, lo que haría fallar la entrega
+    await this.frenarSiHayCambioAbierto(pedidoId);
     await this.frenarSiFalta(pedidoId, p.sucursal_id);
     if (medio === 'efectivo' && !(await this.hayCajaAbierta(p.sucursal_id))) {
       throw new BadRequestException('Abrí la caja de la sucursal antes de cerrarlo cobrado en efectivo');
@@ -1344,6 +1351,13 @@ export class PedidosService {
       pide: Number(f.pide),
       hay: Number(f.hay),
     }));
+  }
+
+  /** Los cambios que esperan al cliente: la pantalla los muestra para anotar lo que dijo. */
+  private async frenarSiHayCambioAbierto(pedidoId: string) {
+    const cambios = await cambiosAbiertos(this.db, pedidoId);
+    if (!cambios.length) return;
+    throw new ConflictException({ statusCode: 409, codigo: CODIGO_CAMBIO_SIN_RESPUESTA, message: mensajeDeCambiosAbiertos(cambios), cambios });
   }
 
   private async frenarSiFalta(pedidoId: string, sucursalId?: string | null) {

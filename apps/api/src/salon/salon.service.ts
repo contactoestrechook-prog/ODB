@@ -675,7 +675,7 @@ export class SalonService {
     });
   }
 
-  private async pedidoDelArmado(pedidoId: string, quien: Usuario) {
+  private async pedidoDelArmado(pedidoId: string, quien: Usuario, estados: string[] = ESTADOS_ABIERTOS) {
     const { data, error } = await this.db
       .from('pedidos')
       .select('id, estado, asignado_a, items:pedidos_items(producto_id, cantidad)')
@@ -687,7 +687,7 @@ export class SalonService {
     if (p.asignado_a !== quien.sub && !veTodoElArmado(quien)) {
       throw new ForbiddenException('Ese pedido no te lo asignaron a vos');
     }
-    if (!ESTADOS_ABIERTOS.includes(p.estado)) throw new BadRequestException('Ese pedido ya no se está armando');
+    if (!estados.includes(p.estado)) throw new BadRequestException('Ese pedido ya no se está armando');
     return p;
   }
 
@@ -799,7 +799,9 @@ export class SalonService {
 
   /** «Lo llamé y dijo que sí / que no»: lo anota quien arma, sin esperar el WhatsApp. */
   async decidirCambio(pedidoId: string, cambioId: string, acepta: boolean, quien: Usuario, elegida?: string | null) {
-    await this.pedidoDelArmado(pedidoId, quien);
+    // también con el pedido listo o en camino (23/11/2026, DOM-F0CF53FF6465): una
+    // vez en «Listo» no se podía anotar lo que dijo el cliente y se entregó sin el cambio
+    await this.pedidoDelArmado(pedidoId, quien, [...ESTADOS_ABIERTOS, 'listo', 'en_camino']);
     return this.reemplazos.decidir(cambioId, acepta, {
       usuarioId: quien.sub ?? null, pedidoId, elegida: elegida ?? null,
       texto: `Lo anotó quien arma: ${acepta ? (elegida ? `eligió ${elegida}` : 'sí') : 'no'}`,

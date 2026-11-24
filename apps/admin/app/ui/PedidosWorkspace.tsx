@@ -182,7 +182,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
     if (!r) { setAviso('Sin conexión. Probá de nuevo.'); return null; }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const fs = body.estado === 'entregado' ? faltaDeStock(body.pedidoId, r.status, d) : null;
+      // falta stock al entregar, o un cambio sin contestar al pasar a listo, salir o entregar (23/11/2026)
+      const fs = body.estado === 'entregado' || d?.codigo === 'CAMBIO_SIN_RESPUESTA' ? faltaDeStock(body.pedidoId, r.status, d) : null;
       if (fs) { setFalta({ datos: fs, body }); return null; }
       // un envío sin quién lo lleve, o que se quiso entregar sin que saliera: se elige acá
       if (d?.codigo === 'FALTA_REPARTIDOR' || d?.codigo === 'ENVIO_SIN_SALIR') {
@@ -688,18 +689,22 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
 
 // Entregar sin elegir cómo pagó registraba la venta como "efectivo" siempre.
 function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: () => void; onConfirmar: (medio: string) => void }) {
-  // viene marcado lo que dijo el cliente (21/10/2026); si no dijo nada, efectivo como antes
-  const [medio, setMedio] = useState(MEDIOS.some((m) => m.valor === p.forma_pago) ? String(p.forma_pago) : 'efectivo');
+  // viene marcado lo que dijo el cliente (21/10/2026). Si no figura, no se marca
+  // nada: hay que elegirlo (23/11/2026, PICKUP-933DB75009F5: lo pagó por
+  // transferencia, la ventana traía «Efectivo» marcado, el sistema pidió la caja
+  // abierta y el pedido quedó clavado en Listos)
+  const dicho = MEDIOS.some((m) => m.valor === p.forma_pago);
+  const [medio, setMedio] = useState(dicho ? String(p.forma_pago) : '');
   return (
     <Modal
       abierto
       ancho="chico"
       onCerrar={onCerrar}
       titulo={`Entregar ${codigoDe(p)}`}
-      descripcion={`Total ${pesos(p.total)}. ¿Cómo pagó?`}
+      descripcion={`Total ${pesos(p.total)}. ¿Cómo pagó?${dicho ? '' : ' (no figura lo que dijo el cliente: elegilo)'}`}
       pie={<>
         <Boton variante="secundario" onClick={onCerrar}>Volver</Boton>
-        <Boton variante="ok" onClick={() => onConfirmar(medio)}>Entregado y cobrado</Boton>
+        <Boton variante="ok" disabled={!medio} onClick={() => medio && onConfirmar(medio)}>Entregado y cobrado</Boton>
       </>}
     >
       <Chips etiquetaAccesible="Cómo pagó" valor={medio} onCambiar={setMedio} opciones={MEDIOS} />

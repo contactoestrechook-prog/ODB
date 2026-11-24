@@ -10,12 +10,34 @@ import { Aviso, Boton, Entrada, Modal, Tarjeta } from './kit';
 // "Entregar" otra vez. La usan Pedidos, Depósito, Envíos y el repartidor.
 
 export type Faltante = { productoId: string; sku: string | null; nombre: string; pide: number; hay: number };
-export type FaltaDeStock = { pedidoId: string; faltantes: Faltante[]; sucursalId: string | null; mensaje: string };
+/** Un cambio que espera lo que dice el cliente (un parecido o «¿cuál querés?»). */
+export type CambioAbierto = {
+  id: string; tipo: 'parecido' | 'variedad'; falta: string; reemplazo: string | null;
+  cantidad: number | null; pide: number | null; hay: number | null; pedida: string | null; variedades: string[]; estado: string;
+};
+export type FaltaDeStock = { pedidoId: string; faltantes: Faltante[]; cambios?: CambioAbierto[]; sucursalId: string | null; mensaje: string };
 
-/** La respuesta de "entregar" dice que falta stock: devuelve qué falta. */
+/**
+ * La respuesta de "entregar" (o de listo / salir) dice que falta stock, o que
+ * hay un cambio sin contestar (23/11/2026, DOM-F0CF53FF6465: se entregó con el
+ * cambio del Feta sin contestar y el Crottin nunca entró): devuelve qué falta.
+ */
 export function faltaDeStock(pedidoId: string, status: number, datos: any): FaltaDeStock | null {
-  if (status !== 409 || datos?.codigo !== 'FALTA_STOCK' || !Array.isArray(datos.faltantes) || !datos.faltantes.length) return null;
+  if (status !== 409) return null;
+  if (datos?.codigo === 'CAMBIO_SIN_RESPUESTA' && Array.isArray(datos.cambios) && datos.cambios.length) {
+    return { pedidoId, faltantes: [], cambios: datos.cambios, sucursalId: null, mensaje: String(datos.message ?? '') };
+  }
+  if (datos?.codigo !== 'FALTA_STOCK' || !Array.isArray(datos.faltantes) || !datos.faltantes.length) return null;
   return { pedidoId, faltantes: datos.faltantes, sucursalId: datos.sucursalId ?? null, mensaje: String(datos.message ?? '') };
+}
+
+/** «200 g de Crottin», «2 × Coca»: como se lo dijo el WhatsApp. Lo que no es entero es por peso. */
+function queVa(c: CambioAbierto) {
+  const n = Number(c.cantidad);
+  const nombre = c.reemplazo ?? 'el parecido';
+  if (!Number.isFinite(n) || n <= 0 || n === 1) return nombre;
+  if (!Number.isInteger(n)) return n < 1 ? `${Math.round(n * 1000)} g de ${nombre}` : `${cant(n)} kg de ${nombre}`;
+  return `${cant(n)} × ${nombre}`;
 }
 
 const cant = (n: number) => (Number.isInteger(n) ? String(n) : n.toLocaleString('es-AR', { maximumFractionDigits: 3 }));
@@ -37,6 +59,9 @@ export function FaltantesAlEntregar({
   onEntregar: () => void | Promise<void>;
 }) {
   const [faltantes, setFaltantes] = useState<Faltante[]>(falta.faltantes);
+  const [cambios, setCambios] = useState<CambioAbierto[]>(falta.cambios ?? []);
+  // vino por un cambio sin contestar: el botón sigue con lo que se estaba haciendo (listo, salir o entregar)
+  const porCambios = (falta.cambios ?? []).length > 0;
   const [hechos, setHechos] = useState<Hecho[]>([]);
   const [cambio, setCambio] = useState<Cambio | null>(null);
   const [reemplazando, setReemplazando] = useState<string | null>(null);
@@ -71,13 +96,36 @@ export function FaltantesAlEntregar({
     setReemplazando(null);
   }
 
+  /** Lo que dijo el cliente del cambio (por teléfono, en el local): entra al pedido ahora. */
+  async function anotar(c: CambioAbierto, acepta: boolean, elegida?: string) {
+    setTrabajando(true);
+    setError('');
+    const r = await fetch('/api/salon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'decidir-cambio', pedidoId: falta.pedidoId, cambioId: c.id, acepta, ...(elegida ? { elegida } : {}) }),
+    }).catch(() => null);
+    setTrabajando(false);
+    if (!r) { setError('Sin conexión. Probá de nuevo.'); return; }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setError(d.message ?? 'No se pudo anotar.'); return; }
+    if (d?.error) { setError(`Quedó anotado, pero no se pudo cambiar el pedido: ${d.error}. Avisale a la caja.`); return; }
+    const sigue = c.hay != null && c.hay > 0 ? `queda en ${cant(c.hay)}` : 'sale del pedido';
+    setHechos((h) => [...h, {
+      texto: c.tipo === 'variedad'
+        ? acepta ? `Va ${c.falta} (${elegida}).` : `${c.falta} ${sigue}.`
+        : acepta ? `Va ${queVa(c)} en lugar de ${c.falta}.` : `No va ${c.reemplazo ?? 'el parecido'}: ${c.falta} ${sigue}.`,
+    }]);
+    setCambios((xs) => xs.filter((x) => x.id !== c.id));
+  }
+
   async function entregar() {
     setTrabajando(true);
     await onEntregar();
     setTrabajando(false);
   }
 
-  const listo = faltantes.length === 0;
+  const listo = faltantes.length === 0 && cambios.length === 0;
   const diferencia = cambio && totalOriginal != null ? cambio.total - totalOriginal : 0;
 
   return (
@@ -87,16 +135,42 @@ export function FaltantesAlEntregar({
       onCerrar={onCerrar}
       bloquearCierre={trabajando}
       cerrarAlTocarAfuera={false}
-      titulo={listo ? 'Listo para entregar' : 'Falta stock para entregar'}
-      descripcion={listo ? 'Ya está todo lo que se lleva.' : '¿Qué hacemos con esto?'}
+      titulo={cambios.length ? 'Falta lo que dijo el cliente' : listo ? (porCambios ? 'Ya está anotado' : 'Listo para entregar') : 'Falta stock para entregar'}
+      descripcion={cambios.length ? 'Se le ofreció un cambio y no figura la respuesta. ¿Qué dijo?' : listo ? (porCambios ? 'El pedido ya tiene lo que dijo el cliente.' : 'Ya está todo lo que se lleva.') : '¿Qué hacemos con esto?'}
       pie={<>
         <Boton variante="secundario" onClick={onCerrar} disabled={trabajando}>Volver</Boton>
         <Boton onClick={entregar} disabled={!listo || trabajando}>
-          {cambio ? `Entregar (${pesos(cambio.total)})` : 'Entregar'}
+          {porCambios ? 'Seguir' : cambio ? `Entregar (${pesos(cambio.total)})` : 'Entregar'}
         </Boton>
       </>}
     >
       <div className="space-y-3">
+        {cambios.map((c) => (
+          <Tarjeta key={c.id} className="p-4">
+            <p className="font-semibold text-tinta">{c.falta}{c.tipo === 'variedad' && c.pedida ? ` (pidió ${c.pedida})` : ''}</p>
+            <p className="mt-0.5 text-sm text-tinta/70">
+              {c.tipo === 'variedad'
+                ? `No hay la que pidió. Se le preguntó cuál quiere${c.variedades.length ? `: ${c.variedades.join(', ')}` : ''}.`
+                : `No hay. Se le ofreció ${queVa(c)}.`}
+              {c.estado === 'propuesto' ? ' Todavía no se le consultó.' : ' No figura la respuesta.'}
+            </p>
+            {soloSacar ? (
+              <p className="mt-2 text-sm font-semibold text-marca">Avisale a la caja: tiene que anotar lo que dijo el cliente antes de entregarlo.</p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {c.tipo === 'variedad'
+                  ? c.variedades.map((v) => (
+                    <Boton key={v} variante="secundario" tamano="chico" disabled={trabajando} onClick={() => anotar(c, true, v)}>Eligió {v}</Boton>
+                  ))
+                  : <Boton variante="secundario" tamano="chico" disabled={trabajando} onClick={() => anotar(c, true)}>Dijo que sí: va {c.reemplazo ?? 'el parecido'}</Boton>}
+                <Boton variante="secundario" tamano="chico" disabled={trabajando} onClick={() => anotar(c, false)}>
+                  {c.tipo === 'variedad' ? 'Ninguna' : 'Dijo que no'}
+                </Boton>
+              </div>
+            )}
+          </Tarjeta>
+        ))}
+
         {faltantes.map((f) => (
           <Tarjeta key={f.productoId} className="p-4">
             <p className="font-semibold text-tinta">{f.nombre}</p>
