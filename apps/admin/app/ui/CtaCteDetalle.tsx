@@ -105,13 +105,26 @@ export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }
     finally { setGuardando(false); }
   };
 
-  const cerrarCuenta = async () => {
-    if (!c || !(await confirmar({
-      titulo: `¿Cerrar la cuenta corriente de ${c.nombre}?`,
-      texto: 'Deja de poder comprar a cuenta y sale de este tablero. El cliente y su historia quedan guardados; se puede volver a abrir con «Sumar cuenta».',
-      textoConfirmar: 'Cerrar cuenta', variante: 'peligro',
+  // DAR DE BAJA (Leandro, 25/11/2026: «el usuario dueño… las puede dar de baja o no; si no,
+  // habilitáselo»): un dueño la da de baja aunque deba (la deuda sigue y se puede cobrar);
+  // gerencia, solo sin deuda. El botón va en el pie, a la vista: antes estaba al final de la
+  // ficha y solo aparecía sin deuda (148 de las 185 cuentas deben).
+  const puedeDarDeBaja = !!c && c.habilitada && (c.saldo <= 0 || esDueno);
+  const darDeBaja = async () => {
+    if (!c) return;
+    const debe = c.saldo > 0;
+    if (!(await confirmar({
+      titulo: `¿Dar de baja la cuenta corriente de ${c.nombre}?`,
+      texto: debe
+        ? `Debe ${pesos(c.saldo)}. Deja de poder comprar a cuenta, sale del tablero y no recibe más el resumen por WhatsApp. La deuda y sus movimientos quedan: se le sigue pudiendo cobrar, y la cuenta figura en «Dadas de baja con deuda». Se puede volver a abrir.`
+        : 'Deja de poder comprar a cuenta y sale del tablero. El cliente y su historia quedan guardados; se puede volver a abrir.',
+      textoConfirmar: 'Dar de baja', variante: 'peligro',
     }))) return;
-    if (await guardar({ habilitada: false }, 'Cuenta cerrada.')) onCerrar();
+    if (await guardar({ habilitada: false }, 'Cuenta dada de baja.')) onCerrar();
+  };
+  const reabrir = async () => {
+    if (!c) return;
+    await guardar({ habilitada: true }, 'La cuenta volvió a abrirse.');
   };
 
   return (
@@ -124,6 +137,8 @@ export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }
       bloquearCierre={guardando}
       cerrarAlTocarAfuera={!hayCambios}
       pie={c && <>
+        {puedeDarDeBaja && <Boton variante="peligro" tamano="chico" onClick={darDeBaja} disabled={guardando} className="sm:mr-auto">Dar de baja la cuenta</Boton>}
+        {!c.habilitada && <Boton variante="secundario" tamano="chico" onClick={reabrir} disabled={guardando} className="sm:mr-auto">Volver a abrir la cuenta</Boton>}
         <Boton variante="secundario" onClick={onCerrar} disabled={guardando}>Cerrar</Boton>
         <Boton onClick={guardarTodo} disabled={guardando || !hayCambios || !form.nombre.trim() || telMalo}>{guardando ? 'Guardando…' : 'Guardar cambios'}</Boton>
       </>}
@@ -233,10 +248,8 @@ export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }
             )}
           </section>
 
-          {c!.saldo <= 0 && (
-            <div className="border-t border-black/10 pt-3">
-              <Boton tamano="chico" variante="peligro" onClick={cerrarCuenta} disabled={guardando}>Cerrar la cuenta corriente</Boton>
-            </div>
+          {!c!.habilitada && (
+            <Aviso tono="atencion">Esta cuenta está dada de baja: no compra a cuenta.{c!.saldo > 0 ? ` Todavía debe ${pesos(c!.saldo)} y se le puede cobrar.` : ''}</Aviso>
           )}
         </div>
       )}

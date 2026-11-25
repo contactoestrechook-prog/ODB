@@ -72,8 +72,9 @@ describe('resumen de cuenta corriente por WhatsApp', () => {
     expect(update).toHaveBeenCalledWith({ telefono: '011 15 2281-2200', cuit: '20123456789', email: null, limite_credito: 300000 });
   });
 
-  it('no deja cerrar una cuenta que debe', async () => {
-    await expect(s.cambiarCliente('a', { habilitada: false })).rejects.toThrow('No se puede cerrar una cuenta que todavía debe');
+  // desde el 25/11/2026 un dueño sí puede (cta-cte-baja.spec.ts); sin dueño, sigue sin poder
+  it('sin un dueño, no deja dar de baja una cuenta que debe', async () => {
+    await expect(s.cambiarCliente('a', { habilitada: false })).rejects.toThrow('Una cuenta que todavía debe la da de baja un dueño');
   });
 
   it('sumar una cuenta nueva crea el cliente y abre la cuenta con su saldo inicial', async () => {

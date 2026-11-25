@@ -61,8 +61,8 @@ export class CtaCteController {
 
   @Roles('gerente', 'dueno')
   @Patch('cliente/:id')
-  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }) {
-    return this.resumenes.cambiarCliente(id, dto);
+  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }, @Req() req: any) {
+    return this.resumenes.cambiarCliente(id, dto, req.usuario);
   }
 
   // corregir el saldo con un movimiento y su motivo: solo el dueño
@@ -251,7 +251,19 @@ export class CtaCteController {
         enRiesgo: cuentas.filter((c) => c.riesgo === 'alto').length,
       },
       cuentas,
+      // dadas de baja que todavía deben (25/11/2026): la plata no se pierde de vista
+      bajasConDeuda: await this.bajasConDeuda(tipo),
     };
   }
-}
 
+  private async bajasConDeuda(tipo?: string) {
+    const { data } = await this.db.from('clientes')
+      .select('id, nombre, razon_social, saldo_cta_cte')
+      .eq('cta_cte_habilitada', false)
+      .eq('cta_cte_tipo', tipo === 'sponsor' ? 'sponsor_wf' : 'cliente')
+      .gt('saldo_cta_cte', 0)
+      .order('saldo_cta_cte', { ascending: false })
+      .limit(200);
+    return ((data ?? []) as any[]).map((c) => ({ id: String(c.id), nombre: String(c.razon_social || c.nombre || 'Sin nombre'), saldo: Number(c.saldo_cta_cte ?? 0) }));
+  }
+}

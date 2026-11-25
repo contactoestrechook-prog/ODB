@@ -1,3 +1,4 @@
+import { rolesDe } from '../auth/roles';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -343,7 +344,7 @@ export class CtaCteResumenesService {
     };
   }
 
-  async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }) {
+  async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }, usuario?: { sub?: string; rol?: string; roles?: unknown }) {
     const fila: Record<string, unknown> = datosAFila(cambios);
     if (cambios.tipo !== undefined) fila.cta_cte_tipo = tipoAColumna(cambios.tipo);
     if (cambios.recibeResumen !== undefined) fila.cta_cte_resumen = !!cambios.recibeResumen;
@@ -352,11 +353,21 @@ export class CtaCteResumenesService {
       if (!Number.isFinite(tope) || tope < 0) throw new BadRequestException('El tope tiene que ser un monto válido');
       fila.limite_credito = tope;
     }
+    let bajaConDeuda: number | null = null;
     if (cambios.habilitada !== undefined) {
-      // cerrada, la cuenta sale del tablero: con deuda adentro, la plata se perdería de vista
+      // DAR DE BAJA UNA CUENTA QUE DEBE (Leandro, 25/11/2026: «el usuario dueño… en caso de
+      // que las quiera dar de baja, las puede dar de baja o no; si no, habilitáselo»). Antes
+      // ninguna cuenta con deuda se podía cerrar, y 148 de las 185 deben. Ahora un dueño sí
+      // puede, con su regla de siempre: «un cliente con deuda se puede dar de baja y su
+      // deuda sigue». La deuda y los movimientos quedan, la cuenta deja de comprar a cuenta,
+      // sale del tablero y aparece en «Dadas de baja con deuda». Gerencia, solo sin deuda.
       if (!cambios.habilitada) {
         const { data } = await this.db.from('clientes').select('saldo_cta_cte').eq('id', clienteId).maybeSingle();
-        if (Number(data?.saldo_cta_cte ?? 0) > 0) throw new BadRequestException('No se puede cerrar una cuenta que todavía debe');
+        const saldo = Number(data?.saldo_cta_cte ?? 0);
+        if (saldo > 0) {
+          if (!rolesDe(usuario).includes('dueno')) throw new BadRequestException('Una cuenta que todavía debe la da de baja un dueño');
+          bajaConDeuda = saldo;
+        }
       }
       fila.cta_cte_habilitada = !!cambios.habilitada;
     }
@@ -369,6 +380,13 @@ export class CtaCteResumenesService {
     }
     const { error } = await this.db.from('clientes').update(fila).eq('id', clienteId);
     if (error) throw new BadRequestException(error.code === '23505' ? 'Ese CUIT o DNI ya está en otro cliente' : error.message);
+    if (cambios.habilitada !== undefined) {
+      // quién la dio de baja (o la volvió a abrir), cuándo y con cuánto de deuda
+      await this.db.from('auditoria').insert({
+        usuario_id: usuario?.sub ?? null, accion: cambios.habilitada ? 'cta_cte_reabrir' : 'cta_cte_baja', entidad: 'clientes', entidad_id: clienteId,
+        datos_despues: { habilitada: !!cambios.habilitada, deuda: bajaConDeuda ?? 0 },
+      }).then(() => null, () => null);
+    }
     return { ok: true };
   }
 

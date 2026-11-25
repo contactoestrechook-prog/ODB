@@ -26,7 +26,7 @@ const ORDENES: Record<Orden, (a: CuentaTarjeta, b: CuentaTarjeta) => number> = {
 
 export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean; tipo?: 'cliente' | 'sponsor' }) {
   const sponsors = tipo === 'sponsor';
-  const [datos, setDatos] = useState<{ kpis: any; cuentas: CuentaTarjeta[] } | null>(null);
+  const [datos, setDatos] = useState<{ kpis: any; cuentas: CuentaTarjeta[]; bajasConDeuda?: { id: string; nombre: string; saldo: number }[] } | null>(null);
   const [error, setError] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [orden, setOrden] = useState<Orden>('deuda');
@@ -129,6 +129,22 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
         </div>
       ) : (
         <Vacio titulo="No hay cuentas con ese filtro." texto="Probá con otro nombre o sacá el filtro." />
+      )}
+
+      {/* dadas de baja que todavía deben (25/11/2026): la plata no se pierde de vista; tocándolas se cobra o se reabren */}
+      {!!datos.bajasConDeuda?.length && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-tinta">
+            Dadas de baja con deuda · {datos.bajasConDeuda.length} · {pesos(datos.bajasConDeuda.reduce((t, b) => t + b.saldo, 0))}
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {datos.bajasConDeuda.map((b) => (
+              <button key={b.id} type="button" onClick={() => setAbierta(b.id)} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-black/15 bg-white px-3.5 text-sm text-tinta hover:border-black/25">
+                {b.nombre} <span className="importe font-semibold text-marca">{pesos(b.saldo)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* el resumen por WhatsApp es uno solo para todas las cuentas: va en la vista de clientes */}
