@@ -928,6 +928,8 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: ETIQUETA_ESTADO[String(h.estado_despues)] ?? String(h.estado_despues), quien: quien(h.usuario_id) ?? (h.estado_despues === 'pagado' ? 'Mercado Pago' : null), tono: h.estado_despues === 'cancelado' ? 'error' : h.estado_despues === 'entregado' ? 'ok' : 'neutro', reconstruido });
       } else if (h.evento === 'repartidor') {
         lineas.push({ cuando: h.creado_en, que: h.detalle?.repartidor ? `Repartidor: ${h.detalle.repartidor}` : 'Se sacó el repartidor', quien: quien(h.usuario_id), tono: 'neutro' });
+      } else if (h.evento === 'agregado') {
+        lineas.push({ cuando: h.creado_en, que: lineaDeProductoSumado(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'productos') {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeProductos(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'reemplazo') {
@@ -1529,6 +1531,14 @@ export function mensajeDeFaltantes(faltantes: Faltante[]): string {
   const uno = (f: Faltante) => `${f.nombre}: el pedido lleva ${cantidadLegible(f.pide)} y hay ${cantidadLegible(f.hay)}`;
   if (faltantes.length === 1) return `No alcanza el stock de ${uno(faltantes[0])}. ¿Lo sacamos o lo reemplazamos?`;
   return `No alcanza el stock de ${faltantes.length} productos (${faltantes.map(uno).join('; ')}). ¿Los sacamos o los reemplazamos?`;
+}
+
+// La línea del historial cuando el cliente agregó algo: "Sumó 4 × Bidon Villa del Sur 6,25 LT ($43.200 → $59.600)"
+export function lineaDeProductoSumado(d: any): string {
+  const pesos = (n: unknown) => `$${Math.round(Number(n) || 0).toLocaleString('es-AR')}`;
+  const puso = d?.puso ? `${cantidadLegible(Number(d.puso.cantidad))} × ${d.puso.nombre}` : 'un producto';
+  const total = d?.total_antes != null && d?.total != null ? ` (${pesos(d.total_antes)} → ${pesos(d.total)})` : '';
+  return `Sumó ${puso}${total}`;
 }
 
 // La línea del historial: "Sacó 6 × Quilmes lata 473 y puso 6 × Quilmes x473cc ($42.760 → $46.840)"

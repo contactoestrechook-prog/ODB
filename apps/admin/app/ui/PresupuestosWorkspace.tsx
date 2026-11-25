@@ -8,9 +8,10 @@
 //  3. si acepta, «Pasar a pedido»: entra como pedido nuevo y suena en las cajas.
 // Los precios los pone el servidor; acá se muestran.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Campo, Chips, Entrada, Etiqueta, Modal, Selector, AreaTexto, Vacio, useConfirmar, unir, FOCO, type TonoEtiqueta } from './kit';
 import { pesos } from '../lib/formato';
+import { BuscadorProducto, type Encontrado } from './BuscadorProducto';
 
 export type Sucursal = { id: string; nombre: string };
 type Renglon = { productoId: string; sku: string | null; nombre: string; cantidad: number; precio: number; stock?: number };
@@ -21,7 +22,6 @@ export type PresupuestoFila = {
   venceEn: string; creadoEn: string; creadoPor: string | null; enviadoEn: string | null; envioError: string | null;
   pedido: { id: string; codigo: string | null; estado: string | null } | null;
 };
-type Encontrado = { productoId: string; sku: string | null; nombre: string; precio: number | null; stock: number | null };
 type Filtro = 'abiertos' | 'aceptados' | 'vencidos' | 'todos';
 
 const ESTADO: Record<PresupuestoFila['estado'], { texto: string; tono: TonoEtiqueta }> = {
@@ -242,7 +242,7 @@ function EditorPresupuesto({ inicial, sucursales, miSucursal, onCerrar, onCambio
           </Campo>
         </div>
 
-        {!cerrado && <Buscador sucursalId={sucursalId} onElegir={agregar} />}
+        {!cerrado && <BuscadorProducto sucursalId={sucursalId} onElegir={agregar} />}
 
         {renglones.length ? (
           <div className="overflow-hidden rounded-2xl border border-black/[0.08] bg-white">
@@ -285,54 +285,6 @@ function EditorPresupuesto({ inicial, sucursales, miSucursal, onCerrar, onCambio
 
       {aPedido && p && <PasarAPedido p={p} onCerrar={() => setAPedido(false)} onListo={(d) => { setP(d); setAPedido(false); onCambio(); setListo(`Entró como pedido ${d.pedidoCodigo ?? ''}: suena en las cajas como cualquier pedido nuevo.`); }} />}
     </Modal>
-  );
-}
-
-/* ---------- el buscador: lo más parecido primero, con precio y stock ---------- */
-
-function Buscador({ sucursalId, onElegir }: { sucursalId: string; onElegir: (e: Encontrado) => void }) {
-  const [q, setQ] = useState('');
-  const [res, setRes] = useState<Encontrado[] | null>(null);
-  const turno = useRef(0);
-
-  useEffect(() => {
-    const texto = q.trim();
-    if (texto.length < 2) return;
-    const mio = ++turno.current;
-    const t = setTimeout(() => {
-      fetch(`/api/presupuestos?recurso=productos&q=${encodeURIComponent(texto)}&sucursalId=${encodeURIComponent(sucursalId)}`, { cache: 'no-store' })
-        .then(async (r) => { const d = await r.json(); if (mio === turno.current) setRes(r.ok && Array.isArray(d) ? d : []); })
-        .catch(() => mio === turno.current && setRes([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q, sucursalId]);
-
-  // con menos de dos letras no se muestra nada (sin tocar el estado desde el efecto)
-  const mostrar = q.trim().length >= 2 ? res : null;
-  const visibles = useMemo(() => (mostrar ?? []).slice(0, 12), [mostrar]);
-  return (
-    <div className="space-y-2">
-      <Campo etiqueta="Agregar producto">
-        <Entrada value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre o código" autoComplete="off"
-          onKeyDown={(e) => { if (e.key === 'Enter' && visibles[0]?.precio != null) { e.preventDefault(); onElegir(visibles[0]); setQ(''); } }} />
-      </Campo>
-      {mostrar !== null && (
-        visibles.length ? (
-          <ul className="max-h-72 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.08] bg-white">
-            {visibles.map((e) => (
-              <li key={e.productoId}>
-                <button type="button" disabled={e.precio == null} onClick={() => { onElegir(e); setQ(''); }}
-                  className={unir('flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-crema-claro disabled:cursor-not-allowed disabled:opacity-50', FOCO)}>
-                  <span className="min-w-0 flex-1 break-words text-tinta">{e.nombre}{e.sku ? <span className="text-tinta/50"> · {e.sku}</span> : null}</span>
-                  {e.stock != null && <span className={unir('shrink-0 text-xs', e.stock > 0 ? 'text-tinta/60' : 'font-semibold text-marca')}>{e.stock > 0 ? `hay ${cant(e.stock)}` : 'sin stock'}</span>}
-                  <span className="importe w-24 shrink-0 text-right font-semibold text-tinta">{e.precio != null ? pesos(e.precio) : 'sin precio'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-sm text-tinta/60">No encontré «{q.trim()}».</p>
-      )}
-    </div>
   );
 }
 

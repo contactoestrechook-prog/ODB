@@ -21,6 +21,7 @@ import { AsignarArmado } from './AsignarArmado';
 import { ElegirCuentaCorriente, type CuentaElegible } from './ElegirCuentaCorriente';
 import { CharlasDeWhatsapp, paraRevisar, useCharlas } from './CharlasDeWhatsapp';
 import { CharlaPedido } from './CharlaPedido';
+import { SumarProductoPedido } from './SumarProductoPedido';
 import { nombrePropio, type NovedadesDeArmado } from './salon/comun';
 
 /** El pedido de la cola, con lo que trae del armado (devuelto, pregunta sin ver). */
@@ -569,6 +570,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
   // deshacer (21/11/2026): soltar lo tomado por error, o volver atrás un «listo» o un «salió»
   const sePuedeSoltar = !!p.tomado_por && ['recibido', 'pagado'].includes(p.estado) && !p.asignado_a;
   const pasoAtras = p.estado === 'listo' ? 'Volver a En preparación' : p.estado === 'en_camino' ? 'No salió: volver a Listos' : null;
+  // sumar lo que el cliente agregó: mientras no salió ni está pagado (lo pagado no cubriría lo nuevo)
+  const seSuma = ['recibido', 'en_preparacion', 'listo'].includes(p.estado) && !p.pagado_en && !String(p.qr_retiro ?? '').startsWith('PY-') && !!p.sucursal_id;
   // la clave cambia con cada paso: el historial se vuelve a leer después de tocar un botón
   const clave = `${p.id}|${p.estado}|${p.tomado_por ?? ''}|${p.asignado_a ?? ''}|${p.consultaSinVer?.n ?? 0}`;
 
@@ -662,6 +665,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
             total={{ etiqueta: 'Total', valor: pesos(p.total) }}
           />
         )}
+        {/* el cliente agregó algo (25/11/2026): se suma al pedido con precio de lista y stock */}
+        {seSuma && <SumarProductoPedido key={p.id} pedidoId={p.id} sucursalId={p.sucursal_id!} onSumado={onAsignado} />}
 
         <section aria-label="Historial del pedido">
           <h3 className="mb-2 text-sm font-semibold text-tinta">Quién hizo cada cosa</h3>

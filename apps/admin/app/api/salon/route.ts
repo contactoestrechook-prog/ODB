@@ -65,6 +65,8 @@ export async function POST(req: Request) {
     case 'devolver': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/devolver`, cuerpo({ motivo: typeof b.motivo === 'string' ? b.motivo : undefined }));
     case 'reabrir': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/reabrir`, cuerpo({}));
     case 'mensaje': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/mensajes`, cuerpo({ texto: b.texto }));
+    // sumar un producto que el cliente agregó (25/11/2026)
+    case 'sumar': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/sumar`, cuerpo({ productoId: b.productoId, cantidad: b.cantidad }));
     case 'mensajes-vistos': return reenviar(`/salon/pedidos/${id(b.pedidoId)}/mensajes/vistos`, cuerpo({}));
     case 'fiambreria-preparo': return reenviar(`/salon/fiambreria/${id(b.pedidoId)}/preparo`, cuerpo({}));
     // «No hay» desde la ventana de fiambrería (19/11/2026)

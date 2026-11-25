@@ -918,6 +918,34 @@ export class SalonService {
     return { p: data as any, lado };
   }
 
+  /**
+   * SUMAR UN PRODUCTO A UN PEDIDO QUE YA ENTRÓ (25/11/2026). Leandro: «necesito que si un cliente
+   * agrega algo exista la posibilidad de sumar el producto» (DOM-151CAD773262: la clienta sumó 4
+   * bidones por WhatsApp con el pedido armándose). La base hace el renglón, la reserva, el total y
+   * la línea del historial (sumar_producto_pedido). Si alguien lo está armando, le llega por la
+   * charla del pedido (y por WhatsApp), así no lo da por terminado sin lo nuevo.
+   */
+  async sumarProducto(pedidoId: string, dto: { productoId?: string; cantidad?: number }, quien: Usuario) {
+    const productoId = String(dto?.productoId ?? '').trim();
+    const cantidad = Number(dto?.cantidad);
+    if (!/^[0-9a-f-]{36}$/i.test(productoId)) throw new BadRequestException('Elegí el producto');
+    if (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 9999) throw new BadRequestException('Poné la cantidad');
+    const { data, error } = await this.db.rpc('sumar_producto_pedido', { p_pedido: pedidoId, p_producto: productoId, p_cantidad: cantidad, p_usuario: quien.sub ?? null });
+    if (error) throw new BadRequestException(error.message);
+    const r = data as { nombre: string; cantidad: number; precio: number; totalAntes: number; total: number; asignadoA: string | null; estado: string };
+    let avisado: string | null = null;
+    if (r?.asignadoA && r.estado === 'en_preparacion' && r.asignadoA !== quien.sub) {
+      const cant = textoDeCantidad(Number(r.cantidad));
+      avisado = await this.escribir(pedidoId, `Se sumó al pedido: ${cant} × ${r.nombre}. Armalo con lo nuevo.`, quien)
+        .then((x) => x.avisado ?? null)
+        .catch((e) => {
+          this.log.warn(`pedido ${pedidoId}: se sumó ${r.nombre} pero no pude avisarle a quien arma (${e instanceof Error ? e.message : e})`);
+          return null;
+        });
+    }
+    return { ok: true, ...r, avisado };
+  }
+
   /** La charla del pedido entre quien arma y la caja. */
   async mensajes(pedidoId: string, quien: Usuario) {
     await this.pedidoDeLaCharla(pedidoId, quien);
@@ -1066,4 +1094,9 @@ export class SalonService {
       ? 'Falta aplicar la migración de op salón (db/migracion-op-salon.sql)'
       : mensaje;
   }
+}
+
+/** «4», «1,5»: la cantidad como se dice, sin ceros de más. */
+export function textoDeCantidad(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
 }

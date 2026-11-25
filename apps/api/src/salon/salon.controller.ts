@@ -150,6 +150,13 @@ export class SalonController {
     return this.salon.reabrir(id, req.usuario ?? {});
   }
 
+  // SUMAR UN PRODUCTO a un pedido que ya entró: el cliente agregó algo (25/11/2026)
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/sumar')
+  sumarProducto(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.salon.sumarProducto(id, dto ?? {}, req.usuario ?? {});
+  }
+
   // la charla del pedido entre quien arma y la caja
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Get('pedidos/:id/mensajes')
