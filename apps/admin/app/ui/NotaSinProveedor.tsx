@@ -398,7 +398,11 @@ ${nota.renglones.map((r) => `<tr><td class="c">${r.cantidad}</td><td>${escHtml(r
             </div>
             <p className="mt-1 text-xs text-tinta/60">
               {busca.trim().length >= 2
-                ? (buscando ? 'Buscando en todo el catálogo…' : `${lista.length} producto${lista.length === 1 ? '' : 's'} con esa búsqueda`)
+                ? (buscando ? 'Buscando en todo el catálogo…'
+                  // «3D» encuentra 4.748: se muestran los más parecidos, como en la búsqueda de arriba (25/11/2026)
+                  : totalLista > lista.length
+                    ? `Los ${lista.length} más parecidos de ${totalLista.toLocaleString('es-AR')} productos con esa búsqueda`
+                    : `${lista.length} producto${lista.length === 1 ? '' : 's'} con esa búsqueda`)
                 : (buscando ? 'Buscando lo que falta…' : `Lo que falta en ${sucursalNombre || 'la sucursal'}: ${totalLista} producto${totalLista === 1 ? '' : 's'}, los sin stock arriba${totalLista > lista.length ? ` (se muestran ${lista.length})` : ''}. El sugerido cubre 14 días de venta.`)}
             </p>
           </div>
