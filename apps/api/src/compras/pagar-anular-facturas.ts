@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { rolesDe } from '../auth/roles';
+import { tienePermiso } from '../auth/permiso-persona';
 
 export const PERMISO_PAGAR_ANULAR = 'pagar_anular_facturas';
 
@@ -27,14 +28,5 @@ type Usuario = { sub?: string | null; rol?: string | null; roles?: unknown } | n
 
 export async function pagaYAnulaFacturas(db: SupabaseClient, usuario: Usuario): Promise<boolean> {
   if (rolesDe(usuario).some((r) => ROLES_DIRECTO.includes(r))) return true;
-  const id = String(usuario?.sub ?? '').trim();
-  if (!id) return false;
-  try {
-    const { data, error } = await db.from('usuarios').select('permisos, activo').eq('id', id).maybeSingle();
-    if (error || !data || (data as any).activo === false) return false;
-    const permisos = (data as any).permisos;
-    return Array.isArray(permisos) && permisos.map(String).includes(PERMISO_PAGAR_ANULAR);
-  } catch {
-    return false;
-  }
+  return tienePermiso(db, usuario?.sub, PERMISO_PAGAR_ANULAR);
 }

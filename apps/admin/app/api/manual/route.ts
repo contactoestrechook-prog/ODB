@@ -31,7 +31,8 @@ function pantallasPara(rol: string[]) {
       nombre: i.nombre ?? i.label,
       grupo: [g.titulo, i.familia].filter(Boolean).join(' › '),
       bajada: TITULOS[ruta]?.bajada ?? '',
-      puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.some((r: string) => rol.includes(r))),
+      // lo que va con permiso propio (la Caja del dueño) no se ofrece: el manual no sabe quién lo tiene
+      puede: puedeVer(rol, ruta) && (!i.soloRoles || i.soloRoles.some((r: string) => rol.includes(r))) && !(i as { soloPermiso?: string }).soloPermiso,
     };
   }));
   // las de abajo del menú, las de cada persona (12/11/2026: «Avisos en el celular»)

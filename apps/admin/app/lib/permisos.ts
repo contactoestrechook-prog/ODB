@@ -170,7 +170,8 @@ export function landingDe(rol?: Roles): string {
 // Rutas reservadas a un rol puntual, se tenga o no menú restringido.
 // RESPONDE (el monitor del bot de WhatsApp) es de los dueños: ahí están las
 // conversaciones completas de los clientes.
-const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
+// /caja-dueno: además, el permiso propio caja_dueno (lo decide la API, 25/11/2026)
+const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde', '/caja-dueno'];
 
 // La cola de firmas la mira dirección. Un comprador que la viera solo se
 // llevaría un 403 del API al entrar: el menú tiene que ofrecer lo que se puede

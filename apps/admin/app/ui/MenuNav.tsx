@@ -14,7 +14,8 @@ import { InstalarApp } from './InstalarApp';
 
 // label: cómo se lee adentro de su submenú («Todos»); nombre: cómo se llama
 // suelta, fuera del menú (el manual dice «Abrir Base de clientes»)
-export type ItemMenu = { href: string; label: string; nombre?: string; icono: string; familia?: string; soloRoles?: string[] };
+// soloPermiso: entradas que ve solo quien tiene ese permiso propio (usuarios.permisos, 25/11/2026)
+export type ItemMenu = { href: string; label: string; nombre?: string; icono: string; familia?: string; soloRoles?: string[]; soloPermiso?: string };
 export type GrupoMenu = { titulo: string; icono: string; items: ItemMenu[] };
 
 type Entrada = { tipo: 'enlace'; item: ItemMenu } | { tipo: 'familia'; titulo: string; items: ItemMenu[] };

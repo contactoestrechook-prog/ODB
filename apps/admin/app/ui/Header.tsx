@@ -160,6 +160,8 @@ export const GRUPOS: Grupo[] = [
       { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas', familia: 'Cobros y pagos' },
       { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion', familia: 'Cobros y pagos' },
       { href: '/cheques', label: 'Cheques', icono: 'cheques', familia: 'Cobros y pagos' },
+      // la hoja de Juan Pablo (25/11/2026): solo quien tenga el permiso caja_dueno
+      { href: '/caja-dueno', label: 'Caja del dueño', icono: 'conciliacion', familia: 'Cobros y pagos', soloPermiso: 'caja_dueno' },
       { href: '/arca', label: 'ARCA', icono: 'arca', familia: 'Impuestos' },
       { href: '/contable', label: 'Contable', icono: 'libroiva', familia: 'Impuestos' },
       { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva', familia: 'Impuestos' },
@@ -235,6 +237,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de WhatsApp' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
+  '/caja-dueno': { titulo: 'Caja del dueño', bajada: 'Lo que entra y lo que sale, como en el Excel' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },
   '/libro-iva': { titulo: 'Libro IVA', bajada: 'IVA ventas y compras del mes, débito vs crédito y saldo de la posición' },
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
@@ -280,23 +283,33 @@ export async function Header({
   // varios roles por persona (19/11/2026): el menú es la suma de todos
   const roles = rolesDesdeToken(tokenSesion);
   const nombre = sesion.nombre?.trim().split(/\s+/)[0] ?? null;
-  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(roles, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.some((r) => roles.includes(r)))) })).filter((g) => g.items.length > 0);
 
   // Lo que espera firma va con NÚMERO en el menú, no como alerta. Hay 124
   // alertas sin leer en el panel: un aviso que nadie mira no protege nada, y de
   // esto dependen la plata que trae el repartidor y los pedidos a proveedores.
-  let porFirmar = 0;
-  let cobrosPendientes = 0;
-  if (rol === 'dueno' || rol === 'gerente') {
-    try {
-      const r = await apiFetch('/aprobaciones');
-      if (r.ok) {
+  // la Caja del dueño sale en el menú solo con el permiso (se pregunta junto con las firmas, sin esperar de más)
+  const jefe = rol === 'dueno' || rol === 'gerente';
+  const [firmas, cajaDueno] = await Promise.all([
+    (async () => {
+      if (!jefe) return { porFirmar: 0, cobrosPendientes: 0 };
+      try {
+        const r = await apiFetch('/aprobaciones');
+        if (!r.ok) return { porFirmar: 0, cobrosPendientes: 0 };
         const d = await r.json();
-        porFirmar = Number(d?.total ?? 0);
-        cobrosPendientes = Number(d?.porTipo?.cobranza ?? 0);
-      }
-    } catch { /* el menú nunca se cae por el contador */ }
-  }
+        return { porFirmar: Number(d?.total ?? 0), cobrosPendientes: Number(d?.porTipo?.cobranza ?? 0) };
+      } catch { return { porFirmar: 0, cobrosPendientes: 0 }; /* el menú nunca se cae por el contador */ }
+    })(),
+    (async () => {
+      if (!roles.includes('dueno')) return false;
+      try {
+        const r = await apiFetch('/caja-dueno/permiso');
+        return r.ok ? !!(await r.json())?.puede : false;
+      } catch { return false; /* sin respuesta, no se muestra */ }
+    })(),
+  ]);
+  const { porFirmar, cobrosPendientes } = firmas;
+  const permisosPropios = cajaDueno ? ['caja_dueno'] : [];
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(roles, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.some((r) => roles.includes(r))) && (!i.soloPermiso || permisosPropios.includes(i.soloPermiso))) })).filter((g) => g.items.length > 0);
   const pendientes: Record<string, number> = { '/aprobaciones': porFirmar, '/clientes': cobrosPendientes };
 
   return (
