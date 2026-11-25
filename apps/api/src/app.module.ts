@@ -51,6 +51,7 @@ import { GpsModule } from './gps/gps.module';
 import { ListasVentaModule } from './listas-venta/listas-venta.module';
 import { ChequesModule } from './cheques/cheques.module';
 import { CajaDuenoModule } from './caja-dueno/caja-dueno.module';
+import { PresupuestosModule } from './presupuestos/presupuestos.module';
 import { SyncModule } from './sync/sync.module';
 import { TiendanubeModule } from './tiendanube/tiendanube.module';
 import { AgenteModule } from './agente/agente.module';
@@ -121,6 +122,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ListasVentaModule,
     ChequesModule,
     CajaDuenoModule,
+    PresupuestosModule,
     SyncModule,
     TiendanubeModule,
     AgenteModule,

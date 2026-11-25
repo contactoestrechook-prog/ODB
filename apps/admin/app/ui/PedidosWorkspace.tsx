@@ -44,6 +44,7 @@ const FILTROS = [
   { valor: 'bot', etiqueta: 'WhatsApp (bot)' },
   { valor: 'panel', etiqueta: 'Cargados a mano' },
   { valor: 'charla', etiqueta: 'WhatsApp (equipo)' },
+  { valor: 'presupuesto', etiqueta: 'Presupuestos' },
   { valor: 'web', etiqueta: 'Tienda web' },
   { valor: 'app', etiqueta: 'App' },
   { valor: 'pedidosya', etiqueta: 'PedidosYa' },

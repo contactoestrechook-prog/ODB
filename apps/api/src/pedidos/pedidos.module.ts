@@ -10,6 +10,7 @@ import { supabaseProvider } from '../supabase.provider';
   imports: [MensajesModule],
   controllers: [CharlaAPedidoController, PedidosController],
   providers: [PedidosService, CharlaAPedidoService, supabaseProvider],
-  exports: [PedidosService],
+  // CharlaAPedidoService: también lo usa «Pasar a pedido» de los presupuestos (25/11/2026)
+  exports: [PedidosService, CharlaAPedidoService],
 })
 export class PedidosModule {}

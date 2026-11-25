@@ -83,7 +83,7 @@ export function origenDelPedido(p: Pick<PedidoParaAviso, 'qr_retiro' | 'canal' |
   const qr = String(p.qr_retiro ?? '');
   // pasado a pedido desde la charla en el panel (14/11/2026): tiene fila en
   // bot_cotizaciones, pero lo cargó una persona
-  if (p.origen === 'charla') return 'panel';
+  if (p.origen === 'charla' || p.origen === 'presupuesto') return 'panel';
   if (p.esDelBot) return 'bot';
   if (p.origen === 'web' || p.origen === 'app') return p.origen;
   if (qr.startsWith('PY-')) return 'pedidosya';

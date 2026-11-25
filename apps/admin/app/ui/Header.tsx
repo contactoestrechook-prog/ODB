@@ -73,6 +73,8 @@ export const GRUPOS: Grupo[] = [
     items: [
       { href: '/ventas', label: 'Ventas', icono: 'ventas' },
       { href: '/pedidos', label: 'Pedidos', icono: 'pedidos' },
+      // los arma cualquiera del local y le llegan al cliente por WhatsApp (25/11/2026)
+      { href: '/presupuestos', label: 'Presupuestos', icono: 'listas' },
       { href: '/caja', label: 'Caja', icono: 'caja', familia: 'Caja y cierres' },
       { href: '/cierres', label: 'Cierres de caja', icono: 'cierres', familia: 'Caja y cierres' },
       { href: '/salida', label: 'Control de salida', icono: 'salida', familia: 'Caja y cierres' },
@@ -237,6 +239,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de WhatsApp' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
+  '/presupuestos': { titulo: 'Presupuestos', bajada: 'Lo que pide el cliente, con precio: se lo mandás por WhatsApp y vale 48 horas' },
   '/caja-dueno': { titulo: 'Caja del dueño', bajada: 'Lo que entra y lo que sale, como en el Excel' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },
   '/libro-iva': { titulo: 'Libro IVA', bajada: 'IVA ventas y compras del mes, débito vs crédito y saldo de la posición' },

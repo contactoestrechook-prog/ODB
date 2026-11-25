@@ -57,6 +57,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     // cómo se prepara, ellas también lo pueden recibir»). El API ya se lo permitía
     // por heredar depósito; faltaba ofrecérselo.
     '/pedidos', // los pedidos que llegan: tomarlos y seguirlos
+    '/presupuestos', // presupuestos para el cliente, por WhatsApp (25/11/2026)
     '/deposito', // cola de preparación
     '/salon', // armado en el salón
     '/traspasos', // traspasos entre locales: ve y opera todo (10/11/2026)
@@ -69,9 +70,9 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
   // Op salón (5/11/2026): SOLO su pantalla, en el celular (Leandro: «que no
   // accedan ni a cajas ni a administración ni a nada, solo a esto»). La API
   // también lo encierra (ROLES_ENCERRADOS en auth/decorators.ts).
-  op_salon: ['/salon', '/cambiar-clave'],
+  op_salon: ['/salon', '/presupuestos', '/cambiar-clave'],
   // Fiambrería (19/11/2026): arma como el op salón, en su sucursal y en el celular
-  fiambreria: ['/salon', '/cambiar-clave'],
+  fiambreria: ['/salon', '/presupuestos', '/cambiar-clave'],
   // El menú tiene que ofrecer solo lo que el rol puede ABRIR de verdad. Antes,
   // un cajero veía Contable, Libro IVA, Estadísticas y Mercado Pago en el menú
   // y al entrar recibía "No pude consultar la API": el API ya lo bloqueaba
@@ -81,6 +82,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/caja', // punto de venta
     '/ventas', // ventas del día
     '/pedidos', // pedidos para preparar y entregar
+    '/presupuestos', // presupuestos para el cliente, por WhatsApp (25/11/2026)
     '/deposito', // cola de preparación
     '/salida', // control de salida de Comprá Fácil
     '/precios', // verificador de precios
@@ -104,6 +106,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
   // alineada con los @Roles del API que lo incluyen: abastecimiento, compras,
   // proveedores y sus listas, documentos y catálogo.
   comprador: [
+    '/presupuestos', // presupuestos para el cliente, por WhatsApp (25/11/2026)
     '/compras', // órdenes de compra, sugerencias, deuda con proveedores
     '/pedido-proveedor', // armar el pedido desde el celular
     '/por-llegar', // qué mercadería llega y cuándo
@@ -124,6 +127,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
   deposito: [
     '/deposito', // cola de preparación
     '/pedidos',
+    '/presupuestos', // presupuestos para el cliente, por WhatsApp (25/11/2026)
     '/recepcion', // recepción de mercadería con lector
     '/por-llegar', // qué mercadería llega y cuándo
     '/stock',

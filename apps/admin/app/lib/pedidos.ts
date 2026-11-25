@@ -48,6 +48,8 @@ export const ORIGENES: Record<string, { label: string; tono: TonoEtiqueta }> = {
   panel: { label: 'Cargado a mano', tono: 'neutro' },
   // pasado a pedido desde la charla de WhatsApp en Pedidos (14/11/2026)
   charla: { label: 'WhatsApp (equipo)', tono: 'ok' },
+  // un presupuesto que el cliente aceptó (25/11/2026)
+  presupuesto: { label: 'Presupuesto', tono: 'ok' },
   whatsapp: { label: 'Cargado a mano', tono: 'neutro' },
   web: { label: 'Tienda web', tono: 'info' },
   app: { label: 'App', tono: 'info' },
