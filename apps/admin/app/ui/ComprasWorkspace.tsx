@@ -4448,15 +4448,26 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
       onCerrar={cerrar}
       titulo={<>OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</>}
       pie={<>
-        {/* El papel con folio: es el que se le manda al proveedor y el que
-            después respalda el reclamo si lo que llega no coincide. */}
+        {/* El papel con folio que se le manda al proveedor: SIN precios, solo los
+            productos (Jackie, 25/11/2026: «cuando hace una orden de compra tiene que
+            salir sin los precios para el proveedor»). Es la misma nota que sale sola
+            por WhatsApp. La orden con precios queda para la casa: respalda el reclamo
+            si lo que llega no coincide. */}
         <a
-          href={`/api/documento?tipo=oc&id=${id}`}
+          href={`/api/documento?tipo=nota&id=${id}`}
           target="_blank"
           rel="noreferrer"
           className={clasesBoton({ variante: 'secundario' })}
         >
-          Orden en PDF
+          PDF para el proveedor (sin precios)
+        </a>
+        <a
+          href={`/api/documento?tipo=oc&id=${id}`}
+          target="_blank"
+          rel="noreferrer"
+          className={clasesBoton({ variante: 'fantasma' })}
+        >
+          Con precios (interno)
         </a>
         {corregible && !corrigiendo && <Boton variante="secundario" onClick={empezarCorreccion}>Corregir ingreso</Boton>}
         {corrigiendo && <Boton variante="secundario" onClick={() => setCorrigiendo(false)} disabled={guardando}>Cancelar corrección</Boton>}
