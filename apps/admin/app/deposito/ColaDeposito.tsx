@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, BotonLink, FOCO, IconoCerrar, unir } from '../ui/kit';
-import { codigoDe } from '../lib/pedidos';
+import { codigoDe, haceCuanto } from '../lib/pedidos';
 import { pesos as formatoPesos } from '../lib/formato';
 import { textoVisible } from '../lib/texto';
 import { NotaDePedido, type PedidoDeposito } from './NotaDePedido';
+import { AsignarArmado } from '../ui/AsignarArmado';
 import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from '../ui/FaltantesAlEntregar';
 import { ModalDespachar } from '../ui/EnvioPartes';
 
@@ -39,6 +40,10 @@ const COLUMNAS = [
 
 export function ColaDeposito({ puedeCargarRepartidor = false, miId = null, veTodo = true }: { puedeCargarRepartidor?: boolean; miId?: string | null; veTodo?: boolean }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  // ¿QUIÉN LO ARMA? TAMBIÉN DESDE DEPÓSITO (Leandro, 25/11/2026: «Juan Pablo desde su usuario
+  // no puede designar a quién hace el pedido, y antes podía»): lo hacía desde Pedidos; en
+  // Depósito la tarjeta no lo tenía. Ahora cada pedido que se arma lo trae, como en Pedidos.
+  const [asignando, setAsignando] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [falta, setFalta] = useState<{ datos: FaltaDeStock; pedido: Pedido } | null>(null);
@@ -172,6 +177,25 @@ export function ColaDeposito({ puedeCargarRepartidor = false, miId = null, veTod
                       franja={col.franja}
                       abierto={abierto}
                       onAlternar={() => setAbiertos((a) => ({ ...a, [p.id]: !abierto }))}
+                      // solo quien ve toda la cola reparte: el que solo arma ve lo suyo (19/11/2026)
+                      armado={veTodo && ['recibido', 'pagado', 'en_preparacion'].includes(p.estado) ? (
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setAsignando((x) => (x === p.id ? null : p.id))}
+                            aria-expanded={asignando === p.id}
+                            className={unir('flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors', p.asignadoNombre ? 'border-ok/30 bg-ok-suave/60 hover:bg-ok-suave' : 'border-dashed border-marca/40 bg-white hover:bg-marca-suave', FOCO)}
+                          >
+                            {p.asignadoNombre
+                              ? <span className="min-w-0 truncate text-tinta">Lo arma <b className="font-semibold">{p.asignadoNombre}</b>{p.asignado_en ? ` · ${haceCuanto(p.asignado_en)}` : ''}</span>
+                              : <span className="font-semibold text-marca-hondo">¿Quién lo arma?</span>}
+                            <span className="shrink-0 text-xs font-semibold text-tinta/60">{asignando === p.id ? 'Cerrar' : p.asignadoNombre ? 'Cambiar' : 'Asignar'}</span>
+                          </button>
+                          {asignando === p.id && (
+                            <AsignarArmado key={`${p.id}|${p.asignado_a ?? ''}`} p={p} onAsignado={() => { void cargar(); }} />
+                          )}
+                        </div>
+                      ) : undefined}
                       acciones={
                         <>
                           <Boton

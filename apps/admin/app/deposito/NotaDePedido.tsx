@@ -66,7 +66,7 @@ function Dato({ rotulo, children, tono }: { rotulo: string; children: ReactNode;
 }
 
 export function NotaDePedido({
-  p, franja, abierto, onAlternar, acciones,
+  p, franja, abierto, onAlternar, acciones, armado,
 }: {
   p: PedidoDeposito;
   /** El color de la etapa (borde izquierdo), igual que en Pedidos. */
@@ -75,6 +75,8 @@ export function NotaDePedido({
   abierto: boolean;
   onAlternar: () => void;
   acciones: ReactNode;
+  /** Quién lo arma (25/11/2026): se elige acá, igual que en Pedidos. */
+  armado?: ReactNode;
 }) {
   const origen = origenDe(p);
   const esPY = String(p.qr_retiro ?? '').startsWith('PY-') || p.origen === 'pedidosya';
@@ -176,6 +178,9 @@ export function NotaDePedido({
           )}
         </div>
       )}
+
+      {/* QUIÉN LO ARMA: se asigna acá mismo, como en Pedidos */}
+      {armado && <div className="mx-4 mb-3">{armado}</div>}
 
       {/* TOTAL Y CÓMO PAGA */}
       <div className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-full bg-tinta px-4 py-2 text-white">
