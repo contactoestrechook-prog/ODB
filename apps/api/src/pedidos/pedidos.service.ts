@@ -1,4 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { FacturacionService } from '../facturacion/facturacion.service';
+import { cuentaParaEntregar, type CuentaParaEntregar } from './entregar-cta-cte';
 import { rolesDe } from '../auth/roles';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -101,6 +103,8 @@ export class PedidosService {
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly notificar: NotificarService,
+    // entregar a cuenta corriente: factura y asienta la deuda (25/11/2026)
+    @Optional() private readonly facturacion?: FacturacionService,
   ) {}
 
   // --- Geolocalización pick-up: el cliente reporta su posición; si está cerca,
@@ -1010,6 +1014,8 @@ export class PedidosService {
       avisar?: boolean;
       /** Cierre de un envío atrasado («Se entregó»): se entrega aunque no haya salido. */
       cierre?: boolean;
+      /** Entregado a cuenta corriente: el cliente de la cuenta (25/11/2026). */
+      clienteCtaCte?: string;
     } = {},
   ) {
     const { data: pedido, error } = await this.db
@@ -1074,6 +1080,9 @@ export class PedidosService {
       // pregunte si se saca o se reemplaza (21/10/2026: cuatro "Stock insuficiente"
       // seguidos sin decir de qué producto).
       await this.frenarSiFalta(pedidoId, pedido.sucursal_id);
+      // A CUENTA CORRIENTE (25/11/2026): la cuenta se revisa ANTES de entregar (habilitada y
+      // dentro del tope), así nunca queda una venta «a cuenta» sin la deuda asentada
+      const ctaCte = medioPago === 'cta_cte' ? await this.prepararCtaCte(pedido, opciones.clienteCtaCte) : null;
       const { data, error: errEntregar } = await this.db.rpc('entregar_pedido', {
         p_pedido: pedidoId,
         p_usuario: usuarioId ?? null,
@@ -1089,6 +1098,7 @@ export class PedidosService {
         throw new BadRequestException(errEntregar.message);
       }
       venta = (data as any)?.venta ?? data;
+      if (ctaCte) venta = { ...(venta ?? {}), ctaCte: await this.facturarCtaCte(pedido, ctaCte, (data as any)?.venta_id ?? (venta as any)?.venta_id, usuarioId) };
     } else if (estado === 'cancelado') {
       // CANCELAR también toca stock (libera la reserva): misma receta que la
       // entrega — RPC con lock de fila e idempotente, así dos cancelaciones
@@ -1140,6 +1150,78 @@ export class PedidosService {
    * reservado, como al cancelar). No sale ningún WhatsApp: ni al cliente (era
    * el celular de quien probaba) ni la BAJA a administración.
    */
+  // ---------- entregar a cuenta corriente (25/11/2026) ----------
+  // Juan Pablo, por Leandro, con la ventana «Entregar … ¿Cómo pagó?»: «agregar que fue cuenta
+  // corriente para que lo facture pero lo deje en cuenta del cliente». Como en la caja: la
+  // factura sale con condición cuenta corriente y eso asienta la deuda (FacturacionService).
+
+  /** Las cuentas corrientes abiertas que coinciden con lo que se escribe (para elegir al entregar). */
+  async cuentasParaEntregar(q?: string) {
+    let consulta = this.db.from('clientes')
+      .select('id, nombre, razon_social, saldo_cta_cte, limite_credito, condicion_iva, cuit')
+      .eq('cta_cte_habilitada', true).order('nombre').limit(15);
+    const t = String(q ?? '').replace(/[%,()]/g, ' ').trim();
+    if (t) consulta = consulta.or(`nombre.ilike.%${t}%,razon_social.ilike.%${t}%`);
+    const { data, error } = await consulta;
+    if (error) throw new BadRequestException(error.message);
+    return ((data ?? []) as any[]).map((c) => ({
+      id: String(c.id), nombre: String(c.razon_social || c.nombre || 'Sin nombre'),
+      debe: Number(c.saldo_cta_cte ?? 0), tope: Number(c.limite_credito ?? 0),
+      factura: c.condicion_iva === 'responsable_inscripto' && c.cuit ? 'A' : 'B',
+    }));
+  }
+
+  /** Antes de entregar: la cuenta existe, está abierta y el pedido entra en el tope. El pedido queda a su nombre. */
+  private async prepararCtaCte(pedido: any, clienteId?: string): Promise<CuentaParaEntregar> {
+    if (!this.facturacion) throw new BadRequestException('La facturación no está disponible: entregalo con otro medio');
+    if (pedido.pagado_en || String(pedido.qr_retiro ?? '').startsWith('PY-')) {
+      throw new BadRequestException('Este pedido ya está pagado: no va a cuenta corriente');
+    }
+    const id = String(clienteId ?? '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BadRequestException('Elegí el cliente de la cuenta corriente');
+    const { data: c } = await this.db.from('clientes')
+      .select('id, nombre, razon_social, cuit, condicion_iva, cta_cte_habilitada, limite_credito, saldo_cta_cte').eq('id', id).maybeSingle();
+    let saldo: number | null = null;
+    if (c && Number((c as any).limite_credito ?? 0) > 0) {
+      const { data: s } = await this.db.rpc('saldo_cuenta', { p_cliente: id });
+      saldo = Number(s ?? (c as any).saldo_cta_cte ?? 0);
+    }
+    const cuenta = cuentaParaEntregar(c as any, Number(pedido.total ?? 0), saldo);
+    if (typeof cuenta === 'string') throw new BadRequestException(cuenta);
+    if (pedido.cliente_id !== cuenta.clienteId) {
+      const { error } = await this.db.from('pedidos').update({ cliente_id: cuenta.clienteId }).eq('id', pedido.id);
+      if (error) throw new BadRequestException(error.message);
+    }
+    return cuenta;
+  }
+
+  /** Después de entregar: la factura con condición cuenta corriente, que asienta la deuda. Nunca tira. */
+  private async facturarCtaCte(pedido: any, cuenta: CuentaParaEntregar, ventaId: string | undefined, usuarioId?: string) {
+    const codigo = pedido.qr_retiro ?? pedido.id;
+    try {
+      if (!ventaId) throw new Error('la entrega no devolvió la venta');
+      await this.db.from('ventas').update({ cliente_id: cuenta.clienteId }).eq('id', ventaId).is('cliente_id', null).then(() => null, () => null);
+      const comp: any = await this.facturacion!.emitir(
+        { tipo: cuenta.tipo, clienteId: cuenta.clienteId, ventaId, condicionPago: 'cta_cte', sucursalId: pedido.sucursal_id, moverStock: false, observaciones: `Pedido ${codigo}` },
+        usuarioId,
+      );
+      // la cola de ARCA nace como factura B: si es A, se corrige (igual que en la caja)
+      if (cuenta.tipo === 'FA') await this.db.from('comprobantes_arca').update({ tipo: 'FA' }).eq('venta_id', ventaId).then(() => null, () => null);
+      this.log.log(`pedido ${codigo} entregado a cuenta corriente de ${cuenta.nombre}: ${cuenta.tipo} ${comp?.numero ?? ''}`);
+      return { ok: true, cliente: cuenta.nombre, comprobante: { tipo: cuenta.tipo, numero: comp?.numero ?? null, puntoVenta: comp?.punto_venta ?? null } };
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : String(e);
+      this.log.error(`pedido ${codigo}: se entregó a cuenta corriente de ${cuenta.nombre} pero no se pudo facturar: ${motivo}`);
+      await this.db.from('alertas_internas').insert({
+        tipo: 'cta_cte_sin_factura',
+        titulo: `Pedido ${codigo}: falta la factura a cuenta corriente`,
+        detalle: `Se entregó a cuenta corriente de ${cuenta.nombre}, pero la factura no salió (${motivo}). Emitila desde Facturación con condición cuenta corriente: así se carga la deuda.`,
+        referencia: { pedidoId: pedido.id, ventaId: ventaId ?? null, clienteId: cuenta.clienteId, link: '/facturacion' },
+      }).then(() => null, () => null);
+      return { ok: false, cliente: cuenta.nombre, error: motivo };
+    }
+  }
+
   private async cerrarPrueba(pedido: any, usuarioId?: string) {
     // la baja a administración queda anotada como omitida ANTES de cancelar: la
     // base no encola otra encima (avisos_pedidos es una por pedido y tipo)
@@ -1174,7 +1256,7 @@ export class PedidosService {
   //   efectivo pide confirmar que la plata está HOY en el cajón: entregar_pedido
   //   lo suma a la caja abierta de hoy y, si se cobró otro día, el arqueo da
   //   faltante. Qué hacer con un efectivo cobrado otro día lo decide Leandro.
-  async seEntrego(pedidoId: string, usuarioId?: string, medioPago?: string, { efectivoEnCaja = false }: { efectivoEnCaja?: boolean } = {}) {
+  async seEntrego(pedidoId: string, usuarioId?: string, medioPago?: string, { efectivoEnCaja = false, clienteCtaCte }: { efectivoEnCaja?: boolean; clienteCtaCte?: string } = {}) {
     const { data, error: errLeer } = await this.db
       .from('pedidos')
       .select('id, canal, estado, sucursal_id, qr_retiro, origen, forma_pago, creado_en, pagado_en, preparacion_en, preparado_por, listo_en, en_camino_en, entrega_fecha')
@@ -1206,7 +1288,7 @@ export class PedidosService {
       throw new BadRequestException('Abrí la caja de la sucursal antes de cerrarlo cobrado en efectivo');
     }
 
-    const opciones = { avisar: false, cierre: true };
+    const opciones = { avisar: false, cierre: true, clienteCtaCte };
     if (!['recibido', 'pagado', 'en_preparacion'].includes(p.estado)) {
       return this.avanzar(pedidoId, 'entregado', usuarioId, medio, opciones);
     }

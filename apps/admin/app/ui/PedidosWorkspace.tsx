@@ -18,6 +18,7 @@ import { conCodigo } from '../lib/codigo-producto';
 import { imprimirComanda } from '../lib/comanda';
 import { ComandasEstaPc } from './ComandasEstaPc';
 import { AsignarArmado } from './AsignarArmado';
+import { ElegirCuentaCorriente, type CuentaElegible } from './ElegirCuentaCorriente';
 import { CharlasDeWhatsapp, paraRevisar, useCharlas } from './CharlasDeWhatsapp';
 import { CharlaPedido } from './CharlaPedido';
 import { nombrePropio, type NovedadesDeArmado } from './salon/comun';
@@ -97,6 +98,8 @@ const MEDIOS = [
   { valor: 'efectivo', etiqueta: 'Efectivo' },
   { valor: 'tarjeta', etiqueta: 'Tarjeta' },
   { valor: 'transferencia', etiqueta: 'Transferencia' },
+  // se factura y queda en la cuenta del cliente (25/11/2026)
+  { valor: 'cta_cte', etiqueta: 'Cuenta corriente' },
 ];
 
 // "mar 6/10 · 09:54" (toLocaleString daba "mar 6-10, 09:54")
@@ -206,7 +209,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
     if (d && d.tomado === false) setAviso(`Ese pedido ya lo tomó ${d.nombre ?? 'otra persona'}.`);
   }
 
-  async function avanzar(p: PedidoCola, estado: string, medioPago?: string) {
+  async function avanzar(p: PedidoCola, estado: string, medioPago?: string, clienteCtaCte?: string) {
     // Un envío a domicilio sale con alguien que lo lleve (21/10/2026: sin eso la
     // API no lo deja salir). Se elige acá mismo: antes «Despachar» mandaba a
     // Reparto › Envíos y a caja y depósito, que no abren Reparto, el panel los
@@ -214,8 +217,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
     if (estado === 'en_camino' && esDomicilio(p)) { setErrorDespacho(null); setDespachando(p); return; }
     if (estado === 'entregado' && !medioPago && pideMedioAlEntregar(p)) { setEntregando(p); return; }
     setTrabajando(p.id);
-    await post({ pedidoId: p.id, estado, medioPago });
+    const d = await post({ pedidoId: p.id, estado, medioPago, ...(clienteCtaCte ? { clienteCtaCte } : {}) });
     setTrabajando(null);
+    // a cuenta corriente (25/11/2026): si la factura no salió, que se sepa
+    const cta = d?.venta?.ctaCte;
+    if (cta?.ok === false) setAviso(`Se entregó, pero la factura a cuenta corriente de ${cta.cliente} no salió (${cta.error}). Emitila desde Facturación con condición cuenta corriente.`);
   }
 
   // DESHACER (Juan Pablo, 20/11/2026: «si tienen que deshacer algo… tiene que
@@ -419,7 +425,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
         <ModalEntregar
           p={entregando}
           onCerrar={() => setEntregando(null)}
-          onConfirmar={async (medio) => { const p = entregando; setEntregando(null); await avanzar(p, 'entregado', medio); }}
+          onConfirmar={async (medio, clienteCtaCte) => { const p = entregando; setEntregando(null); await avanzar(p, 'entregado', medio, clienteCtaCte); }}
         />
       )}
       {falta && (
@@ -689,13 +695,16 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
 }
 
 // Entregar sin elegir cómo pagó registraba la venta como "efectivo" siempre.
-function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: () => void; onConfirmar: (medio: string) => void }) {
+function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: () => void; onConfirmar: (medio: string, clienteCtaCte?: string) => void }) {
   // viene marcado lo que dijo el cliente (21/10/2026). Si no figura, no se marca
   // nada: hay que elegirlo (23/11/2026, PICKUP-933DB75009F5: lo pagó por
   // transferencia, la ventana traía «Efectivo» marcado, el sistema pidió la caja
   // abierta y el pedido quedó clavado en Listos)
   const dicho = MEDIOS.some((m) => m.valor === p.forma_pago);
   const [medio, setMedio] = useState(dicho ? String(p.forma_pago) : '');
+  // a cuenta corriente: de quién es la cuenta (25/11/2026)
+  const [cuenta, setCuenta] = useState<CuentaElegible | null>(null);
+  const listo = !!medio && !(medio === 'cta_cte' && !cuenta);
   return (
     <Modal
       abierto
@@ -705,11 +714,12 @@ function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: 
       descripcion={`Total ${pesos(p.total)}. ¿Cómo pagó?${dicho ? '' : ' (no figura lo que dijo el cliente: elegilo)'}`}
       pie={<>
         <Boton variante="secundario" onClick={onCerrar}>Volver</Boton>
-        <Boton variante="ok" disabled={!medio} onClick={() => medio && onConfirmar(medio)}>Entregado y cobrado</Boton>
+        <Boton variante="ok" disabled={!listo} onClick={() => listo && onConfirmar(medio, medio === 'cta_cte' ? cuenta?.id : undefined)}>{medio === 'cta_cte' ? 'Entregado a cuenta corriente' : 'Entregado y cobrado'}</Boton>
       </>}
     >
       <Chips etiquetaAccesible="Cómo pagó" valor={medio} onCambiar={setMedio} opciones={MEDIOS} />
       {medio === 'efectivo' && <p className="mt-3 text-sm text-tinta/70">El efectivo entra en la caja abierta de la sucursal. Si no hay caja abierta, el sistema te lo va a pedir.</p>}
+      {medio === 'cta_cte' && <div className="mt-3"><ElegirCuentaCorriente sugerido={p.clienteNombre} elegida={cuenta} onElegir={setCuenta} total={Number(p.total) || 0} /></div>}
     </Modal>
   );
 }

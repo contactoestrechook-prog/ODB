@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   const res = await fetch(`${API}/envios/${encodeURIComponent(body.pedidoId)}/se-entrego`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await conToken()) },
-    body: JSON.stringify({ ...(body.medioPago ? { medioPago: body.medioPago } : {}), efectivoEnCaja: body.efectivoEnCaja === true }),
+    body: JSON.stringify({ ...(body.medioPago ? { medioPago: body.medioPago } : {}), efectivoEnCaja: body.efectivoEnCaja === true, ...(body.clienteCtaCte ? { clienteCtaCte: body.clienteCtaCte } : {}) }),
   }).catch(() => null);
   if (!res) return NextResponse.json({ message: 'No pude comunicarme con la API' }, { status: 502 });
   return reenviar(res);

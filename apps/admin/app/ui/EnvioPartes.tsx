@@ -10,6 +10,7 @@ import {
   FRANJAS, linkLlamar, linkMapa, linkWhatsappEnvio, MEDIOS_ENTREGA, personaLegible, telefonoDelEnvio, type Envio, type QuienLleva,
 } from '../lib/envios';
 import { Aviso, Boton, Campo, Cargando, Chips, clasesBoton, Entrada, FOCO, Modal, PlacaRoja, Selector, unir } from './kit';
+import { ElegirCuentaCorriente, type CuentaElegible } from './ElegirCuentaCorriente';
 
 // Las piezas de un envío que comparten Envíos (el despacho) y Mis entregas
 // (el celular de quien lo lleva): lo mismo dicho de la misma manera.
@@ -168,12 +169,14 @@ export function ModalEntregarEnvio({
   /** El error de la API: se ve acá adentro y la ventana queda abierta. */
   error?: string | null;
   onCerrar: () => void;
-  onConfirmar: (medio?: string, extra?: { efectivoEnCaja: boolean }) => void;
+  onConfirmar: (medio?: string, extra?: { efectivoEnCaja: boolean; clienteCtaCte?: string }) => void;
 }) {
   const [medio, setMedio] = useState<string>(!cierre && e.cobro.medio && MEDIOS_ENTREGA.some((m) => m.valor === e.cobro.medio) ? e.cobro.medio : '');
   const [enCaja, setEnCaja] = useState(false);
+  // a cuenta corriente: de quién es la cuenta (25/11/2026)
+  const [cuenta, setCuenta] = useState<CuentaElegible | null>(null);
   const cobra = e.cobro.preguntar;
-  const listo = (!cobra || !!medio) && !(cierre && medio === 'efectivo' && !enCaja);
+  const listo = (!cobra || !!medio) && !(cierre && medio === 'efectivo' && !enCaja) && !(medio === 'cta_cte' && !cuenta);
   return (
     <Modal
       abierto
@@ -187,11 +190,11 @@ export function ModalEntregarEnvio({
           <Boton variante="secundario" onClick={onCerrar} disabled={trabajando}>Volver</Boton>
           <Boton
             variante={cobra ? 'ok' : 'primario'}
-            onClick={() => onConfirmar(cobra ? medio : undefined, { efectivoEnCaja: cierre && medio === 'efectivo' && enCaja })}
+            onClick={() => onConfirmar(cobra ? medio : undefined, { efectivoEnCaja: cierre && medio === 'efectivo' && enCaja, ...(medio === 'cta_cte' && cuenta ? { clienteCtaCte: cuenta.id } : {}) })}
             disabled={!listo}
             cargando={trabajando}
           >
-            {cobra ? textoBotonCobro : textoBoton}
+            {cobra ? (medio === 'cta_cte' ? 'Entregado a cuenta corriente' : textoBotonCobro) : textoBoton}
           </Boton>
         </>
       }
@@ -217,6 +220,7 @@ export function ModalEntregarEnvio({
               </div>
             )}
             {medio === 'transferencia' && <p className="text-sm text-tinta/70">Confirmá que la transferencia entró antes de darlo por cobrado.</p>}
+            {medio === 'cta_cte' && <ElegirCuentaCorriente sugerido={e.cliente.nombre} elegida={cuenta} onElegir={setCuenta} total={Number(e.total) || 0} />}
           </>
         ) : (
           <p className="text-sm text-tinta">{e.cobro.texto}: en la puerta no se cobra nada.</p>

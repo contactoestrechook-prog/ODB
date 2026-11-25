@@ -17,7 +17,8 @@ const limitadorPedidosApp = new LimitadorTasa(Number(process.env.ODB_APP_PEDIDOS
 // propósito: exige validar el límite del cliente y generar la deuda, y eso vive
 // en el circuito de ventas. Si entrara por acá, la mercadería saldría del local
 // sin plata y sin deuda registrada.
-const MEDIOS_ENTREGA = MEDIOS_AL_ENTREGAR;
+// más la cuenta corriente: factura y deja la deuda en la cuenta del cliente (25/11/2026)
+const MEDIOS_ENTREGA = [...MEDIOS_AL_ENTREGAR, 'cta_cte'];
 
 function medioValido(medioPago?: string): string | undefined {
   const medio = medioPago?.trim();
@@ -287,11 +288,18 @@ export class PedidosController {
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
   @Post('pedidos/:id/avanzar')
-  async avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string; repartidorId?: string }, @Req() req: any) {
+  async avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string; repartidorId?: string; clienteCtaCte?: string }, @Req() req: any) {
     const medio = medioValido(body.medioPago);
     await this.soloSiLoLleva(id, req);
-    // despachar un envío: quién lo lleva (21/10/2026, sin eso no sale)
-    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio, { repartidorId: body.repartidorId || undefined });
+    // despachar un envío: quién lo lleva (21/10/2026, sin eso no sale); a cuenta corriente, de quién es la cuenta
+    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio, { repartidorId: body.repartidorId || undefined, clienteCtaCte: body.clienteCtaCte || undefined });
+  }
+
+  // las cuentas corrientes abiertas, para elegir al entregar a cuenta corriente (25/11/2026)
+  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
+  @Get('cuentas-para-entregar')
+  cuentasParaEntregar(@Query('q') q?: string) {
+    return this.pedidos.cuentasParaEntregar(q);
   }
 
   // El repartidor solo toca los pedidos que lleva él (como la ubicación). Los
@@ -339,8 +347,8 @@ export class PedidosController {
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @SinHerencia()
   @Post('envios/:id/se-entrego')
-  seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string; efectivoEnCaja?: boolean }, @Req() req: any) {
-    return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago), { efectivoEnCaja: body?.efectivoEnCaja === true });
+  seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string; efectivoEnCaja?: boolean; clienteCtaCte?: string }, @Req() req: any) {
+    return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago), { efectivoEnCaja: body?.efectivoEnCaja === true, clienteCtaCte: body?.clienteCtaCte || undefined });
   }
 
   // Cambiar cuándo (fecha y franja) o corregir la dirección de un envío.

@@ -13,6 +13,11 @@ async function conToken(): Promise<Record<string, string>> {
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const historial = q.get('historial');
+  // ?cuentas=<texto>: las cuentas corrientes abiertas, para entregar a cuenta corriente (25/11/2026)
+  if (q.has('cuentas')) {
+    const res = await fetch(`${API}/cuentas-para-entregar?q=${encodeURIComponent((q.get('cuentas') ?? '').slice(0, 60))}`, { headers: await conToken(), cache: 'no-store' });
+    return NextResponse.json(await res.json().catch(() => []), { status: res.status });
+  }
   // ?vista=sin-tomar: lo que hace sonar «Llegó un pedido» en TODAS las máquinas (21/11/2026)
   const ruta = historial
     ? `/pedidos/${encodeURIComponent(historial)}/historial`
@@ -40,7 +45,7 @@ export async function POST(req: Request) {
   else if (body.accion === 'soltar') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/soltar`; payload = {}; }
   else if (body.accion === 'deshacer') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/deshacer`; payload = {}; }
   // repartidorId: despachar un envío eligiendo en el momento quién lo lleva (21/10/2026)
-  else { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/avanzar`; payload = { estado: body.estado, ...(body.medioPago ? { medioPago: body.medioPago } : {}), ...(body.repartidorId ? { repartidorId: body.repartidorId } : {}) }; }
+  else { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/avanzar`; payload = { estado: body.estado, ...(body.medioPago ? { medioPago: body.medioPago } : {}), ...(body.repartidorId ? { repartidorId: body.repartidorId } : {}), ...(body.clienteCtaCte ? { clienteCtaCte: body.clienteCtaCte } : {}) }; }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await conToken()) },

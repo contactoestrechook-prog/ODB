@@ -63,6 +63,8 @@ export const MEDIOS_ENTREGA = [
   { valor: 'efectivo', etiqueta: 'Efectivo' },
   { valor: 'transferencia', etiqueta: 'Transferencia' },
   { valor: 'tarjeta', etiqueta: 'Tarjeta' },
+  // se factura y queda en la cuenta del cliente (25/11/2026)
+  { valor: 'cta_cte', etiqueta: 'Cuenta corriente' },
 ];
 
 const ROLES: Record<string, string> = {

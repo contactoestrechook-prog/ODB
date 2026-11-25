@@ -153,7 +153,11 @@ export function EnviosWorkspace({ destacar, puedeCargarRepartidor = false }: { d
       await cargar();
       return texto;
     }
-    if (cierra) setAvisoGeneral({ tono: 'ok', texto: `${e.codigo}: ${hecho}` });
+    // a cuenta corriente (25/11/2026): con qué factura quedó, o que hay que emitirla a mano
+    const cta = r.datos?.venta?.ctaCte;
+    if (cta?.ok === false) setAvisoGeneral({ tono: 'error', texto: `${e.codigo}: se entregó, pero la factura a cuenta corriente de ${cta.cliente} no salió (${cta.error}). Emitila desde Facturación con condición cuenta corriente.` });
+    else if (cta?.ok) setAvisoGeneral({ tono: 'ok', texto: `${e.codigo}: entregado a cuenta corriente de ${cta.cliente} (factura ${String(cta.comprobante?.tipo ?? '').replace('F', '')} ${cta.comprobante?.numero ?? ''}).` });
+    else if (cierra) setAvisoGeneral({ tono: 'ok', texto: `${e.codigo}: ${hecho}` });
     else avisoDe(e.id, { tono: 'ok', texto: hecho });
     await cargar();
     return null;
@@ -162,7 +166,7 @@ export function EnviosWorkspace({ destacar, puedeCargarRepartidor = false }: { d
   const avanzar = (
     e: Envio,
     estado: string,
-    extra: { medioPago?: string; repartidorId?: string } = {},
+    extra: { medioPago?: string; repartidorId?: string; clienteCtaCte?: string } = {},
     hecho = 'listo.',
     opciones: { cierra?: boolean; enVentana?: boolean } = {},
   ) =>
@@ -351,8 +355,8 @@ export function EnviosWorkspace({ destacar, puedeCargarRepartidor = false }: { d
               () => setEntregando(null),
               () =>
                 cierre
-                  ? hacer(e, () => llamar('/api/envios', 'POST', { accion: 'se-entrego', pedidoId: e.id, medioPago, efectivoEnCaja: extra?.efectivoEnCaja === true }), 'quedó entregado.', { cierra: true, enVentana: true })
-                  : avanzar(e, 'entregado', { medioPago }, 'entregado.', { cierra: true, enVentana: true }),
+                  ? hacer(e, () => llamar('/api/envios', 'POST', { accion: 'se-entrego', pedidoId: e.id, medioPago, efectivoEnCaja: extra?.efectivoEnCaja === true, clienteCtaCte: extra?.clienteCtaCte }), 'quedó entregado.', { cierra: true, enVentana: true })
+                  : avanzar(e, 'entregado', { medioPago, clienteCtaCte: extra?.clienteCtaCte }, 'entregado.', { cierra: true, enVentana: true }),
             );
           }}
         />
