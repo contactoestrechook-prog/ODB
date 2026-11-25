@@ -34,13 +34,14 @@ const MEDIOS_PAGO = ['transferencia', 'efectivo', 'cheque', 'mp', 'otro'];
 
 // Quién puede qué (la seguridad real está en el API; acá se muestra lo que aplica):
 //  · cargar y ver TODO: administrativo, comprador, depósito, gerente, dueño
-//  · editar/anular/registrar pagos directo: gerente y dueño
+//  · editar/anular/registrar pagos directo: gerente, dueño y quien tenga el permiso
+//    facturas_directo (Anabella, 25/11/2026); lo dice la API en `directo`
 //  · el resto pide el cambio con motivo y lo aprueba un dueño (Juan Pablo)
 const APRUEBA = (rol?: string | null) => rol === 'dueno';
 const EDITA_DIRECTO = (rol?: string | null) => rol === 'dueno' || rol === 'gerente';
 
-export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, proveedores, rol, usuarioId }: {
-  resumenInicial: any; facturasInicial: any; proveedores: any[]; rol?: string | null; usuarioId?: string | null;
+export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, proveedores, rol, usuarioId, directo }: {
+  resumenInicial: any; facturasInicial: any; proveedores: any[]; rol?: string | null; usuarioId?: string | null; directo?: boolean;
 }) {
   const [resumen, setResumen] = useState<any>(resumenInicial ?? {});
   const [datos, setDatos] = useState<any>(facturasInicial ?? { items: [], total: 0, pagina: 1, porPagina: 50 });
@@ -286,6 +287,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
         <DetalleFactura
           id={detalleId}
           rol={rol}
+          directo={directo}
           // el proveedor de la factura (la lista lo trae con su id): se ofrece primero al cambiarle el proveedor a un renglón
           proveedorFactura={(() => {
             const f = ((datos.items ?? []) as { id: string; proveedor?: { id?: string; razon_social?: string } }[]).find((x) => x.id === detalleId);
@@ -451,8 +453,8 @@ function Conciliacion({ refrescar }: { refrescar: () => void }) {
 }
 
 /* ---------- detalle: desglose editable, pagos parciales, comprobante, anular ---------- */
-function DetalleFactura({ id, cerrar, refrescar, rol, proveedorFactura }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null; proveedorFactura?: ProveedorCorto | null }) {
-  const editaDirecto = EDITA_DIRECTO(rol);
+function DetalleFactura({ id, cerrar, refrescar, rol, directo, proveedorFactura }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null; directo?: boolean; proveedorFactura?: ProveedorCorto | null }) {
+  const editaDirecto = directo ?? EDITA_DIRECTO(rol);
   const [pidiendo, setPidiendo] = useState<null | 'editar' | 'anular'>(null);
   const [motivoCambio, setMotivoCambio] = useState('');
   const [solicitado, setSolicitado] = useState('');

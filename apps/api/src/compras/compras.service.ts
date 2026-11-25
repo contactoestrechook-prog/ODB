@@ -1,8 +1,9 @@
 import { mismoNumero } from './numero-comprobante';
 import { diferenciasConLoRegistrado, diferenciasDeEncabezado } from './corregir-con-carga';
 import { rolesDe } from '../auth/roles';
+import { haceFacturasDirecto, NO_HACE_DIRECTO } from './facturas-directo';
 import { controlarCuenta } from './cuenta-servidor';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
@@ -1516,6 +1517,16 @@ export class ComprasService {
   //  · el stock nunca queda negativo: lo ya vendido se dice en «sinRestar»;
   //  · si la mercadería entró con el remito de la pistola, el remito vuelve a esperar su
   //    factura y el stock no se toca (lo contó el depósito).
+  // Corregir, anular y pagar facturas directo: gerente, dueño o quien tenga el permiso
+  // facturas_directo (Anabella, 25/11/2026). Ver facturas-directo.ts.
+  async exigirFacturasDirecto(usuario: any) {
+    if (!(await haceFacturasDirecto(this.db, usuario))) throw new ForbiddenException(NO_HACE_DIRECTO);
+  }
+
+  async miPermisoFacturas(usuario: any) {
+    return { directo: await haceFacturasDirecto(this.db, usuario) };
+  }
+
   async anularFactura(id: string, motivo: string, usuarioId?: string) {
     const { data, error } = await this.db.rpc('anular_factura_proveedor', {
       p_factura: id, p_motivo: motivo || null, p_usuario: usuarioId ?? null,
@@ -1668,7 +1679,8 @@ export class ComprasService {
     if (!renglones.length && !enc.detalle.length) throw new BadRequestException('No cambió nada respecto de lo que se registró');
 
     const motivo = `Corregida desde la carga de la factura: ${[...resumen.renglones, ...resumen.encabezado].join(' · ')}`.slice(0, 900);
-    const directo = rolesDe(usuario).some((r) => r === 'gerente' || r === 'dueno');
+    // gerente, dueño o con el permiso (Anabella, 25/11/2026): ver facturas-directo.ts
+    const directo = await haceFacturasDirecto(this.db, usuario);
     if (!directo) {
       if (renglones.length) {
         await this.solicitarCambioFactura(facturaId, {

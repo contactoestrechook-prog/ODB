@@ -391,6 +391,13 @@ export class ComprasController {
     return this.compras.resumenFacturas();
   }
 
+  // si corrige, anula y paga directo (gerente, dueño o con el permiso; 25/11/2026). Antes de ':id'.
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/facturas/mi-permiso')
+  miPermisoFacturas(@Req() req: any) {
+    return this.compras.miPermisoFacturas(req.usuario);
+  }
+
   // (antes de ':id': si no, 'cambios' se toma como un id de factura)
   @Roles('gerente', 'dueno', 'comprador', 'deposito')
   @Get('compras/facturas/cambios')
@@ -425,23 +432,26 @@ export class ComprasController {
     return this.compras.solicitarCambioFactura(id, b ?? {}, req.usuario?.sub);
   }
 
-  @Roles('gerente', 'dueno')
+  @Roles('administrativo', 'gerente', 'dueno')
   @Patch('compras/facturas/:id')
-  editarFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+  async editarFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    await this.compras.exigirFacturasDirecto(req.usuario);
     return this.compras.editarFactura(id, dto, req.usuario?.sub);
   }
 
-  @Roles('gerente', 'dueno')
+  @Roles('administrativo', 'gerente', 'dueno')
   @Post('compras/facturas/:id/anular')
-  anularFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+  async anularFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    await this.compras.exigirFacturasDirecto(req.usuario);
     return this.compras.anularFactura(id, dto?.motivo ?? '', req.usuario?.sub);
   }
 
   // corregir lo que entró con la factura (18/11/2026); quien no es gerente ni dueño lo pide
   // por solicitar-cambio con tipo 'renglones' y lo aprueba un dueño
-  @Roles('gerente', 'dueno')
+  @Roles('administrativo', 'gerente', 'dueno')
   @Post('compras/facturas/:id/renglones')
-  corregirRenglonesFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+  async corregirRenglonesFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    await this.compras.exigirFacturasDirecto(req.usuario);
     return this.compras.corregirRenglonesFactura(id, dto ?? {}, req.usuario?.sub);
   }
 
@@ -467,9 +477,10 @@ export class ComprasController {
     return this.compras.primeraCompraProveedor(id);
   }
 
-  @Roles('gerente', 'dueno')
+  @Roles('administrativo', 'gerente', 'dueno')
   @Post('compras/facturas/:id/pagos')
-  pagoFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+  async pagoFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    await this.compras.exigirFacturasDirecto(req.usuario);
     return this.compras.pagoFactura(id, dto, req.usuario?.sub);
   }
 
