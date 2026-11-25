@@ -391,7 +391,7 @@ export class ComprasController {
     return this.compras.resumenFacturas();
   }
 
-  // si corrige, anula y paga directo (gerente, dueño o con el permiso; 25/11/2026). Antes de ':id'.
+  // si registra pagos y anula directo (gerente, dueño o con el permiso; 25/11/2026). Antes de ':id'.
   @Roles('comprador', 'deposito', 'gerente', 'dueno')
   @Get('compras/facturas/mi-permiso')
   miPermisoFacturas(@Req() req: any) {
@@ -432,26 +432,24 @@ export class ComprasController {
     return this.compras.solicitarCambioFactura(id, b ?? {}, req.usuario?.sub);
   }
 
-  @Roles('administrativo', 'gerente', 'dueno')
+  @Roles('gerente', 'dueno')
   @Patch('compras/facturas/:id')
-  async editarFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
-    await this.compras.exigirFacturasDirecto(req.usuario);
+  editarFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
     return this.compras.editarFactura(id, dto, req.usuario?.sub);
   }
 
   @Roles('administrativo', 'gerente', 'dueno')
   @Post('compras/facturas/:id/anular')
   async anularFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
-    await this.compras.exigirFacturasDirecto(req.usuario);
+    await this.compras.exigirPagarAnular(req.usuario);
     return this.compras.anularFactura(id, dto?.motivo ?? '', req.usuario?.sub);
   }
 
   // corregir lo que entró con la factura (18/11/2026); quien no es gerente ni dueño lo pide
   // por solicitar-cambio con tipo 'renglones' y lo aprueba un dueño
-  @Roles('administrativo', 'gerente', 'dueno')
+  @Roles('gerente', 'dueno')
   @Post('compras/facturas/:id/renglones')
-  async corregirRenglonesFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
-    await this.compras.exigirFacturasDirecto(req.usuario);
+  corregirRenglonesFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
     return this.compras.corregirRenglonesFactura(id, dto ?? {}, req.usuario?.sub);
   }
 
@@ -480,7 +478,7 @@ export class ComprasController {
   @Roles('administrativo', 'gerente', 'dueno')
   @Post('compras/facturas/:id/pagos')
   async pagoFactura(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
-    await this.compras.exigirFacturasDirecto(req.usuario);
+    await this.compras.exigirPagarAnular(req.usuario);
     return this.compras.pagoFactura(id, dto, req.usuario?.sub);
   }
 

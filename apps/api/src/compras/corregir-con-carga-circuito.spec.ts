@@ -102,15 +102,6 @@ describe('corregir la factura registrada desde la carga', () => {
     expect(tablas.facturas_proveedor_items.map((i) => i.descripcion)).toEqual(['viejo']);
   });
 
-  it('Anabella, con el permiso facturas_directo, la corrige directo como un dueño (25/11/2026)', async () => {
-    const { s, tablas, llamadas } = armar();
-    tablas.usuarios.push({ id: 'U-ANABELLA', rol: 'administrativo', activo: true, nombre: 'Anabella', permisos: ['facturas_directo'] });
-    const r: any = await s.corregirConCarga('F1', carga(), { sub: 'U-ANABELLA', rol: 'administrativo', roles: ['administrativo', 'cajero'] });
-    expect(r.pedido).toBeUndefined();
-    expect(llamadas).toHaveLength(1);
-    expect(tablas.facturas_proveedor_cambios).toHaveLength(0);
-  });
-
   it('con pagos, el total no se cambia desde la carga', async () => {
     const { s } = armar({ monto_pagado: 1000000, estado: 'parcial' });
     const c = carga();

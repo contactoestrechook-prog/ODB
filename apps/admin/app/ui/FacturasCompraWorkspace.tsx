@@ -34,14 +34,15 @@ const MEDIOS_PAGO = ['transferencia', 'efectivo', 'cheque', 'mp', 'otro'];
 
 // Quién puede qué (la seguridad real está en el API; acá se muestra lo que aplica):
 //  · cargar y ver TODO: administrativo, comprador, depósito, gerente, dueño
-//  · editar/anular/registrar pagos directo: gerente, dueño y quien tenga el permiso
-//    facturas_directo (Anabella, 25/11/2026); lo dice la API en `directo`
+//  · editar/anular/registrar pagos directo: gerente y dueño
+//  · registrar pagos y anular directo, además: quien tenga el permiso
+//    pagar_anular_facturas (Anabella, 25/11/2026); lo dice la API en `pagaYAnula`
 //  · el resto pide el cambio con motivo y lo aprueba un dueño (Juan Pablo)
 const APRUEBA = (rol?: string | null) => rol === 'dueno';
 const EDITA_DIRECTO = (rol?: string | null) => rol === 'dueno' || rol === 'gerente';
 
-export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, proveedores, rol, usuarioId, directo }: {
-  resumenInicial: any; facturasInicial: any; proveedores: any[]; rol?: string | null; usuarioId?: string | null; directo?: boolean;
+export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, proveedores, rol, usuarioId, pagaYAnula }: {
+  resumenInicial: any; facturasInicial: any; proveedores: any[]; rol?: string | null; usuarioId?: string | null; pagaYAnula?: boolean;
 }) {
   const [resumen, setResumen] = useState<any>(resumenInicial ?? {});
   const [datos, setDatos] = useState<any>(facturasInicial ?? { items: [], total: 0, pagina: 1, porPagina: 50 });
@@ -287,7 +288,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
         <DetalleFactura
           id={detalleId}
           rol={rol}
-          directo={directo}
+          pagaYAnula={pagaYAnula}
           // el proveedor de la factura (la lista lo trae con su id): se ofrece primero al cambiarle el proveedor a un renglón
           proveedorFactura={(() => {
             const f = ((datos.items ?? []) as { id: string; proveedor?: { id?: string; razon_social?: string } }[]).find((x) => x.id === detalleId);
@@ -453,8 +454,10 @@ function Conciliacion({ refrescar }: { refrescar: () => void }) {
 }
 
 /* ---------- detalle: desglose editable, pagos parciales, comprobante, anular ---------- */
-function DetalleFactura({ id, cerrar, refrescar, rol, directo, proveedorFactura }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null; directo?: boolean; proveedorFactura?: ProveedorCorto | null }) {
-  const editaDirecto = directo ?? EDITA_DIRECTO(rol);
+function DetalleFactura({ id, cerrar, refrescar, rol, pagaYAnula, proveedorFactura }: { id: string; cerrar: () => void; refrescar: () => void; rol?: string | null; pagaYAnula?: boolean; proveedorFactura?: ProveedorCorto | null }) {
+  const editaDirecto = EDITA_DIRECTO(rol);
+  // registrar pagos y anular: además de gerente y dueño, quien tenga el permiso (Anabella, 25/11/2026)
+  const pagaAnula = pagaYAnula ?? editaDirecto;
   const [pidiendo, setPidiendo] = useState<null | 'editar' | 'anular'>(null);
   const [motivoCambio, setMotivoCambio] = useState('');
   const [solicitado, setSolicitado] = useState('');
@@ -673,8 +676,8 @@ function DetalleFactura({ id, cerrar, refrescar, rol, directo, proveedorFactura 
                 <span className="importe shrink-0 font-medium text-tinta">{pesos(p.monto ?? 0)}</span>
               </div>
             ))}
-            {pagable && !editaDirecto && <p className="text-xs text-tinta/60">Los pagos los registra gerencia o un dueño.</p>}
-            {pagable && editaDirecto && (
+            {pagable && !pagaAnula && <p className="text-xs text-tinta/60">Los pagos los registra gerencia o un dueño.</p>}
+            {pagable && pagaAnula && (
               <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
                 <Entrada aria-label="Monto del pago" type="number" placeholder="Monto" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: e.target.value })} className="importe sm:w-32" />
                 <Selector aria-label="Medio de pago" value={pago.medio} onChange={(e) => setPago({ ...pago, medio: e.target.value })} className="sm:w-40">
@@ -692,7 +695,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol, directo, proveedorFactura 
           {anulada && <Aviso tono="ok">{anulada}</Aviso>}
           {anulable && (
             <div className="border-t border-black/[0.06] pt-3">
-              {!editaDirecto ? (
+              {!pagaAnula ? (
                 pidiendo === 'anular' ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <Entrada aria-label="Motivo de la anulación" placeholder="Motivo de la anulación (la aprueba un dueño)" value={motivoCambio} onChange={(e) => setMotivoCambio(e.target.value)} className="basis-full sm:basis-auto sm:flex-1" />
