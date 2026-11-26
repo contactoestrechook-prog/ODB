@@ -103,10 +103,15 @@ describe('La cuenta corriente se reconoce por la dirección de la casa', () => {
     expect(cuenta('Mandalo a st thomas oeste 655 por favor')).toBe('oeste655');
     expect(cuenta('Santa Inés 201')).toBe('jordy');
     expect(cuenta('Castex 497')).toBe('castex');
-    expect(cuenta('Marido St Thomas Oeste 623')).toBeNull(); // esa casa no tiene cuenta
+    expect(cuenta('Marido St Thomas Mitre 623')).toBeNull(); // esa casa no tiene cuenta
     expect(cuenta('St Thomas 293')).toBeNull(); // la cuenta es de St Thomas ESTE 293
     expect(cuenta('Walter 464')).toBeNull(); // «(464)» no es una dirección
     expect(cuenta('Cristina', '')).toBeNull();
+  });
+
+  it('la dirección se muestra como el nombre de la cuenta (con su «St»)', () => {
+    expect(cuentaPorDireccion(['Marido St Thomas Oeste 655'], CUENTAS)?.direccion).toBe('St Thomas Oeste 655');
+    expect(cuentaPorDireccion(['Castex 497'], CUENTAS)?.direccion).toBe('Castex 497');
   });
 
   it('dos cuentas en la misma dirección no se adivinan', () => {

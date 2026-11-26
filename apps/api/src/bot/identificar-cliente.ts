@@ -94,9 +94,12 @@ export function cuentaPorDireccion(textos: (string | null | undefined)[], cuenta
     const dc = direccionDe(c.razon_social || c.nombre) ?? direccionDe(c.domicilio);
     const dicha = dichas.find((x) => mismaDireccion(x.d, dc));
     if (!dc || !dicha) continue;
+    // la dirección como la escribe el local: el nombre de la cuenta sin lo que va entre paréntesis
+    // («St Thomas 470 (Salvador)» → «St Thomas 470»; con la clave sola quedaba «Thomas Oeste 623»)
+    const nombreCuenta = String(c.razon_social || c.nombre || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
     halladas.set(c.id, {
       titularId: c.id, titular: String(c.razon_social || c.nombre || '').trim(), saldo: Number(c.saldo_cta_cte ?? 0),
-      direccion: `${[...dc.calle].map((w) => (w === 'st' ? 'St' : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')} ${dc.numero}`,
+      direccion: direccionDe(nombreCuenta) ? nombreCuenta : `${dc.calle.join(' ')} ${dc.numero}`,
     });
   }
   return halladas.size === 1 ? [...halladas.values()][0] : null;
