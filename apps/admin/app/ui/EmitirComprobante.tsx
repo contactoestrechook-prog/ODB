@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Aviso, Boton, Campo, Entrada, FOCO, FOCO_ADENTRO, IconoCerrar, Modal, Selector, unir } from './kit';
 import { pesos } from '../lib/formato';
+import {
+  BORRADOR_EMITIR, borrarBorrador, emitirCorresponde, emitirTieneAlgo, guardarBorrador, haceCuantoGuardado, leerBorrador,
+  type BorradorEmitir,
+} from '../lib/borrador-local';
 
 const TIPOS: Record<string, string> = {
   FA: 'Factura A', FB: 'Factura B', FC: 'Factura C',
@@ -58,6 +62,50 @@ export function EmitirComprobante({
   const [referenciaId, setReferenciaId] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  // LO CARGADO NO SE PIERDE (26/11/2026, Juan Pablo: «si sale, se corta la luz… cuando vuelva
+  // a entrar quede exactamente como la dejó»): cada cambio queda guardado en esta compu y al
+  // volver se recupera tal cual (lib/borrador-local.ts). Se borra al emitir o con «Empezar de cero».
+  const [recuperado, setRecuperado] = useState<number | null>(null);
+  const leido = useRef(false); // recién después de leer lo guardado se empieza a guardar
+
+  // guardar: va ANTES de recuperar, así la primera vuelta (vacía) no pisa lo guardado
+  useEffect(() => {
+    if (!leido.current) return;
+    const b: BorradorEmitir = { abierto, ventaId: ventaInicial?.id ?? null, ventaTotal: ventaInicial?.total, tipo, cliente, items, importe, concepto, condicionPago, sucursalId, moverStock, referenciaId };
+    if (emitirTieneAlgo(b)) { guardarBorrador(BORRADOR_EMITIR, b); return; }
+    // vacía: solo se borra lo guardado si era de esta misma factura (no la de otra venta)
+    const g = leerBorrador<BorradorEmitir>(BORRADOR_EMITIR);
+    if (g && emitirCorresponde(g.datos, ventaInicial?.id)) borrarBorrador(BORRADOR_EMITIR);
+  }, [abierto, tipo, cliente, items, importe, concepto, condicionPago, sucursalId, moverStock, referenciaId, ventaInicial?.id, ventaInicial?.total]);
+
+  // al entrar: lo que quedó a medias, como estaba (abierto, si estaba abierto o se vino a seguirla)
+  useEffect(() => {
+    const g = leerBorrador<BorradorEmitir>(BORRADOR_EMITIR);
+    if (g && emitirCorresponde(g.datos, ventaInicial?.id) && emitirTieneAlgo(g.datos)) {
+      const b = g.datos;
+      const seguir = new URLSearchParams(window.location.search).get('seguir') === '1';
+      /* eslint-disable react-hooks/set-state-in-effect -- lo guardado vive en el navegador: se lee al montar */
+      setTipo(b.tipo || 'FB');
+      setCliente(b.cliente ?? null);
+      setItems(Array.isArray(b.items) ? b.items : []);
+      setImporte(b.importe ?? '');
+      setConcepto(b.concepto ?? '');
+      setCondicionPago(b.condicionPago === 'cta_cte' ? 'cta_cte' : 'contado');
+      if (b.sucursalId && sucursales.some((s) => s.id === b.sucursalId)) setSucursalId(b.sucursalId);
+      setMoverStock(b.moverStock ?? true);
+      setReferenciaId(b.referenciaId ?? '');
+      setRecuperado(g.en);
+      if (b.abierto || seguir) setAbierto(true);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+    leido.current = true;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const deCero = () => {
+    setTipo('FB'); setCliente(null); setItems([]); setImporte(''); setConcepto(''); setCondicionPago('contado');
+    setSucursalId(sucursales[0]?.id ?? ''); setMoverStock(true); setReferenciaId(''); setRecuperado(null); setError('');
+    borrarBorrador(BORRADOR_EMITIR);
+  };
 
   // la pantalla pide abrir con un tipo («Nota de crédito», «Recibo»…)
   useEffect(() => {
@@ -133,6 +181,9 @@ export function EmitirComprobante({
         setError(datos.message ?? 'No se pudo emitir');
         return;
       }
+      // emitida: ya no hay nada a medias
+      leido.current = false;
+      borrarBorrador(BORRADOR_EMITIR);
       setAbierto(false);
       router.push(`/facturacion/${datos.id}`);
     } finally {
@@ -171,6 +222,11 @@ export function EmitirComprobante({
         }
       >
         <div className="space-y-3">
+          {recuperado && (
+            <Aviso tono="ok" accion={<Boton tamano="chico" variante="secundario" onClick={deCero}>Empezar de cero</Boton>}>
+              Está como lo dejaste ({haceCuantoGuardado(recuperado)}): no se perdió nada.
+            </Aviso>
+          )}
           <Campo etiqueta="Tipo de comprobante">
             <Selector value={tipo} onChange={(e) => { setTipo(e.target.value); setError(''); }}>
               {Object.entries(TIPOS).map(([v, l]) => (

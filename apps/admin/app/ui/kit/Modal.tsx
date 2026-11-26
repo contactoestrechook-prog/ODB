@@ -110,6 +110,9 @@ export function Modal({
     const alTeclear = (e: KeyboardEvent) => {
       if (pila[pila.length - 1] !== idBase || !panel.current) return;
       if (e.key === 'Escape') {
+        // escribiendo en un aviso que salió encima (una consulta, un pedido), Esc no cierra
+        // la ventana de abajo: se perdería lo que se estaba haciendo (26/11/2026)
+        if (e.target instanceof Element && e.target.closest('.pila-avisos')) return;
         e.stopPropagation();
         if (!bloqueado.current) cerrar.current();
         return;

@@ -675,18 +675,20 @@ export class ListasService {
   async estadoLecturaComprobante(id: string) {
     const { data, error } = await this.db
       .from('lecturas_comprobante')
-      .select('estado, resultado, error, creado_en')
+      .select('estado, resultado, error, creado_en, descartada_en')
       .eq('id', id)
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new BadRequestException('Esa lectura no existe');
+    // ya registrada o sacada de la bandeja (26/11/2026): la pantalla no la reabre sola como «a medias»
+    const descartada = !!(data as any).descartada_en;
     const d = data as any;
     // una lectura que quedó colgada (el contenedor se reinició a mitad) no
     // puede dejar la pantalla girando para siempre
     if (d.estado === 'procesando' && Date.now() - new Date(d.creado_en).getTime() > 12 * 60_000) {
       return { estado: 'error', message: 'La lectura se interrumpió. Probá de nuevo con la misma foto.' };
     }
-    if (d.estado === 'listo') return { estado: 'listo', ...(await this.actualizarLectura(d.resultado ?? {})), borrador: await this.borradorDe(id) };
+    if (d.estado === 'listo') return { estado: 'listo', ...(await this.actualizarLectura(d.resultado ?? {})), borrador: await this.borradorDe(id), descartada };
     if (d.estado === 'error') return { estado: 'error', message: d.error ?? 'No se pudo leer el comprobante' };
     return { estado: 'procesando' };
   }

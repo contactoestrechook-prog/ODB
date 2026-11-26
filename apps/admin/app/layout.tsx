@@ -11,6 +11,8 @@ import { AvisoConsultasArmado } from "./ui/AvisoConsultasArmado";
 import { AvisoFiambreria } from "./ui/AvisoFiambreria";
 import { AvisoPreguntaCliente } from "./ui/AvisoPreguntaCliente";
 import { AvisoSonidoApagado } from "./ui/AvisoSonidoApagado";
+import { PilaAvisos } from "./ui/PilaAvisos";
+import { AvisoFacturaAMedias } from "./ui/AvisoFacturaAMedias";
 import { cookies } from "next/headers";
 import { datosDesdeToken, esEncerrado, rolesDesdeToken, sucursalDesdeToken } from "./lib/permisos";
 
@@ -81,8 +83,11 @@ export default async function RootLayout({
         {children}
         {/* La pila de avisos de pedidos: en el celular baja debajo de la barra negra,
             a lo ancho; en escritorio, abajo a la derecha (arriba tapaba los botones
-            de cada pantalla). La caja vacía no se ve ni frena los toques. */}
-        <div className="pila-avisos flotante-ocultable pointer-events-none fixed inset-x-0 top-(--alto-barra-movil) z-aviso flex flex-col gap-2 px-3 pt-2 *:pointer-events-auto lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0">
+            de cada pantalla). La caja vacía no se ve ni frena los toques.
+            Con una ventana abierta (una factura, un cobro) NO se esconde: sale encima y
+            se achica a una solapa (26/11/2026, Juan Pablo: «que la consulta o pedido
+            salga, esté donde esté»). Ver ui/PilaAvisos.tsx. */}
+        <PilaAvisos className="pila-avisos pointer-events-none fixed inset-x-0 top-(--alto-barra-movil) z-aviso flex flex-col gap-2 px-3 pt-2 *:pointer-events-auto lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0">
           {/* lo que un cliente preguntó y el bot no sabe: suena en la caja hasta que alguien lo contesta (21/11/2026) */}
           {!encerrado && roles.some((r) => CONTESTAN_PREGUNTAS.includes(r)) && <AvisoPreguntaCliente sucursalId={sucursalDesdeToken(token)} />}
           {/* a quien le asignan un pedido para armar, en cualquier pantalla (21/11/2026) */}
@@ -92,7 +97,9 @@ export default async function RootLayout({
           {/* REGLA CON CANDADO (21/11/2026): en todas las máquinas con sesión, sin filtro de rol */}
           {token && <AvisoSonidoApagado />}
           {token && <AvisoPedidoNuevo sucursalId={sucursalDesdeToken(token)} puedeTomar={roles.some((r) => ATIENDEN_PEDIDOS.includes(r))} />}
-        </div>
+          {/* la factura que quedó a medias (se salió, se cortó la luz): «Seguir» la deja como estaba (26/11/2026) */}
+          {token && !encerrado && <AvisoFacturaAMedias />}
+        </PilaAvisos>
         {/* fiambrería: la ventana de lo que tiene que preparar de cada pedido (19/11/2026) */}
         {roles.includes("fiambreria") && <AvisoFiambreria />}
         <AvisoActualizacion />

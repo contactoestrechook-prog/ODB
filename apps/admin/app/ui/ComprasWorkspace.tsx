@@ -30,6 +30,7 @@ import { guardarSucursal, sucursalGuardada, sucursalHabitual } from '../lib/sucu
 import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
+import { BORRADOR_FACTURA_PROVEEDOR, borrarBorrador, guardarBorrador, leerBorrador } from '../lib/borrador-local';
 import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel, renglonAgregado, esRenglonAgregado, facturadoDe, faltanteDe, cantidadQueEntra, separarRenglon, cambiarDatoDelPapel, vistaDelPapel, type CampoPapel, juntarRegalos, paresDeRegalo, separarRegalos, sinCargoDe, regalosAlAbrir } from '../lib/tabla-factura';
 import { AgregarRenglon } from './AgregarRenglon';
 import {
@@ -115,12 +116,34 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
   useEffect(() => {
     const url = new URL(window.location.href);
     const lectura = url.searchParams.get('lectura');
-    if (url.searchParams.get('foto') !== '1' && !lectura) return;
+    if (url.searchParams.get('foto') !== '1' && !lectura) {
+      // LA FACTURA QUE QUEDÓ A MEDIAS SE REABRE SOLA (26/11/2026, Juan Pablo: «si sale, se corta
+      // la luz… cuando vuelva a entrar quede exactamente como la dejó»). Lo cargado ya estaba
+      // guardado en el servidor (borrador del 3/11); faltaba volver a abrirla. Solo si sigue
+      // por cargar: una ya registrada o sacada de la bandeja no se reabre.
+      const id = provAbrir ? null : leerBorrador<{ lecturaId: string }>(BORRADOR_FACTURA_PROVEEDOR)?.datos?.lecturaId;
+      if (!id) return;
+      fetch(`/api/entrada-foto?id=${encodeURIComponent(id)}`, { cache: 'no-store' })
+        .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }))
+        .then(({ ok, d }) => {
+          if (ok && d?.estado === 'listo' && !d?.descartada) setModal((m: any) => m ?? { tipo: 'entradaFoto', lecturaId: id });
+          else borrarBorrador(BORRADOR_FACTURA_PROVEEDOR);
+        })
+        .catch(() => { /* sin red: queda para la próxima vez */ });
+      return;
+    }
     setModal(lectura ? { tipo: 'entradaFoto', lecturaId: lectura } : { tipo: 'entradaFoto' });
     url.searchParams.delete('foto');
     url.searchParams.delete('lectura');
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // cerrar la carga a propósito (o registrarla) la saca de «a medias»; salir sin cerrarla
+  // (otra pantalla, recargar, un corte de luz) no: al volver se reabre
+  const tipoModalAntes = useRef<string | null>(null);
+  useEffect(() => {
+    if (tipoModalAntes.current === 'entradaFoto' && modal?.tipo !== 'entradaFoto') borrarBorrador(BORRADOR_FACTURA_PROVEEDOR);
+    tipoModalAntes.current = modal?.tipo ?? null;
+  }, [modal?.tipo]);
   const [deuda, setDeuda] = useState<any[] | null>(null);
   const [pagos, setPagos] = useState<any[] | null>(null);
   const [aviso, setAviso] = useState('');
@@ -891,6 +914,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
     }, 1500);
     return () => clearTimeout(t);
   }, [fotoItems, fotoImp, cambiosFactura, f?.proveedorId, f?.numeroRemito, f?.sucursalId, f?.margenPct, foto?.lecturaId, foto?.error, foto?.comprobante]); // eslint-disable-line react-hooks/exhaustive-deps
+  // la factura que se está cargando queda anotada en esta compu: si se sale sin cerrarla
+  // (otra pantalla, recargar, se corta la luz), al volver a Compras se reabre sola (26/11/2026)
+  useEffect(() => {
+    if (modal?.tipo === 'entradaFoto' && foto?.lecturaId && !foto?.error) guardarBorrador(BORRADOR_FACTURA_PROVEEDOR, { lecturaId: foto.lecturaId });
+  }, [modal?.tipo, foto?.lecturaId, foto?.error]);
   // «Empezar de cero»: vuelve a lo que leyó el sistema (el guardado se borra solo)
   const descartarBorrador = () => {
     const o = fotoOriginal.current;

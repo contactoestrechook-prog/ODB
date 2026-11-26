@@ -183,6 +183,13 @@ html[data-modal-abierto] .flotante-ocultable {
   display: none;
 }
 
+/* La pila de avisos de pedidos y consultas NO se esconde con una ventana abierta: sale
+   encima y se achica a una solapa (ui/PilaAvisos.tsx, 26/11/2026: Juan Pablo no podía ver
+   una consulta sin salir de la factura). Solo se esconde con el menú del celular abierto. */
+html[data-cajon-abierto] .pila-avisos {
+  display: none;
+}
+
 /* Con el armado de un pedido abierto a pantalla completa, la pila de avisos de
    pedidos no lo tapa (cubría la cámara y los botones «Preguntarle» y «No lo
    puedo armar»): el armado muestra una franja propia si entra un pedido nuevo
