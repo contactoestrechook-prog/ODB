@@ -33,40 +33,9 @@ const fechaReal = (a: number, m: number, d: number): string | null => {
 };
 
 // ---------- montos ----------
-
-/** «686.000», «5.100.000», «1,5», «4000000», «$686.000», «1.500,50» → número (sin multiplicador). */
-export function numeroEscrito(texto: string): number | null {
-  let t = String(texto ?? '').replace(/[$\s]/g, '');
-  if (!/^\d[\d.,]*$/.test(t)) return null;
-  if (t.includes('.') && t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  else if (/^\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, '');
-  else t = t.replace(',', '.');
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** El monto de un campo de plata: mayor a cero y con centavos redondos. */
-export function montoEscrito(texto: string): number | null {
-  const n = numeroEscrito(texto);
-  return n != null && n > 0 && n < 1e12 ? Math.round(n * 100) / 100 : null;
-}
-
-/** Mientras se escribe un monto, los puntos de miles van apareciendo: «1500000» → «1.500.000». */
-export function conPuntos(texto: string): string {
-  const limpio = String(texto ?? '').replace(/[^\d,]/g, '');
-  const [entero, ...resto] = limpio.split(',');
-  const miles = (entero.replace(/^0+(?=\d)/, '')).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return resto.length ? `${miles},${resto.join('').slice(0, 2)}` : miles;
-}
-
-/** Al revés: 686000 → «686.000», 1500.5 → «1.500,50», para poner un monto en el campo. */
-export function montoParaCampo(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '';
-  return Number.isInteger(n)
-    ? n.toLocaleString('es-AR', { maximumFractionDigits: 0 })
-    : n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// (26/11/2026) viven en lib/montos.ts, para todos los campos de plata del sistema
+import { conPuntos, montoEscrito, montoParaCampo, numeroEscrito } from './montos';
+export { conPuntos, montoEscrito, montoParaCampo, numeroEscrito };
 
 const MULTIPLICADOR: Record<string, number> = {
   mil: 1e3, luca: 1e3, lucas: 1e3, k: 1e3,

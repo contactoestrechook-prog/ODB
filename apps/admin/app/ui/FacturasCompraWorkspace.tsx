@@ -6,6 +6,7 @@ import {
   Kpi, Modal, Monto, ROTULO, Selector, Tarjeta, unir, type TonoEtiqueta,
 } from './kit';
 import { fecha, pesos } from '../lib/formato';
+import { conPuntos, montoEscrito, montoParaCampo, tieneCentavos } from '../lib/montos';
 import { CambiarProveedor, type ProveedorCorto } from './CambiarProveedor';
 
 // clip de "tiene comprobante adjunto" (en lugar del 📎)
@@ -530,7 +531,8 @@ function DetalleFactura({ id, cerrar, refrescar, rol, pagaYAnula, proveedorFactu
   const registrarPago = async () => {
     setGuardando(true); setErr('');
     try {
-      await post({ accion: 'pagoFactura', id, monto: Number(pago.monto), medio: pago.medio, nota: pago.nota });
+      // «288.723» son 288 mil pesos, no 288 con decimales (26/11/2026, lib/montos.ts)
+      await post({ accion: 'pagoFactura', id, monto: montoEscrito(pago.monto), medio: pago.medio, nota: pago.nota });
       setPago({ monto: '', medio: 'transferencia', nota: '' });
       await cargarDetalle(); refrescar();
     } catch (e: any) { setErr(e.message); } finally { setGuardando(false); }
@@ -589,8 +591,8 @@ function DetalleFactura({ id, cerrar, refrescar, rol, pagaYAnula, proveedorFactu
 
           <div className="grid grid-cols-3 gap-2 rounded-xl bg-crema-claro p-3">
             <div className="min-w-0"><p className="text-xs text-tinta/60">Total</p><p className="importe truncate text-base font-semibold text-tinta sm:text-2xl">{pesos(d.monto ?? 0)}</p></div>
-            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Pagado</p><p className="importe truncate text-base font-medium text-ok sm:text-lg">{pesos(d.monto_pagado ?? 0)}</p></div>
-            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Saldo</p><p className="importe truncate text-base font-semibold text-marca-hondo sm:text-lg">{pesos(d.saldo ?? 0)}</p></div>
+            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Pagado</p><p className="importe truncate text-base font-medium text-ok sm:text-lg">{pesos(d.monto_pagado ?? 0, { decimales: tieneCentavos(d.monto_pagado ?? 0) })}</p></div>
+            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Saldo</p><p className="importe truncate text-base font-semibold text-marca-hondo sm:text-lg">{pesos(d.saldo ?? 0, { decimales: tieneCentavos(d.saldo ?? 0) })}</p></div>
           </div>
 
           {d.comprobanteUrl && (
@@ -673,18 +675,22 @@ function DetalleFactura({ id, cerrar, refrescar, rol, pagaYAnula, proveedorFactu
             {(d.pagos ?? []).map((p: any, i: number) => (
               <div key={i} className="flex justify-between gap-3 text-sm text-tinta/70">
                 <span className="min-w-0 break-words">{fecha(p.creado_en)} · {p.medio}{p.nota ? ` · ${p.nota}` : ''}</span>
-                <span className="importe shrink-0 font-medium text-tinta">{pesos(p.monto ?? 0)}</span>
+                <span className="importe shrink-0 font-medium text-tinta">{pesos(p.monto ?? 0, { decimales: tieneCentavos(p.monto ?? 0) })}</span>
               </div>
             ))}
             {pagable && !pagaAnula && <p className="text-xs text-tinta/60">Los pagos los registra gerencia o un dueño.</p>}
             {pagable && pagaAnula && (
               <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
-                <Entrada aria-label="Monto del pago" type="number" placeholder="Monto" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: e.target.value })} className="importe sm:w-32" />
+                <Entrada aria-label="Monto del pago" inputMode="decimal" prefijo="$" placeholder="Monto" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: conPuntos(e.target.value) })} className="importe sm:w-36" />
+                {/* el saldo exacto, con sus centavos: escribirlo redondeado lo hacía rebotar (26/11/2026) */}
+                <Boton tamano="chico" variante="secundario" onClick={() => setPago({ ...pago, monto: montoParaCampo(Number(d.saldo ?? 0)) })} disabled={guardando || !(Number(d.saldo ?? 0) > 0)}>
+                  Todo el saldo
+                </Boton>
                 <Selector aria-label="Medio de pago" value={pago.medio} onChange={(e) => setPago({ ...pago, medio: e.target.value })} className="sm:w-40">
                   {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
                 </Selector>
                 <Entrada aria-label="Nota del pago" placeholder="Nota (opcional)" value={pago.nota} onChange={(e) => setPago({ ...pago, nota: e.target.value })} className="col-span-2 sm:w-auto sm:min-w-40 sm:flex-1" />
-                <Boton variante="ok" onClick={registrarPago} disabled={guardando || !(Number(pago.monto) > 0)} className="col-span-2 sm:col-span-1">
+                <Boton variante="ok" onClick={registrarPago} disabled={guardando || !montoEscrito(pago.monto)} className="col-span-2 sm:col-span-1">
                   Registrar pago
                 </Boton>
               </div>
