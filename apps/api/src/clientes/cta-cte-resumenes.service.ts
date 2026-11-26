@@ -365,10 +365,12 @@ export class CtaCteResumenesService {
     if ((persona as any).cta_cte_habilitada) throw new BadRequestException(`${(persona as any).nombre} ya tiene su propia cuenta corriente`);
     const { error } = await this.db.from('clientes').update({ cuenta_corriente_de: cuentaId }).eq('id', personaId);
     if (error) throw new BadRequestException(error.message);
-    await this.db.from('auditoria').insert({
+    const { error: eAud } = await this.db.from('auditoria').insert({
       usuario_id: usuarioId ?? null, accion: 'cta_cte_unir', entidad: 'clientes', entidad_id: personaId,
-      detalle: { cuenta: cuentaId, cuentaNombre: (cuenta as any).razon_social || (cuenta as any).nombre, antes: (persona as any).cuenta_corriente_de ?? null },
-    }).then(() => null, () => null);
+      datos_antes: { cuenta_corriente_de: (persona as any).cuenta_corriente_de ?? null },
+      datos_despues: { cuenta_corriente_de: cuentaId, cuenta: (cuenta as any).razon_social || (cuenta as any).nombre },
+    });
+    if (eAud) this.log.warn(`cta cte: no quedó en auditoría que ${personaId} compra a ${cuentaId}: ${eAud.message}`);
     return { ok: true };
   }
 
@@ -377,8 +379,11 @@ export class CtaCteResumenesService {
       .eq('id', personaId).eq('cuenta_corriente_de', cuentaId).select('id');
     if (error) throw new BadRequestException(error.message);
     if (!(data ?? []).length) throw new BadRequestException('Esa persona no compraba a esta cuenta');
-    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'cta_cte_sacar', entidad: 'clientes', entidad_id: personaId, detalle: { cuenta: cuentaId } })
-      .then(() => null, () => null);
+    const { error: eAud } = await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null, accion: 'cta_cte_sacar', entidad: 'clientes', entidad_id: personaId,
+      datos_antes: { cuenta_corriente_de: cuentaId }, datos_despues: { cuenta_corriente_de: null },
+    });
+    if (eAud) this.log.warn(`cta cte: no quedó en auditoría que ${personaId} dejó de comprar a ${cuentaId}: ${eAud.message}`);
     return { ok: true };
   }
 
