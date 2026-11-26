@@ -20,6 +20,9 @@ export type Seccion = {
   titulo: string;
   area: string;
   roles: string[]; // qué roles la usan a diario (para ordenar, no para esconder)
+  /** los href del menú (GRUPOS de ui/Header.tsx) que esta sección explica: arman
+   *  «Todo el sistema» del manual y el candado de cobertura (scripts/manual-cobertura.mjs) */
+  pantallas: string[];
   bajada: string;
   bloques: Bloque[];
 };
@@ -43,6 +46,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Entrar al sistema y tenerlo a mano',
     area: 'Para empezar',
     roles: ['dueno', 'gerente', 'comprador', 'cajero', 'deposito', 'administrativo', 'repartidor'],
+    pantallas: ['/inicio', '/avisos', '/manual', '/cambiar-clave'],
     bajada: 'Usuario, clave y cómo dejarlo instalado en el teléfono como una aplicación.',
     bloques: [
       {
@@ -112,6 +116,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Cobrar una venta',
     area: 'Salón y caja',
     roles: ['cajero', 'gerente', 'dueno'],
+    pantallas: ['/caja'],
     bajada: 'El circuito de todos los días: abrir la caja, cargar, cobrar y cerrar.',
     bloques: [
       {
@@ -194,6 +199,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Un cliente de cuenta corriente deja un pago',
     area: 'Salón y caja',
     roles: ['cajero', 'administrativo', 'gerente', 'dueno'],
+    pantallas: ['/caja'],
     bajada: 'Lo tomás vos, pero la deuda baja recién cuando lo aprueba el dueño.',
     bloques: [
       {
@@ -223,6 +229,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Cerrar la caja y arquear',
     area: 'Salón y caja',
     roles: ['cajero', 'gerente', 'dueno'],
+    pantallas: ['/caja', '/cierres'],
     bajada: 'Contar lo que hay contra lo que el sistema dice que tendría que haber.',
     bloques: [
       {
@@ -255,6 +262,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Llega un pedido: quién se entera, quién lo toma y dónde queda',
     area: 'Salón y caja',
     roles: ['dueno', 'gerente', 'cajero', 'deposito', 'administrativo'],
+    pantallas: ['/pedidos'],
     bajada: 'El recorrido completo, del WhatsApp del cliente a la entrega, con el nombre de quien hizo cada paso.',
     bloques: [
       {
@@ -330,6 +338,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Preparar pedidos',
     area: 'Depósito',
     roles: ['deposito', 'cajero', 'gerente', 'dueno'],
+    pantallas: ['/deposito', '/salon'],
     bajada: 'La cola de lo que hay que armar, en orden.',
     bloques: [
       {
@@ -359,6 +368,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Recibir mercadería con el lector',
     area: 'Depósito',
     roles: ['deposito', 'administrativo', 'gerente', 'dueno'],
+    pantallas: ['/recepcion'],
     bajada: 'Lo que baja del camión se cuenta escaneando, y eso es lo que entra al stock.',
     bloques: [
       {
@@ -388,6 +398,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Stock: buscar, filtrar y exportar',
     area: 'Depósito',
     roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/stock', '/productos'],
     bajada: 'La lista de todos los productos con su stock, que se filtra por rubro, marca, proveedor, sucursal, estado y más.',
     bloques: [
       {
@@ -431,6 +442,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Stock, conteos, ajustes y mermas',
     area: 'Depósito',
     roles: ['deposito', 'administrativo', 'gerente', 'dueno'],
+    pantallas: ['/stock'],
     bajada: 'Cómo se corrige el stock sin romper el número.',
     bloques: [
       {
@@ -463,6 +475,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Inventario de producto',
     area: 'Depósito',
     roles: ['dueno', 'gerente', 'administrativo', 'comprador', 'deposito', 'cajero'],
+    pantallas: ['/inventario'],
     bajada: 'Buscás un producto y ves cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra.',
     bloques: [
       {
@@ -500,6 +513,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Arqueo de stock',
     area: 'Depósito',
     roles: ['cajero', 'deposito', 'administrativo', 'gerente', 'dueno'],
+    pantallas: ['/arqueo'],
     bajada: 'El equipo cuenta con el celular; gerencia revisa y aplica.',
     bloques: [
       {
@@ -539,6 +553,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Cargar una factura de proveedor',
     area: 'Administración',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/compras', '/facturas-compra'],
     bajada: 'Lo que define la deuda con el proveedor y los costos reales.',
     bloques: [
       {
@@ -705,6 +720,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Costear una compra con el analista',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/analista'],
     bajada: 'Sacar el costo real de una oferta mientras estás con el proveedor, y ver qué pasa con el precio de venta.',
     bloques: [
       {
@@ -733,6 +749,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Costos, remarcación y precio de venta',
     area: 'Administración',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/mesa-compras', '/productos'],
     bajada: 'Cómo se convierte el costo de la factura en el precio de la góndola.',
     bloques: [
       {
@@ -763,6 +780,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Dar de alta un producto',
     area: 'Administración',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/productos'],
     bajada: 'La ficha completa, para que después el producto se encuentre solo.',
     bloques: [
       {
@@ -796,6 +814,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Verificador de precios y etiquetas',
     area: 'Administración',
     roles: ['administrativo', 'deposito', 'cajero', 'gerente', 'dueno'],
+    pantallas: ['/precios'],
     bajada: 'Consultar un precio en el salón e imprimir la etiqueta ahí mismo.',
     bloques: [
       {
@@ -815,6 +834,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Qué comprar: lo sugerido para tildar',
     area: 'Compras',
     roles: ['comprador', 'gerente', 'dueno'],
+    pantallas: ['/mesa-compras'],
     bajada: 'Mesa de compras → Qué comprar. Una nota de pedido por proveedor, lista para tildar.',
     bloques: [
       {
@@ -864,6 +884,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Poner al día el stock y las ventas de un local',
     area: 'Compras',
     roles: ['dueno'],
+    pantallas: ['/mesa-compras'],
     bajada: 'Mesa de compras → Qué comprar → "Poner al día". Para que el sistema sepa lo que hay y lo que se vende mientras el local siga con su sistema.',
     bloques: [
       {
@@ -910,6 +931,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'El Analista ODB: qué comprar y dónde hay plata parada',
     area: 'Compras',
     roles: ['comprador', 'gerente', 'dueno'],
+    pantallas: ['/analista'],
     bajada: 'Menú → Analista ODB. Preguntás con tus palabras y te contesta con el veredicto y la cuenta por proveedor.',
     bloques: [
       {
@@ -967,6 +989,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Armar un pedido a un proveedor',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/pedido-proveedor'],
     bajada: 'Desde el celular, caminando el depósito.',
     bloques: [
       {
@@ -1000,6 +1023,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Cambiar el proveedor de un producto',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/productos', '/pedido-proveedor'],
     bajada: 'Desde cualquier pantalla donde aparece el producto, en dos toques: «Proveedor: X · cambiar».',
     bloques: [
       {
@@ -1037,6 +1061,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'La ficha de cada proveedor',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/proveedores'],
     bajada: 'Todos los datos del proveedor, las personas y los catálogos en un solo lugar.',
     bloques: [
       {
@@ -1068,6 +1093,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Mercadería por llegar y la fecha de entrega',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'deposito', 'gerente', 'dueno'],
+    pantallas: ['/por-llegar'],
     bajada: 'El proveedor confirma por WhatsApp para qué día y la fecha queda anotada sola.',
     bloques: [
       {
@@ -1096,6 +1122,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'El circuito completo de una compra',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/compras', '/aprobaciones', '/trazabilidad'],
     bajada: 'Pedido, aprobación, recepción, factura y pago. Cada paso deja su papel.',
     bloques: [
       {
@@ -1123,6 +1150,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Trazabilidad: qué quedó sin cerrar',
     area: 'Compras',
     roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/trazabilidad'],
     bajada: 'La pantalla que se mira todos los días para que no se pierda nada.',
     bloques: [
       {
@@ -1150,6 +1178,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Cuentas corrientes',
     area: 'Clientes y cuenta corriente',
     roles: ['administrativo', 'gerente', 'dueno'],
+    pantallas: ['/cuentas-corrientes'],
     bajada: 'Quién debe, cuánto puede deber y quién paga bien.',
     bloques: [
       {
@@ -1174,6 +1203,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Eventos: vender cumpleaños, casamientos y fin de año',
     area: 'Clientes y cuenta corriente',
     roles: ['cajero', 'gerente', 'dueno'],
+    pantallas: ['/eventos'],
     bajada: 'Cargar un evento, armarle la propuesta de bebidas y llevarlo de Prospecto a Realizado.',
     bloques: [
       {
@@ -1247,6 +1277,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Despachar los envíos a domicilio',
     area: 'Reparto',
     roles: ['dueno', 'gerente', 'comprador'],
+    pantallas: ['/reparto'],
     bajada: 'Reparto › Envíos: qué hay que preparar, quién lo lleva, qué se cobra y lo que quedó atrasado.',
     bloques: [
       {
@@ -1300,6 +1331,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Armar el reparto y salir a la calle',
     area: 'Reparto',
     roles: ['repartidor', 'cajero', 'gerente', 'dueno'],
+    pantallas: ['/reparto', '/repartidor'],
     bajada: 'La hoja de ruta, las entregas y la rendición al volver.',
     bloques: [
       {
@@ -1337,6 +1369,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Quién hizo qué: Actividad del equipo',
     area: 'Dirección',
     roles: ['dueno', 'gerente'],
+    pantallas: ['/actividad'],
     bajada: 'Todo lo que tiene nombre en el sistema, en una sola lista.',
     bloques: [
       {
@@ -1365,6 +1398,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Aprobaciones: la cola de firmas',
     area: 'Dirección',
     roles: ['dueno', 'gerente'],
+    pantallas: ['/aprobaciones'],
     bajada: 'Todo lo que espera la firma del dueño, en una sola pantalla.',
     bloques: [
       {
@@ -1395,6 +1429,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Los números del negocio',
     area: 'Dirección',
     roles: ['dueno', 'gerente'],
+    pantallas: ['/estadisticas', '/informes'],
     bajada: 'Dónde mirar cada cosa.',
     bloques: [
       {
@@ -1419,6 +1454,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Fraccionar (huevos, quesos y similares)',
     area: 'Depósito',
     roles: ['cajero', 'deposito', 'administrativo', 'gerente', 'dueno'],
+    pantallas: ['/fraccionar'],
     bajada: 'La mercadería entra al pozo, se arman las presentaciones y la caja vende lo armado.',
     bloques: [
       {
@@ -1485,6 +1521,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'Balanzas: la lista de precios para las Kretz',
     area: 'Salón y caja',
     roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    pantallas: ['/balanzas'],
     bajada: 'Bajá la lista de PLU con el precio de la caja y cargala en las balanzas con iTegra.',
     bloques: [
       {
@@ -1535,6 +1572,7 @@ export const SECCIONES: Seccion[] = [
     titulo: 'El bot de WhatsApp',
     area: 'WhatsApp',
     roles: ['dueno'],
+    pantallas: ['/bot', '/responde'],
     bajada: 'Qué contesta solo, qué deriva y cómo se apaga.',
     bloques: [
       {
