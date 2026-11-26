@@ -3,6 +3,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
 import { resolverCotizacion } from './cotizaciones';
+import { tienePermiso } from '../auth/permiso-persona';
+import { firmarPase, publicarManual, type ManualPublicado } from './metogroup';
 
 // MANTENIMIENTO (Leandro, 9/11/2026: «6 horas de programación de mantenimiento
 // mensuales… qué hicimos, sobre qué trabajamos, qué se mejoró, si fueron
@@ -44,6 +46,26 @@ export class MantenimientoController {
     // falla, la pantalla sigue: es un dato de más, no lo que vino a ver.
     const { data: lector } = await this.db.rpc('compras_lector_salud').then((r) => r, () => ({ data: null }));
     return { horasAbono: HORAS_ABONO, trabajos, cotizaciones: cotizaciones ?? [], lectorFacturas: Array.isArray(lector) ? lector : [] };
+  }
+
+  // EL PASE PARA HABLAR CON METOGROUP (26/11/2026). Devuelve el pase firmado de quien
+  // entra, o por qué no: 'sin_alta' (MetoGroup no lo habilitó) o 'sin_conectar'. De
+  // paso deja publicado el manual que manda el panel, para el agente.
+  @Roles('gerente', 'dueno')
+  @Post('metogroup/pase')
+  async paseMetoGroup(@Body() b: { manual?: ManualPublicado }, @Req() req: any) {
+    const usuarioId: string | undefined = req.usuario?.sub;
+    if (!usuarioId) throw new BadRequestException('No pude identificar quién entra');
+    // el manual se publica aunque la persona no esté habilitada: es del sistema, no de ella
+    await publicarManual(this.db, b?.manual).catch(() => null);
+    if (!(await tienePermiso(this.db, usuarioId, 'mantenimiento'))) return { pase: null, motivo: 'sin_alta' };
+    const [{ data: clave }, { data: u }] = await Promise.all([
+      this.db.from('mant_clave_metogroup').select('clave').eq('id', 1).maybeSingle(),
+      this.db.from('usuarios').select('nombre, rol').eq('id', usuarioId).maybeSingle(),
+    ]);
+    if (!clave?.clave) return { pase: null, motivo: 'sin_conectar' };
+    const pase = firmarPase({ usuario: usuarioId, nombre: String(u?.nombre ?? ''), rol: String(u?.rol ?? '') }, String(clave.clave));
+    return { pase, motivo: null };
   }
 
   // Aprobar o rechazar una cotización. Firma el dueño, como en Aprobaciones.

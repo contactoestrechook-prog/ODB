@@ -250,7 +250,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
   '/actividad': { titulo: 'Actividad del equipo', bajada: 'Quién hizo cada cosa: pedidos, compras, caja, stock, cobros y avisos' },
-  '/mantenimiento': { titulo: 'Mantenimiento del sistema', bajada: 'Lo que hizo MetoGroup cada mes: bugs, arreglos, mejoras y propuestas, quién lo pidió y cuánto tiempo llevó' },
+  '/mantenimiento': { titulo: 'Mantenimiento del sistema', bajada: 'Contale a MetoGroup un problema o pedile algo nuevo, y mirá lo que hizo cada mes' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
   '/manual': { titulo: 'Manual', bajada: 'Preguntale lo que quieras del sistema, o recorrelo pantalla por pantalla' },

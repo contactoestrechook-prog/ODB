@@ -1109,12 +1109,32 @@ export const SECCIONES_PANTALLAS: Seccion[] = [
   },
   {
     id: 'mantenimiento',
-    titulo: 'Mantenimiento: lo que hizo MetoGroup',
+    titulo: 'Mantenimiento: hablar con MetoGroup y lo que hizo',
     area: 'Dirección',
     roles: ['dueno', 'gerente'],
     pantallas: ['/mantenimiento'],
-    bajada: 'Cada cambio publicado en el sistema, quién lo pidió, cuándo y cuánto tiempo llevó.',
+    bajada: 'Contarle a MetoGroup que algo anda mal o pedirle algo nuevo, y ver cada cambio publicado, quién lo pidió y cuánto llevó.',
     bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Hablar con MetoGroup (la primera pestaña)',
+        pasos: [
+          'Entrá a Mantenimiento: arriba está «Hablar con MetoGroup», con lo que MetoGroup le presta a ODB, los reclamos y los pedidos de mejora.',
+          'Tocá «Contar un problema» si algo anda mal, o «Pedir una mejora» si querés algo que el sistema no hace. Contalo con tus palabras.',
+          'Te contesta un agente de MetoGroup que mira el sistema y el manual de ODB. Si lo que buscás ya existe (a veces por otro camino), te dice dónde y cómo, y no abre nada.',
+          'Si anda mal, abre el reclamo y te da el número. MetoGroup lo busca, lo arregla y lo publica; cuando queda, te avisa en la misma charla y en la campanita, con el número y cuánto tardó.',
+          'Si es algo nuevo, abre un pedido de mejora aparte y te responden si es con costo o sin costo. Vos decidís si sigue.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        titulo: 'Hablar con MetoGroup: tener en cuenta',
+        puntos: [
+          'Lo usan quienes MetoGroup habilitó, persona por persona (dueños y encargados). Si dice «Todavía no estás habilitado», pedíselo a MetoGroup.',
+          'Entran 2 reclamos de mal funcionamiento por día. Si el sistema está caído para todos, entra igual y avisa de urgencia. Los pedidos de mejora no cuentan para esos 2.',
+          'Para dudas de cómo se usa algo, lo más rápido es el Manual del dueño, arriba del menú.',
+        ],
+      },
       {
         tipo: 'texto',
         texto:
