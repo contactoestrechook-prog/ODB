@@ -101,13 +101,13 @@ const DIA_DEL_DUENO: { momento: string; href: string; para: string }[] = [
   { momento: 'Cuando quieras', href: '/estadisticas', para: 'El negocio en números: ventas, rubros y sucursales.' },
 ];
 
-function TuDia({ pantallas, onComoSeUsa }: { pantallas: Map<string, PantallaManual>; onComoSeUsa: (p: PantallaManual) => void }) {
+function TuDia({ pantallas, esDueno, onComoSeUsa }: { pantallas: Map<string, PantallaManual>; esDueno: boolean; onComoSeUsa: (p: PantallaManual) => void }) {
   const pasos = DIA_DEL_DUENO.filter((d) => pantallas.has(d.href));
   if (!pasos.length) return null;
   let momentoAnterior = '';
   return (
     <Tarjeta relleno={false}>
-      <TarjetaCabecera titulo="Tu día de dueño" sub="Lo que conviene mirar cada día, en orden. Tocá «Abrir» para ir o «Cómo se usa» para leerlo." />
+      <TarjetaCabecera titulo={esDueno ? 'Tu día de dueño' : 'Tu día'} sub="Lo que conviene mirar cada día, en orden. Tocá «Abrir» para ir o «Cómo se usa» para leerlo." />
       <ol className="divide-y divide-black/[0.06]">
         {pasos.map((d, i) => {
           const p = pantallas.get(d.href)!;
@@ -329,7 +329,7 @@ export function Manual({
       <Pestanas etiquetaAccesible="Partes del manual" opciones={opciones} valor={vista} onCambiar={(v) => setVista(v)} />
 
       {vista === 'dia' && jefe && (
-        <TuDia pantallas={misPantallas} onComoSeUsa={comoSeUsa} />
+        <TuDia pantallas={misPantallas} esDueno={esDueno} onComoSeUsa={comoSeUsa} />
       )}
       {vista === 'pantallas' && <PantallaPorPantalla grupos={grupos} onComoSeUsa={comoSeUsa} />}
       {vista === 'temas' && <Temas rol={rol} abierta={abierta} setAbierta={setAbierta} />}

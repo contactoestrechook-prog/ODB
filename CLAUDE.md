@@ -73,6 +73,13 @@ digan, que tienen que hablar con MetoGroup».
   manual no.
 - Una pantalla nueva entra en el menú (`GRUPOS` y `TITULOS` de
   `apps/admin/app/ui/Header.tsx`) con su bajada: de ahí sabe el manual que existe.
+- **Candado del manual (26/11/2026, «Manual del dueño», «100% actualizado»):** cada
+  sección dice qué pantallas explica (`pantallas: ['/ruta']`, en
+  `apps/admin/app/manual/contenido.ts` y `secciones-pantallas.ts`). Con eso se
+  arma «Pantalla por pantalla» y «Cómo se usa» del manual. `scripts/manual-cobertura.mjs`
+  corre en `scripts/publicar.sh` y NO publica si una pantalla del menú no tiene
+  sección o si una sección apunta a una pantalla que ya no está. Pantalla nueva =
+  sección nueva en el mismo commit.
 
 ## Mantenimiento: cada commit entra solo al módulo (9/11/2026)
 

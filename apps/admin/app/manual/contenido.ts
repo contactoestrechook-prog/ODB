@@ -9,6 +9,8 @@
 // Regla al escribirlo: cada paso tiene que corresponder a algo que la pantalla
 // hace hoy. Un manual que promete de más se deja de leer a la segunda vez.
 
+import { SECCIONES_PANTALLAS } from './secciones-pantallas';
+
 export type Bloque =
   | { tipo: 'texto'; texto: string }
   | { tipo: 'pasos'; titulo?: string; pasos: string[] }
@@ -39,7 +41,10 @@ export const AREAS = [
   'WhatsApp',
 ] as const;
 
-export const SECCIONES: Seccion[] = [
+// Los temas escritos a mano, por área. Las pantallas que no tenían su tema están
+// en secciones-pantallas.ts (26/11/2026); entre los dos cubren todo el menú
+// (lo controla scripts/manual-cobertura.mjs).
+const ESCRITAS: Seccion[] = [
   // ---------------------------------------------------------------- empezar
   {
     id: 'entrar',
@@ -1199,31 +1204,6 @@ export const SECCIONES: Seccion[] = [
 
   // --------------------------------------------------------------- clientes
   {
-    id: 'ctacte',
-    titulo: 'Cuentas corrientes',
-    area: 'Clientes y cuenta corriente',
-    roles: ['administrativo', 'gerente', 'dueno'],
-    pantallas: ['/cuentas-corrientes'],
-    bajada: 'Quién debe, cuánto puede deber y quién paga bien.',
-    bloques: [
-      {
-        tipo: 'pasos',
-        pasos: [
-          'A cada cliente con cuenta corriente se le asigna un tope de crédito.',
-          'Cuando consume el 80% del tope, salta el aviso. Al 100%, la caja no lo deja seguir cargando a cuenta.',
-          'El tablero muestra el semáforo de riesgo, los que mejor pagan y los que se atrasan.',
-        ],
-      },
-      {
-        tipo: 'ojo',
-        puntos: [
-          'La deuda baja únicamente cuando el dueño aprueba un pago. Ni el cajero ni el repartidor la tocan.',
-          'Todo pago aprobado deja recibo numerado para darle al cliente.',
-        ],
-      },
-    ],
-  },
-  {
     id: 'eventos',
     titulo: 'Eventos: vender cumpleaños, casamientos y fin de año',
     area: 'Clientes y cuenta corriente',
@@ -1667,3 +1647,5 @@ export const SECCIONES: Seccion[] = [
     ],
   },
 ];
+
+export const SECCIONES: Seccion[] = [...ESCRITAS, ...SECCIONES_PANTALLAS];
