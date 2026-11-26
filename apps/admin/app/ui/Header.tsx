@@ -240,7 +240,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/presupuestos': { titulo: 'Presupuestos', bajada: 'Lo que pide el cliente, con precio: se lo mandás por WhatsApp y vale 48 horas' },
-  '/caja-dueno': { titulo: 'Caja del dueño', bajada: 'Lo que entra y lo que sale, como en el Excel' },
+  '/caja-dueno': { titulo: 'Caja del dueño', bajada: 'Cuánto tenés, y lo que entra y sale anotado al toque' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },
   '/libro-iva': { titulo: 'Libro IVA', bajada: 'IVA ventas y compras del mes, débito vs crédito y saldo de la posición' },
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },

@@ -1,12 +1,16 @@
 import { Pantalla } from '../ui/kit/Pantalla';
 import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
-import { CajaDueno, type Hoja } from '../ui/CajaDueno';
+import { CajaDuenoAlDia, type Hoja } from '../ui/CajaDuenoAlDia';
 
 export const dynamic = 'force-dynamic';
 
-// Caja del dueño (25/11/2026): la hoja de Juan Pablo, igual que su Excel.
-export default async function CajaDuenoPagina() {
+// Caja del dueño (25/11/2026), al día (26/11/2026): Juan Pablo no quería una copia del Excel,
+// quería algo práctico. Cuánto tiene, anotar escribiendo o dictando como lo diría, y las
+// cuentas del mes hechas.
+export default async function CajaDuenoPagina({ searchParams }: { searchParams: Promise<{ anotar?: string }> }) {
+  // ?anotar=…: la frase ya escrita (un atajo de dictado del celular), se confirma igual
+  const { anotar } = await searchParams;
   let hoja: Hoja | null = null;
   let error: string | null = null;
   let sinPermiso = false;
@@ -20,13 +24,13 @@ export default async function CajaDuenoPagina() {
   }
 
   return (
-    <Pantalla activo="/caja-dueno" ancho="ancho">
+    <Pantalla activo="/caja-dueno" ancho="angosto">
       {sinPermiso ? (
         <Aviso tono="info">Esta caja la ve Juan Pablo o quien él diga.</Aviso>
       ) : error || !hoja ? (
         <Aviso tono="error">No pude consultar la API ({error ?? 'sin datos'}).</Aviso>
       ) : (
-        <CajaDueno inicial={hoja} />
+        <CajaDuenoAlDia inicial={hoja} anotar={typeof anotar === 'string' ? anotar : ''} />
       )}
     </Pantalla>
   );
