@@ -1124,7 +1124,7 @@ export const SECCIONES_PANTALLAS: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           'El abono incluye horas por mes. Lo que pasa de esas horas aparece en «Horas por encima del abono» y se hace o se cobra solo si el dueño toca «Aprobar». Con «Rechazar» se escribe el motivo y le llega a MetoGroup.',
-          'Lo nuevo del último mes también aparece arriba del Manual, en «Lo nuevo en el sistema».',
+          'Lo nuevo del último mes también está en el Manual, en la pestaña «Lo nuevo».',
         ],
       },
     ],

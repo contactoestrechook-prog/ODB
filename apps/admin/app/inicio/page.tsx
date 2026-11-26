@@ -129,7 +129,7 @@ export default async function Inicio() {
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
           <h2 id="inicio-hoy" className={ROTULO}>Centro de operación</h2>
           <p className="text-sm text-tinta/60">
-            <span className="inline-block first-letter:uppercase">{hoy}</span> · Caja 1 · Canning
+            <span className="inline-block first-letter:uppercase">{hoy}</span>
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -144,6 +144,21 @@ export default async function Inicio() {
           ))}
         </div>
       </section>
+
+      {/* 26/11/2026 (Leandro: «no lo veo en el menú»): el manual, a la vista */}
+      <Link
+        href="/manual"
+        className={unir('flex min-w-0 items-center gap-4 rounded-2xl bg-tinta p-4 text-white shadow-tarjeta transition-colors hover:bg-tinta/90 sm:p-5', FOCO)}
+      >
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
+          <Ico d={ICONOS.manual} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold">{rol.includes('dueno') ? 'Manual del dueño' : 'Manual'}</span>
+          <span className="mt-0.5 block text-sm text-white/80">Preguntale lo que quieras del sistema, escrito o dictado, y te dice dónde y cómo.</span>
+        </span>
+        <span className="hidden shrink-0 text-sm text-white/85 sm:block" aria-hidden="true">abrir →</span>
+      </Link>
 
       {apiCaida && (
         <Aviso tono="error">

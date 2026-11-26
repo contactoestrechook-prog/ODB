@@ -67,6 +67,9 @@ export const ICONOS: Record<string, string> = {
 // exportados: el manual pregunta con estas mismas pantallas (app/api/manual)
 export const GRUPOS: Grupo[] = [
   { titulo: 'Inicio', icono: 'inicio', items: [{ href: '/inicio', label: 'Inicio', icono: 'inicio' }] },
+  // 26/11/2026 (Leandro: «no lo veo en el menú»): el manual iba abajo de todo,
+  // al pie; ahora va arriba, como entrada suelta. Para el dueño dice «Manual del dueño».
+  { titulo: 'Manual', icono: 'manual', items: [{ href: '/manual', label: 'Manual', icono: 'manual' }] },
   {
     titulo: 'Ventas y caja',
     icono: 'ventas',
@@ -250,7 +253,7 @@ export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mantenimiento': { titulo: 'Mantenimiento del sistema', bajada: 'Lo que hizo MetoGroup cada mes: bugs, arreglos, mejoras y propuestas, quién lo pidió y cuánto tiempo llevó' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
-  '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },
+  '/manual': { titulo: 'Manual', bajada: 'Preguntale lo que quieras del sistema, o recorrelo pantalla por pantalla' },
   '/pedido-proveedor': { titulo: 'Pedido a proveedor', bajada: 'Armá el pedido desde el celular, con la lista de cada proveedor' },
   '/por-llegar': { titulo: 'Mercadería por llegar', bajada: 'Lo pedido a proveedores y el día que confirmó cada uno por WhatsApp' },
   '/aprobaciones': { titulo: 'Aprobaciones', bajada: 'Todo lo que espera tu firma: órdenes, pagos, cobros y cambios de costos' },
@@ -312,7 +315,10 @@ export async function Header({
   ]);
   const { porFirmar, cobrosPendientes } = firmas;
   const permisosPropios = cajaDueno ? ['caja_dueno'] : [];
-  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(roles, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.some((r) => roles.includes(r))) && (!i.soloPermiso || permisosPropios.includes(i.soloPermiso))) })).filter((g) => g.items.length > 0);
+  const nombreManual = roles.includes('dueno') ? 'Manual del dueño' : 'Manual';
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(roles, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.some((r) => roles.includes(r))) && (!i.soloPermiso || permisosPropios.includes(i.soloPermiso))) }))
+    .filter((g) => g.items.length > 0)
+    .map((g) => (g.titulo === 'Manual' ? { ...g, titulo: nombreManual, items: g.items.map((i) => ({ ...i, label: nombreManual })) } : g));
   const pendientes: Record<string, number> = { '/aprobaciones': porFirmar, '/clientes': cobrosPendientes };
 
   return (

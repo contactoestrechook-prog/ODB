@@ -177,8 +177,7 @@ export function MenuNav({
 }
 
 /**
- * El pie del menú: el manual a la vista (lo abre cualquiera, sin importar el
- * rol) y «Mi cuenta» plegado, con los avisos, la contraseña, instalar la app y
+ * El pie del menú: «Mi cuenta» plegado (el manual pasó arriba del menú el 26/11/2026), con los avisos, la contraseña, instalar la app y
  * cerrar sesión. Antes eran cinco renglones fijos.
  */
 export function PieMenu({
@@ -204,10 +203,6 @@ export function PieMenu({
 
   return (
     <div className="space-y-0.5">
-      <Link href="/manual" onClick={onElegir} aria-current={activo === '/manual' ? 'page' : undefined} className={`${fila} ${estado('/manual')}`}>
-        <Icono d={iconos.manual} />
-        <span className="min-w-0 flex-1 truncate">Manual del sistema</span>
-      </Link>
       <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} aria-controls="menu-cuenta"
         className={`${fila} text-white/70 hover:bg-white/[0.06] hover:text-white`}>
         <Icono d={iconos.cuenta} />

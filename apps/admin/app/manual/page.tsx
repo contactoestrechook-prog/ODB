@@ -55,7 +55,7 @@ export default async function ManualPage() {
         familia: i.familia ?? null,
         bajada: TITULOS[i.href]?.bajada ?? TITULOS[i.href.split('?')[0]]?.bajada ?? '',
       })),
-  })).filter((g) => g.items.length > 0);
+  })).filter((g) => g.items.length > 0 && g.titulo !== 'Manual');
 
   const pantallas = Object.fromEntries(GRUPOS.flatMap((g) => g.items.map((i) => [i.href, i.nombre ?? i.label])));
   const nombre = sesion.nombre?.trim().split(/\s+/)[0] ?? null;

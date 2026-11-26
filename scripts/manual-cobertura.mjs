@@ -17,8 +17,8 @@ const desde = header.indexOf('export const GRUPOS');
 const hasta = header.indexOf('export const TITULOS');
 if (desde < 0 || hasta < 0) { console.error('CANDADO MANUAL: no encuentro GRUPOS ni TITULOS en Header.tsx'); process.exit(1); }
 const menu = [...header.slice(desde, hasta).matchAll(/href: '([^']+)'/g)].map((m) => m[1]);
-// las de abajo del menú (cada persona): también tienen que estar explicadas
-const pie = ['/manual', '/avisos', '/cambiar-clave'];
+// las de «Mi cuenta», abajo del menú: también tienen que estar explicadas
+const pie = ['/avisos', '/cambiar-clave']; // el manual está en el menú desde el 26/11
 
 const dirManual = join(raiz, 'apps/admin/app/manual');
 const explicadas = new Map(); // href → [ids]

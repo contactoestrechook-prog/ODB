@@ -62,6 +62,7 @@ const ESCRITAS: Seccion[] = [
           'El sistema te va a pedir que cambies la clave. Elegí una que no uses en otro lado.',
           'Cada persona entra con SU usuario. Todo lo que se hace queda con nombre y hora: quién cobró, quién recibió la mercadería, quién aprobó un pago. Prestar el usuario es prestar la firma.',
           'La sesión no se cierra sola: una vez que entraste, seguís adentro hasta que toques «Salir». A alguien que se da de baja en Usuarios el sistema lo saca al minuto.',
+          'El manual está arriba de todo en el menú, debajo de Inicio (al dueño le dice «Manual del dueño»), y en Inicio, en la tarjeta negra. Ahí le preguntás lo que quieras, escrito o dictado.',
         ],
       },
       {

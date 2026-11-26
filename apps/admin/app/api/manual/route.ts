@@ -37,7 +37,6 @@ function pantallasPara(rol: string[]) {
   }));
   // las de abajo del menú, las de cada persona (12/11/2026: «Avisos en el celular»)
   const delPie = [
-    { href: '/manual', nombre: 'Manual del sistema', puede: true },
     { href: '/avisos', nombre: 'Avisos en el celular', puede: puedeVer(rol, '/avisos') && recibeAvisosCelular(rol) },
     { href: '/cambiar-clave', nombre: 'Cambiar mi contraseña', puede: true },
   ].map((p) => ({ ...p, grupo: 'Abajo del menú (tu cuenta)', bajada: TITULOS[p.href]?.bajada ?? '' }));
