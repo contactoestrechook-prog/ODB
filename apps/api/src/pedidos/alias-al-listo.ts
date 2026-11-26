@@ -19,17 +19,19 @@ export function aliasAlListo(codigo?: string | null): string {
  * La forma de pago que dicen las notas, con el criterio de la base
  * (forma_pago_de_texto): gana la que aparece primero. Mercado Pago no cuenta acá.
  */
-export function formaDePagoDeNotas(notas: string | null | undefined): 'efectivo' | 'transferencia' | 'tarjeta' | null {
+export function formaDePagoDeNotas(notas: string | null | undefined): 'efectivo' | 'transferencia' | 'tarjeta' | 'cuenta_corriente' | null {
   const s = String(notas ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const candidatas: ['efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago', RegExp][] = [
+  // cuenta corriente (26/11/2026): como la base (forma_pago_de_texto), que ya la reconocía
+  const candidatas: ['efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago' | 'cuenta_corriente', RegExp][] = [
     ['efectivo', /\befectivo/], ['transferencia', /\btransf/], ['mercadopago', /\bmercado ?pago|\bqr\b/], ['tarjeta', /\b(?:tarjeta|debito|credito)/],
+    ['cuenta_corriente', /\bcuenta corriente|\bcta\.? ?cte\b/],
   ];
   let mejor: { f: string; i: number } | null = null;
   for (const [f, re] of candidatas) {
     const i = s.search(re);
     if (i >= 0 && (!mejor || i < mejor.i)) mejor = { f, i };
   }
-  return mejor && mejor.f !== 'mercadopago' ? (mejor.f as 'efectivo' | 'transferencia' | 'tarjeta') : null;
+  return mejor && mejor.f !== 'mercadopago' ? (mejor.f as 'efectivo' | 'transferencia' | 'tarjeta' | 'cuenta_corriente') : null;
 }
 
 /** ¿El pedido se arma todavía? Con «listo» o «en camino», el total ya es el final. */

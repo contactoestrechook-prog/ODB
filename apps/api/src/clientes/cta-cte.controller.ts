@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
@@ -63,6 +63,19 @@ export class CtaCteController {
   @Patch('cliente/:id')
   cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }, @Req() req: any) {
     return this.resumenes.cambiarCliente(id, dto, req.usuario);
+  }
+
+  // quiénes compran a esta cuenta desde su WhatsApp (26/11/2026): el bot los reconoce
+  @Roles('gerente', 'dueno')
+  @Post('cliente/:id/compran')
+  unirALaCuenta(@Param('id') id: string, @Body() dto: { clienteId?: string }, @Req() req: any) {
+    return this.resumenes.unirALaCuenta(id, String(dto?.clienteId ?? ''), req.usuario?.sub);
+  }
+
+  @Roles('gerente', 'dueno')
+  @Delete('cliente/:id/compran/:persona')
+  sacarDeLaCuenta(@Param('id') id: string, @Param('persona') persona: string, @Req() req: any) {
+    return this.resumenes.sacarDeLaCuenta(id, persona, req.usuario?.sub);
   }
 
   // corregir el saldo con un movimiento y su motivo: solo el dueño

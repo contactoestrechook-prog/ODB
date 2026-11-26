@@ -260,7 +260,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   {
     name: 'identificar_cliente',
     description:
-      'Busca al cliente que está escribiendo (siempre el del chat actual — no podés identificar a otra persona). Llamala al inicio de la conversación, sin parámetros. Devuelve nombre, si es mayorista (usar precio mayorista) y si tiene cuenta corriente.',
+      'Busca al cliente que está escribiendo (siempre el del chat actual — no podés identificar a otra persona). Llamala al inicio de la conversación, sin parámetros. Devuelve nombre, si es mayorista (usar precio mayorista) y si tiene cuenta corriente (la suya o la de la casa o empresa a la que está unida, en cuentaCorriente). Con cuentaCorriente puede pagar así sin consultar: seguí lo que dice cuentaCorriente.comoPaga. Sin cuentaCorriente, la cuenta corriente no se ofrece ni se acepta sin consultar.',
     strict: true,
     input_schema: {
       type: 'object',

@@ -15,6 +15,7 @@ import { consultaAbiertaQueNombra, diceQueNoSabe, esSoloSaludo, saludoDelArranqu
 import * as TEXTO from './textos-fijos';
 import { totalConSuLista } from './candados';
 import { cierraConElDato, contieneMonto, aceptaElResumen, pareceAceptacion, loConfirmoVigente } from './cierre-con-dato';
+import { cierreCuentaCorriente, cuentaCorrienteDe, fichaDelQueEscribe, TEXTO_PAGA_CTA_CTE } from './identificar-cliente';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
@@ -2811,26 +2812,48 @@ export class BotService {
   // --- Línea PEDIDOS ---
 
   // Identifica al cliente por su teléfono de WhatsApp (para personalizar y atribuir).
-  async identificarCliente(telefono: string) {
-    const cola = cola10(telefono);
-    if (cola.length < 8) return { existe: false };
-    const { data } = await this.db
-      .from('clientes')
-      .select('id, nombre, tipo, verificado, mayorista, cta_cte_habilitada, saldo_cta_cte, telefono')
-      .ilike('telefono', `%${cola}%`)
-      .limit(1)
-      .maybeSingle();
-    if (!data) return { existe: false };
-    return {
-      existe: true,
-      clienteId: data.id,
-      nombre: data.nombre,
-      tipo: data.tipo,
-      verificado: data.verificado === true,
-      mayorista: data.mayorista === true,
-      ctaCte: data.cta_cte_habilitada === true,
-      saldoCtaCte: Number(data.saldo_cta_cte ?? 0),
-    };
+  //
+  // QUIÉN ESCRIBE Y SU CUENTA CORRIENTE (26/11/2026). Leandro: «necesito que el sistema reconozca
+  // las personas que tengan cuenta corriente así el bot puede gestionar el pedido». Cristina
+  // (St Thomas 470) pidió pagar con cuenta corriente y el bot dijo que no figuraba. Dos causas:
+  //  1. la charla llega con un @lid (un número de WhatsApp que no es el teléfono): se buscaba
+  //     con ese número y no aparecía nadie. Ahora también con el teléfono real que se aprendió
+  //     para ese @lid (bot_contactos.telefono_real), como hace esNumeroDelEquipo;
+  //  2. la cuenta es de la casa («St Thomas 470 (Salvador)») y quien escribe es otra ficha. Ahora
+  //     una persona puede estar unida a la cuenta de otra (clientes.cuenta_corriente_de) y compra
+  //     a esa cuenta (cuentaCorrienteDe, en identificar-cliente.ts).
+  async identificarCliente(telefono: string): Promise<{
+    existe: boolean; clienteId?: string; nombre?: string; tipo?: string; verificado?: boolean; mayorista?: boolean; ctaCte?: boolean; saldoCtaCte?: number;
+    cuentaCorriente?: { titularId: string; titular: string; propia: boolean; comoPaga: string };
+  }> {
+    const { data: contacto } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', telefono).maybeSingle();
+    const colas = [...new Set([...this.candidatosDeTelefono(telefono, (contacto as any)?.telefono_real), cola10(telefono)])]
+      .filter((c) => c.length >= 8);
+    for (const cola of colas) {
+      const { data } = await this.db
+        .from('clientes')
+        .select('id, nombre, tipo, verificado, mayorista, cta_cte_habilitada, saldo_cta_cte, telefono, cuenta_corriente_de')
+        .ilike('telefono', `%${cola}%`)
+        .limit(5);
+      const c = fichaDelQueEscribe((data ?? []) as any[]);
+      if (!c) continue;
+      const titular = c.cuenta_corriente_de && !c.cta_cte_habilitada
+        ? ((await this.db.from('clientes').select('id, nombre, razon_social, cta_cte_habilitada, saldo_cta_cte').eq('id', c.cuenta_corriente_de).maybeSingle()).data as any)
+        : null;
+      const cuenta = cuentaCorrienteDe(c, titular);
+      return {
+        existe: true,
+        clienteId: c.id,
+        nombre: c.nombre,
+        tipo: c.tipo,
+        verificado: c.verificado === true,
+        mayorista: c.mayorista === true,
+        ctaCte: !!cuenta,
+        saldoCtaCte: cuenta?.saldo ?? 0,
+        ...(cuenta ? { cuentaCorriente: { titularId: cuenta.titularId, titular: cuenta.titular, propia: cuenta.propia, comoPaga: TEXTO_PAGA_CTA_CTE(cuenta) } } : {}),
+      };
+    }
+    return { existe: false };
   }
 
   // El "experto en productos": busca en el catálogo real y devuelve precio y
@@ -3465,10 +3488,19 @@ export class BotService {
       ? (paga === 'efectivo' ? `en efectivo: $${pesos(totalEfectivo)}` : paga === 'tarjeta' ? `con tarjeta: $${pesos(totalLista)}` : `$${pesos(totalLista)} con tarjeta o $${pesos(totalEfectivo)} en efectivo o transferencia`)
       : (paga === 'efectivo' ? 'en efectivo' : paga === 'tarjeta' ? 'con tarjeta' : 'en efectivo o tarjeta');
     const envio = q.tipo === 'domicilio' ? `Envío sin cargo${q.direccion ? ` a ${String(q.direccion).trim().replace(/\.$/, '')}` : ''}. ` : '';
+    // A CUENTA CORRIENTE (26/11/2026): solo si quien escribe tiene una (la suya o la de la casa a la
+    // que está unida). El pedido queda a nombre del titular, así al entregar se carga a su cuenta.
+    const cuenta = paga === 'cuenta_corriente' ? ((await this.identificarCliente(dto.telefono).catch(() => null)) as any)?.cuentaCorriente ?? null : null;
+    if (cuenta) {
+      const { error: eCuenta } = await this.db.from('pedidos').update({ cliente_id: cuenta.titularId, forma_pago: 'cuenta_corriente' }).eq('id', id);
+      if (eCuenta) this.log.warn(`pedido ${ped.qr_retiro}: no pude dejarlo a la cuenta de ${cuenta.titular}: ${eCuenta.message}`);
+    }
     // EL ALIAS, CON EL PEDIDO LISTO (21/11/2026): el que transfiere no recibe el alias ahora
-    const cierre = paga === 'transferencia'
-      ? `${envio}Se abona por transferencia${hayDescuento ? `: $${pesos(totalEfectivo)}` : ''}. ${aliasAlListo(ped.qr_retiro)}`
-      : `${envio}${q.tipo === 'domicilio' ? 'Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
+    const cierre = cuenta
+      ? cierreCuentaCorriente(cuenta, envio)
+      : paga === 'transferencia'
+        ? `${envio}Se abona por transferencia${hayDescuento ? `: $${pesos(totalEfectivo)}` : ''}. ${aliasAlListo(ped.qr_retiro)}`
+        : `${envio}${q.tipo === 'domicilio' ? 'Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
     const respuesta = porComprobante
       ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })

@@ -1166,7 +1166,19 @@ export class PedidosService {
     if (t) consulta = consulta.or(`nombre.ilike.%${t}%,razon_social.ilike.%${t}%`);
     const { data, error } = await consulta;
     if (error) throw new BadRequestException(error.message);
-    return ((data ?? []) as any[]).map((c) => ({
+    const lista = [...((data ?? []) as any[])];
+    // buscando a quien pidió («Cristina St Thomas 470») aparece la cuenta a la que compra (26/11/2026)
+    if (t) {
+      const { data: personas } = await this.db.from('clientes').select('cuenta_corriente_de')
+        .not('cuenta_corriente_de', 'is', null).or(`nombre.ilike.%${t}%,razon_social.ilike.%${t}%`).limit(10);
+      const extra = [...new Set(((personas ?? []) as any[]).map((p) => String(p.cuenta_corriente_de)))].filter((id) => !lista.some((c) => String(c.id) === id));
+      if (extra.length) {
+        const { data: mas } = await this.db.from('clientes').select('id, nombre, razon_social, saldo_cta_cte, limite_credito, condicion_iva, cuit')
+          .in('id', extra).eq('cta_cte_habilitada', true);
+        lista.unshift(...((mas ?? []) as any[]));
+      }
+    }
+    return lista.map((c) => ({
       id: String(c.id), nombre: String(c.razon_social || c.nombre || 'Sin nombre'),
       debe: Number(c.saldo_cta_cte ?? 0), tope: Number(c.limite_credito ?? 0),
       factura: c.condicion_iva === 'responsable_inscripto' && c.cuit ? 'A' : 'B',

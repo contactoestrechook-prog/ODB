@@ -304,10 +304,12 @@ export class CtaCteResumenesService {
 
   /** Estado de cuenta de un cliente: movimientos y resúmenes que recibió. */
   async estadoDeCuenta(clienteId: string) {
-    const [{ data: cli }, { data: movs }, { data: resumenes }] = await Promise.all([
+    const [{ data: cli }, { data: movs }, { data: resumenes }, { data: compran }] = await Promise.all([
       this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, dni, domicilio, barrio, sucursal, condicion_iva, fecha_nacimiento, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen, cta_cte_tipo').eq('id', clienteId).maybeSingle(),
       this.db.from('cuenta_corriente').select('id, concepto, debe, haber, creado_en').eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(100),
       this.db.from('cta_cte_resumenes').select('tanda, estado, saldo, motivo, enviado_en').eq('cliente_id', clienteId).order('tanda', { ascending: false }).limit(24),
+      // quiénes compran a esta cuenta desde su WhatsApp (26/11/2026)
+      this.db.from('clientes').select('id, nombre, telefono').eq('cuenta_corriente_de', clienteId).order('nombre').limit(50),
     ]);
     if (!cli) throw new BadRequestException('No existe ese cliente');
     // perfil de compra: 6 meses para los números, 12 para ver la tendencia mes a mes
@@ -341,7 +343,43 @@ export class CtaCteResumenesService {
       },
       movimientos: (movs ?? []).map((m: any) => ({ ...m, debe: Number(m.debe ?? 0), haber: Number(m.haber ?? 0) })),
       resumenes: resumenes ?? [],
+      compran: ((compran ?? []) as any[]).map((x) => ({ id: String(x.id), nombre: String(x.nombre ?? ''), telefono: x.telefono ?? null })),
     };
+  }
+
+  /**
+   * QUIÉNES COMPRAN A ESTA CUENTA (26/11/2026). Leandro: «necesito que el sistema reconozca las
+   * personas que tengan cuenta corriente así el bot puede gestionar el pedido». La cuenta de una
+   * casa o una empresa la usan varias personas, cada una con su ficha y su WhatsApp: unidas a la
+   * cuenta (clientes.cuenta_corriente_de), el bot las reconoce y el pedido va a la cuenta.
+   */
+  async unirALaCuenta(cuentaId: string, personaId: string, usuarioId?: string) {
+    if (!personaId || personaId === cuentaId) throw new BadRequestException('Elegí a otra persona');
+    const [{ data: cuenta }, { data: persona }] = await Promise.all([
+      this.db.from('clientes').select('id, nombre, razon_social, cta_cte_habilitada').eq('id', cuentaId).maybeSingle(),
+      this.db.from('clientes').select('id, nombre, cta_cte_habilitada, cuenta_corriente_de').eq('id', personaId).maybeSingle(),
+    ]);
+    if (!cuenta) throw new BadRequestException('No existe esa cuenta');
+    if (!(cuenta as any).cta_cte_habilitada) throw new BadRequestException('Esa cuenta corriente está dada de baja: primero volvé a abrirla');
+    if (!persona) throw new BadRequestException('No existe esa persona');
+    if ((persona as any).cta_cte_habilitada) throw new BadRequestException(`${(persona as any).nombre} ya tiene su propia cuenta corriente`);
+    const { error } = await this.db.from('clientes').update({ cuenta_corriente_de: cuentaId }).eq('id', personaId);
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null, accion: 'cta_cte_unir', entidad: 'clientes', entidad_id: personaId,
+      detalle: { cuenta: cuentaId, cuentaNombre: (cuenta as any).razon_social || (cuenta as any).nombre, antes: (persona as any).cuenta_corriente_de ?? null },
+    }).then(() => null, () => null);
+    return { ok: true };
+  }
+
+  async sacarDeLaCuenta(cuentaId: string, personaId: string, usuarioId?: string) {
+    const { data, error } = await this.db.from('clientes').update({ cuenta_corriente_de: null })
+      .eq('id', personaId).eq('cuenta_corriente_de', cuentaId).select('id');
+    if (error) throw new BadRequestException(error.message);
+    if (!(data ?? []).length) throw new BadRequestException('Esa persona no compraba a esta cuenta');
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'cta_cte_sacar', entidad: 'clientes', entidad_id: personaId, detalle: { cuenta: cuentaId } })
+      .then(() => null, () => null);
+    return { ok: true };
   }
 
   async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }, usuario?: { sub?: string; rol?: string; roles?: unknown }) {

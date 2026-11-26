@@ -5,6 +5,7 @@ import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Modal, Selector, useC
 import { fecha, fechaHora, pesos } from '../lib/formato';
 import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from './CtaCteDatosCliente';
 import { CtaCtePerfil } from './CtaCtePerfil';
+import { CtaCteQuienesCompran } from './CtaCteQuienesCompran';
 import { DiasDeDeuda, type DiasDeuda, type PerfilCompras } from './CtaCteTarjeta';
 
 // La ficha de una cuenta: los datos del cliente (todos editables en un solo
@@ -21,6 +22,8 @@ type Datos = {
   deuda: DiasDeuda | null;
   movimientos: { id: number; concepto: string | null; debe: number; haber: number; creado_en: string }[];
   resumenes: { tanda: string; estado: string; saldo: number; motivo: string | null; enviado_en: string | null }[];
+  /** quiénes compran a esta cuenta desde su WhatsApp (26/11/2026) */
+  compran?: { id: string; nombre: string; telefono: string | null }[];
 };
 
 const ESTADO: Record<string, { texto: string; tono: 'ok' | 'atencion' | 'error' | 'neutro' }> = {
@@ -164,6 +167,11 @@ export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }
           <section>
             <h3 className="mb-2 text-sm font-semibold text-tinta">Datos del cliente</h3>
             <CtaCteDatosCliente valor={form} onCambiar={setForm} deshabilitado={guardando} />
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-tinta">Quiénes compran a esta cuenta por WhatsApp</h3>
+            <CtaCteQuienesCompran cuentaId={c!.id} compran={datos.compran ?? []} habilitada={c!.habilitada} onCambio={cargar} />
           </section>
 
           <section className="grid gap-3 sm:grid-cols-2">
