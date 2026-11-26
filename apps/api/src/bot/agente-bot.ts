@@ -260,11 +260,15 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   {
     name: 'identificar_cliente',
     description:
-      'Busca al cliente que está escribiendo (siempre el del chat actual — no podés identificar a otra persona). Llamala al inicio de la conversación, sin parámetros. Devuelve nombre, si es mayorista (usar precio mayorista) y si tiene cuenta corriente (la suya o la de la casa o empresa a la que está unida, en cuentaCorriente). Con cuentaCorriente puede pagar así sin consultar: seguí lo que dice cuentaCorriente.comoPaga. Sin cuentaCorriente, la cuenta corriente no se ofrece ni se acepta sin consultar.',
+      'Busca al cliente que está escribiendo (siempre el del chat actual — no podés identificar a otra persona). Llamala al inicio de la conversación con direccion vacía. Devuelve nombre, si es mayorista (usar precio mayorista) y si tiene cuenta corriente (la suya, la de la casa o empresa a la que está unida, o la de la casa de su dirección, en cuentaCorriente). Con cuentaCorriente puede pagar así sin consultar: seguí lo que dice cuentaCorriente.comoPaga. Si no tiene cuentaCorriente y después dice su dirección o pide pagar con cuenta corriente, volvé a llamarla con la dirección (calle y número). Sin cuentaCorriente, la cuenta corriente no se ofrece ni se acepta sin consultar.',
     strict: true,
     input_schema: {
       type: 'object',
-      properties: {},
+      properties: {
+        // 26/11/2026: la cuenta corriente también se reconoce por la dirección de la casa
+        direccion: { type: 'string', description: 'La dirección que dijo el cliente (calle y número, como la escribió). Vacío si todavía no la dijo.' },
+      },
+      required: ['direccion'],
       additionalProperties: false,
     },
   },

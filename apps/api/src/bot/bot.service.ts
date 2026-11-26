@@ -15,7 +15,10 @@ import { consultaAbiertaQueNombra, diceQueNoSabe, esSoloSaludo, saludoDelArranqu
 import * as TEXTO from './textos-fijos';
 import { totalConSuLista } from './candados';
 import { cierraConElDato, contieneMonto, aceptaElResumen, pareceAceptacion, loConfirmoVigente } from './cierre-con-dato';
-import { cierreCuentaCorriente, cuentaCorrienteDe, fichaDelQueEscribe, TEXTO_PAGA_CTA_CTE } from './identificar-cliente';
+import {
+  cierreCuentaCorriente, cuentaCorrienteDe, cuentaPorDireccion, direccionDe, fichaDelQueEscribe, mismaDireccion,
+  TEXTO_PAGA_CTA_CTE, TEXTO_PAGA_CTA_CTE_POR_DIRECCION, type CuentaConDireccion,
+} from './identificar-cliente';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
@@ -2391,9 +2394,12 @@ export class BotService {
     try {
       let out: unknown;
       switch (block.name) {
-        case 'identificar_cliente':
-          out = await this.identificarCliente(telefono);
+        case 'identificar_cliente': {
+          // siempre el teléfono del chat; la dirección que dijo el cliente es aparte (26/11/2026)
+          const direccion = String(input?.direccion ?? '').trim().slice(0, 120);
+          out = await (direccion ? this.identificarCliente(telefono, { direccion }) : this.identificarCliente(telefono));
           break;
+        }
         case 'buscar_productos':
           out = await this.buscarProductos(String(input.q ?? ''), (sku) => skusVistosEnTurno.add(sku), telefono);
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
@@ -2822,38 +2828,72 @@ export class BotService {
   //  2. la cuenta es de la casa («St Thomas 470 (Salvador)») y quien escribe es otra ficha. Ahora
   //     una persona puede estar unida a la cuenta de otra (clientes.cuenta_corriente_de) y compra
   //     a esa cuenta (cuentaCorrienteDe, en identificar-cliente.ts).
-  async identificarCliente(telefono: string): Promise<{
+  //
+  // POR LA DIRECCIÓN (26/11/2026, Leandro: «que todos los clientes que tengan cuenta corriente sean
+  // reconocidos también por su dirección»): si por el teléfono no aparece una cuenta, se busca la
+  // de la casa que nombran la dirección dicha (`extra.direccion`), el nombre de su ficha, el de su
+  // WhatsApp o la dirección de su último pedido. Reconocida así, vale solo con envío a esa casa
+  // (porDireccion; lo controla crearPedido).
+  async identificarCliente(telefono: string, extra: { direccion?: string } = {}): Promise<{
     existe: boolean; clienteId?: string; nombre?: string; tipo?: string; verificado?: boolean; mayorista?: boolean; ctaCte?: boolean; saldoCtaCte?: number;
-    cuentaCorriente?: { titularId: string; titular: string; propia: boolean; comoPaga: string };
+    cuentaCorriente?: { titularId: string; titular: string; propia: boolean; comoPaga: string; porDireccion?: string };
   }> {
-    const { data: contacto } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', telefono).maybeSingle();
+    const { data: contacto } = await this.db.from('bot_contactos').select('telefono_real, nombre_wa').eq('telefono', telefono).maybeSingle();
     const colas = [...new Set([...this.candidatosDeTelefono(telefono, (contacto as any)?.telefono_real), cola10(telefono)])]
       .filter((c) => c.length >= 8);
+    let ficha: any = null;
     for (const cola of colas) {
       const { data } = await this.db
         .from('clientes')
         .select('id, nombre, tipo, verificado, mayorista, cta_cte_habilitada, saldo_cta_cte, telefono, cuenta_corriente_de')
         .ilike('telefono', `%${cola}%`)
         .limit(5);
-      const c = fichaDelQueEscribe((data ?? []) as any[]);
-      if (!c) continue;
-      const titular = c.cuenta_corriente_de && !c.cta_cte_habilitada
-        ? ((await this.db.from('clientes').select('id, nombre, razon_social, cta_cte_habilitada, saldo_cta_cte').eq('id', c.cuenta_corriente_de).maybeSingle()).data as any)
-        : null;
-      const cuenta = cuentaCorrienteDe(c, titular);
-      return {
-        existe: true,
-        clienteId: c.id,
-        nombre: c.nombre,
-        tipo: c.tipo,
-        verificado: c.verificado === true,
-        mayorista: c.mayorista === true,
-        ctaCte: !!cuenta,
-        saldoCtaCte: cuenta?.saldo ?? 0,
-        ...(cuenta ? { cuentaCorriente: { titularId: cuenta.titularId, titular: cuenta.titular, propia: cuenta.propia, comoPaga: TEXTO_PAGA_CTA_CTE(cuenta) } } : {}),
-      };
+      ficha = fichaDelQueEscribe((data ?? []) as any[]);
+      if (ficha) break;
     }
-    return { existe: false };
+    const titular = ficha?.cuenta_corriente_de && !ficha.cta_cte_habilitada
+      ? ((await this.db.from('clientes').select('id, nombre, razon_social, cta_cte_habilitada, saldo_cta_cte').eq('id', ficha.cuenta_corriente_de).maybeSingle()).data as any)
+      : null;
+    const porTelefono = ficha ? cuentaCorrienteDe(ficha, titular) : null;
+    let cuentaCorriente: { titularId: string; titular: string; propia: boolean; comoPaga: string; porDireccion?: string } | undefined;
+    let saldo = 0;
+    if (porTelefono) {
+      cuentaCorriente = { titularId: porTelefono.titularId, titular: porTelefono.titular, propia: porTelefono.propia, comoPaga: TEXTO_PAGA_CTA_CTE(porTelefono) };
+      saldo = porTelefono.saldo;
+    } else {
+      const dicha = String(extra.direccion ?? '').trim();
+      const textos = dicha ? [dicha] : [ficha?.nombre, (contacto as any)?.nombre_wa, await this.ultimaDireccionDelChat(telefono)];
+      const m = cuentaPorDireccion(textos, await this.cuentasCorrientesAbiertas());
+      if (m) {
+        cuentaCorriente = { titularId: m.titularId, titular: m.titular, propia: false, porDireccion: m.direccion, comoPaga: TEXTO_PAGA_CTA_CTE_POR_DIRECCION(m) };
+        saldo = m.saldo;
+      }
+    }
+    if (!ficha && !cuentaCorriente) return { existe: false };
+    return {
+      existe: !!ficha,
+      ...(ficha ? { clienteId: ficha.id, nombre: ficha.nombre, tipo: ficha.tipo, verificado: ficha.verificado === true, mayorista: ficha.mayorista === true } : {}),
+      ctaCte: !!cuentaCorriente,
+      saldoCtaCte: saldo,
+      ...(cuentaCorriente ? { cuentaCorriente } : {}),
+    };
+  }
+
+  // las cuentas corrientes abiertas, para reconocerlas por la dirección (10 minutos de memoria)
+  private cuentasCache: { hasta: number; lista: CuentaConDireccion[] } | null = null;
+  private async cuentasCorrientesAbiertas(): Promise<CuentaConDireccion[]> {
+    if (this.cuentasCache && this.cuentasCache.hasta > Date.now()) return this.cuentasCache.lista;
+    const { data, error } = await this.db.from('clientes').select('id, nombre, razon_social, domicilio, saldo_cta_cte').eq('cta_cte_habilitada', true).limit(2000);
+    if (error) return this.cuentasCache?.lista ?? [];
+    this.cuentasCache = { hasta: Date.now() + 10 * 60_000, lista: (data ?? []) as CuentaConDireccion[] };
+    return this.cuentasCache.lista;
+  }
+
+  // la dirección del último pedido que armó este chat (la que dijo para el envío)
+  private async ultimaDireccionDelChat(telefono: string): Promise<string | null> {
+    const { data } = await this.db.from('bot_cotizaciones').select('direccion').eq('telefono', telefono)
+      .not('direccion', 'is', null).order('creada_en', { ascending: false }).limit(1).maybeSingle();
+    return ((data as any)?.direccion as string | undefined) ?? null;
   }
 
   // El "experto en productos": busca en el catálogo real y devuelve precio y
@@ -3490,7 +3530,12 @@ export class BotService {
     const envio = q.tipo === 'domicilio' ? `Envío sin cargo${q.direccion ? ` a ${String(q.direccion).trim().replace(/\.$/, '')}` : ''}. ` : '';
     // A CUENTA CORRIENTE (26/11/2026): solo si quien escribe tiene una (la suya o la de la casa a la
     // que está unida). El pedido queda a nombre del titular, así al entregar se carga a su cuenta.
-    const cuenta = paga === 'cuenta_corriente' ? ((await this.identificarCliente(dto.telefono).catch(() => null)) as any)?.cuentaCorriente ?? null : null;
+    const envioA = q.tipo === 'domicilio' && String(q.direccion ?? '').trim() ? String(q.direccion) : '';
+    const dicha = paga === 'cuenta_corriente'
+      ? ((await (envioA ? this.identificarCliente(dto.telefono, { direccion: envioA }) : this.identificarCliente(dto.telefono)).catch(() => null)) as any)?.cuentaCorriente ?? null
+      : null;
+    // reconocida solo por la dirección: vale con envío a esa misma casa (nadie retira a cuenta ajena diciendo una dirección)
+    const cuenta = dicha && (!dicha.porDireccion || (envioA && mismaDireccion(direccionDe(dicha.porDireccion), direccionDe(envioA)))) ? dicha : null;
     if (cuenta) {
       const { error: eCuenta } = await this.db.from('pedidos').update({ cliente_id: cuenta.titularId, forma_pago: 'cuenta_corriente' }).eq('id', id);
       if (eCuenta) this.log.warn(`pedido ${ped.qr_retiro}: no pude dejarlo a la cuenta de ${cuenta.titular}: ${eCuenta.message}`);
@@ -3498,13 +3543,17 @@ export class BotService {
     // EL ALIAS, CON EL PEDIDO LISTO (21/11/2026): el que transfiere no recibe el alias ahora
     const cierre = cuenta
       ? cierreCuentaCorriente(cuenta, envio)
+      // dijo cuenta corriente y no se le reconoce una (o es retiro con la cuenta de una dirección):
+      // no se le promete nada (consulta silenciosa); el pedido queda «cuenta corriente» y lo ve la caja
+      : paga === 'cuenta_corriente'
+        ? envio.trim()
       : paga === 'transferencia'
         ? `${envio}Se abona por transferencia${hayDescuento ? `: $${pesos(totalEfectivo)}` : ''}. ${aliasAlListo(ped.qr_retiro)}`
         : `${envio}${q.tipo === 'domicilio' ? 'Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
     const respuesta = porComprobante
       ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })
-      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${cierre}`;
+      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.${cierre ? `\n${cierre}` : ''}`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
