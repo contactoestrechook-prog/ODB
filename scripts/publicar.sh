@@ -59,6 +59,9 @@ if echo "$CAMBIADOS" | grep -qE '^apps/admin/app/(ui/.*\.tsx|.*/page\.tsx)$' \
   echo "AVISO MANUAL: cambiaron pantallas del panel y no el manual (apps/admin/app/manual/contenido.ts)."
   echo "  Si cambió cómo se usa algo, sumalo al manual en el próximo commit."
 fi
+# CANDADO DEL MANUAL (26/11/2026, modo dueño «100% actualizado»): toda pantalla
+# del menú tiene su explicación en el manual; si falta una, no se publica.
+node "$COPIA/scripts/manual-cobertura.mjs" "$COPIA" || { echo "CANDADO: falta explicar pantallas en el manual. No se publica."; exit 1; }
 # UNA SOLA CUENTA DE LA FACTURA (18/11/2026): la pantalla y el chat usan la misma
 # (apps/admin/app/lib/tabla-factura.ts y su copia en la API). Si no son iguales,
 # el chat probaría los cambios con una cuenta y la pantalla los aplicaría con otra.

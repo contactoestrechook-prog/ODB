@@ -56,6 +56,7 @@ export const SECCIONES: Seccion[] = [
           'Entrá con el usuario y la clave que te dieron.',
           'El sistema te va a pedir que cambies la clave. Elegí una que no uses en otro lado.',
           'Cada persona entra con SU usuario. Todo lo que se hace queda con nombre y hora: quién cobró, quién recibió la mercadería, quién aprobó un pago. Prestar el usuario es prestar la firma.',
+          'La sesión no se cierra sola: una vez que entraste, seguís adentro hasta que toques «Salir». A alguien que se da de baja en Usuarios el sistema lo saca al minuto.',
         ],
       },
       {
@@ -295,6 +296,28 @@ export const SECCIONES: Seccion[] = [
           ['Devolvió el pedido', 'Quien lo armaba, cuándo y por qué. Si la caja le sacó el armado a alguien, también queda.'],
           ['Preguntó / le escribieron', 'Cada mensaje entre quien arma y la caja, con nombre y hora.'],
           ['Deshizo un paso', 'Quién volvió atrás un «Listo» o un «Salió», y quién soltó un pedido que había tomado.'],
+          ['Sumó un producto', 'Quién lo sumó, cuántos y cómo cambió el total («Sumó 4 × … ($43.200 → $59.600)»).'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'El cliente agrega algo con el pedido ya cargado',
+        pasos: [
+          'Pedidos › abrí el pedido › «+ Sumar un producto».',
+          'Buscá el producto: se ve el precio de lista que le corresponde a ese cliente y cuánto hay en la sucursal. Lo que no tiene stock no se puede elegir.',
+          'Poné la cantidad y tocá «Sumar al pedido». Se reserva el stock, sube el total y queda en el historial.',
+          'Si alguien ya lo está armando, le llega por la charla del pedido y por WhatsApp, para que lo sume al carro.',
+          'Se puede mientras el pedido está recibido, en preparación o listo. Si ya está pagado, salió o se entregó, no: se hace un pedido aparte.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Entregar y cobrar',
+        pasos: [
+          '«Entregar» pregunta «¿Cómo pagó?». El efectivo no viene marcado solo: elegí cómo pagó de verdad.',
+          'Efectivo entra en la caja abierta de la sucursal. Transferencia: confirmá que entró antes de darlo por cobrado.',
+          '«Cuenta corriente»: buscá la cuenta del cliente (solo aparecen las abiertas, con lo que deben, el tope y si la factura sale A o B) y tocá «Entregado a cuenta corriente». Se factura con condición cuenta corriente y la deuda queda en su cuenta. Si el cliente no tiene cuenta abierta, primero se abre en Cuentas corrientes › «Sumar cuenta».',
+          'Si se entregó pero la factura no salió, el pedido queda entregado y te avisa: se emite desde Facturación con condición cuenta corriente.',
         ],
       },
       {
@@ -327,6 +350,7 @@ export const SECCIONES: Seccion[] = [
           '"Más tarde" (la X de la ventana) la esconde 10 minutos en tu pantalla, nada más: el pedido sigue sin tomar y el reclamo sale igual.',
           'Si al entregar falta algo en el stock, el sistema no entrega a medias: muestra qué producto falta, cuántos lleva el pedido y cuántos hay, y pregunta qué hacemos. "Sacarlo" lo saca del pedido (si hay algunos, se entregan los que hay). "Reemplazarlo" busca otro producto con stock en esa sucursal y lo pone al precio de hoy. Cuando no falta nada, "Entregar" sigue con el total nuevo.',
           'Si el pedido ya estaba pagado (Mercado Pago o PedidosYa) y el total cambia, la ventana dice cuánto hay que devolverle o cobrarle al cliente.',
+          'Si al cliente se le ofreció un cambio (un parecido por algo que faltaba) y no figura la respuesta, el pedido no pasa a listo, no sale y no se entrega: la ventana pregunta «¿Qué dijo?» y hay que anotarlo primero.',
           'Los entregados y cancelados de la última semana están en Pedidos › "Terminados (7 días)".',
           'Al cliente le llega un WhatsApp cuando su pedido está listo, sale y se entrega. Por eso la web y la app ahora le piden su WhatsApp.',
         ],
@@ -345,6 +369,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           'La pantalla de Depósito muestra tres columnas: recibidos, en preparación y listos para retirar.',
+          'Quien ve toda la cola (dueños y encargados) tiene en cada pedido «¿Quién lo arma?»: elegís a la persona y le aparece «Te toca armar». Si ya tiene a alguien dice «Lo arma … · Cambiar».',
           '"Empezar a preparar" cuando lo agarrás. Así el resto sabe que ese pedido ya tiene dueño.',
           '"Marcar listo" cuando está armado.',
           '"Entregar" cuando se lo lleva el cliente o sale con el repartidor.',
@@ -1128,7 +1153,7 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'pasos',
         pasos: [
-          'Orden de compra: qué se le pide al proveedor. Sale en PDF con número propio, para mandársela.',
+          'Orden de compra: qué se le pide al proveedor. En el detalle de la orden hay dos PDF: «PDF para el proveedor (sin precios)», que es lo que se le manda, y «Con precios (interno)», para la casa (respalda el reclamo si lo que llega no coincide).',
           'Aprobación: la firma el dueño en Aprobaciones. Apenas la firma, la orden sale sola por WhatsApp al proveedor: un mensaje con el pedido y la nota de pedido en PDF, con su número y sin precios. Al aprobar, la pantalla dice a qué número salió o por qué no salió.',
           'Recepción: el depósito escanea lo que llega. Sale el acta de recepción, con lo pedido contra lo recibido.',
           'Factura: administración la carga con el desglose fiscal.',
@@ -1305,7 +1330,7 @@ export const SECCIONES: Seccion[] = [
           '«Salió» abre una ventana para confirmar quién lo lleva: sin alguien elegido el envío no sale, y al cliente le llega el WhatsApp de que salió.',
           '«Cambiar cuándo o dirección»: otra fecha o franja (por ejemplo, si el cliente lo pide para el viernes) o la dirección corregida. Queda en el historial del pedido; al cliente no se le manda nada.',
           '«Autorización para la guardia» (cuando ya hay alguien elegido): el texto para la seguridad del barrio, con quién entra, el vehículo y a dónde va, para copiar o mandar por WhatsApp.',
-          '«Entregado» pregunta cómo pagó, con lo que dijo el cliente ya marcado. El efectivo entra en la caja abierta de la sucursal.',
+          '«Entregado» pregunta cómo pagó, con lo que dijo el cliente ya marcado. El efectivo entra en la caja abierta de la sucursal. Con «Cuenta corriente» elegís la cuenta del cliente y queda a deber en su cuenta (como en Pedidos).',
           'Si al entregar falta algo en el stock, se abre la misma ventana de siempre para sacarlo o reemplazarlo.',
           '«Cancelar» pide confirmación, devuelve el stock reservado y le avisa la baja a administración. Al cliente avisale vos.',
         ],

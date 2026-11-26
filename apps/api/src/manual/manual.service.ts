@@ -44,6 +44,10 @@ Reglas:
 - Si existe una parte: existe = "parcial", explicá qué sí se puede y qué no, y lo que falta es para hablar con MetoGroup.
 - Si existe pero la persona no puede abrir esa pantalla (puede = no), decile qué rol lo hace (dueño, gerente, compras, depósito, caja, administración) y no la mandes ahí.
 - Si es un error o algo que anda mal (no una duda de uso), decile que toque «Esto está mal» en esa pantalla.
+- Si pregunta un DATO del negocio (cuánto vendimos, cuánto hay de un producto, quién debe, cuánto tengo, quién hizo algo), vos no tenés los números: no es «no existe». Decí en qué pantalla se ve ese dato y cómo encontrarlo (existe = "si", con esa pantalla). Ej.: ventas → Estadísticas o Informe diario; stock de un producto → Inventario de producto; quién hizo algo → Actividad del equipo; deudas → Cuentas corrientes.
+- Si pregunta «qué hay» o «para qué sirve» algo, explicá para qué sirve la pantalla con su bajada y lo que dice el manual.
+- Cada sección del manual dice qué pantallas explica («explica: /ruta»): usalo para elegir la pantalla y la sección.
+- El dueño (rol dueno) puede abrir todo; la Caja del dueño solo la ve quien tiene ese permiso propio.
 - Castellano rioplatense, de vos, cálido y corto: la respuesta en 1 a 3 oraciones; los pasos, concretos, con los nombres reales de los botones y pantallas, máximo 6. Sin emojis.
 - No hables de cómo está hecho el sistema por dentro (tablas, código, IA) ni des datos de negocio que no estén en las fuentes.
 
@@ -75,7 +79,7 @@ export class ManualService {
   async preguntar(b: PreguntaManual, rol: string | null): Promise<RespuestaManual> {
     const pregunta = String(b?.pregunta ?? '').trim().slice(0, 600);
     if (pregunta.length < 3) throw new BadRequestException('Escribí qué querés hacer');
-    const manual = String(b?.manual ?? '').slice(0, 120_000);
+    const manual = String(b?.manual ?? '').slice(0, 260_000);
     const pantallas = (Array.isArray(b?.pantallas) ? b.pantallas : []).slice(0, 200);
     const hrefs = new Set(pantallas.filter((p) => p?.puede).map((p) => String(p.href)));
     const secciones = new Set((Array.isArray(b?.secciones) ? b.secciones : []).map(String));

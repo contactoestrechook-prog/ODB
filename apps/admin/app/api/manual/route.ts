@@ -19,7 +19,7 @@ function manualEnTexto(): string {
         : b.tipo === 'ojo' ? `${b.titulo ?? 'Tener en cuenta'}:\n${b.puntos.map((p) => `- ${p}`).join('\n')}`
         : `${b.titulo ? `${b.titulo}:\n` : ''}${b.filas.map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,
     ).join('\n');
-    return `## [${s.id}] ${s.titulo} (área: ${s.area})\n${s.bajada}\n${cuerpo}`;
+    return `## [${s.id}] ${s.titulo} (área: ${s.area} · explica: ${s.pantallas.join(', ') || '—'})\n${s.bajada}\n${cuerpo}`;
   }).join('\n\n');
 }
 

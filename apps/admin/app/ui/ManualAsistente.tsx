@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { AreaTexto, Aviso, Boton, BotonLink, Etiqueta, Girador, ROTULO, Tarjeta, TarjetaCabecera, unir } from './kit';
+import { BotonMicrofono } from './BotonMicrofono';
 import { fecha } from '../lib/formato';
 
 // EL MANUAL QUE CONTESTA (Leandro, 10/11/2026: «que sea muy inteligente y si
@@ -20,9 +21,28 @@ type Turno = { pregunta: string; r: Respuesta; pedido?: 'mandando' | 'listo' | '
 
 export type Novedad = { hash: string; publicado_en: string; tipo: string; area: string; titulo: string; que_se_hizo: string };
 
+// Para arrancar sin saber qué escribir: un toque y pregunta (26/11/2026, modo dueño).
+const SUGERIDAS_DUENO = [
+  '¿Cómo apruebo una orden de compra?',
+  'Un cliente agregó algo a su pedido, ¿cómo lo sumo?',
+  '¿Dónde veo cuánto vendimos ayer?',
+  '¿Cómo le doy usuario a alguien nuevo del equipo?',
+  '¿Cómo veo quién armó un pedido y a qué hora?',
+  '¿Cómo doy de baja una cuenta corriente que debe?',
+];
+const SUGERIDAS_EQUIPO = [
+  '¿Cómo cobro una venta?',
+  '¿Qué hago si al armar falta un producto?',
+  '¿Cómo cierro la caja?',
+  '¿Cómo le hago un presupuesto a un cliente?',
+];
+
 export function PreguntarAlManual({
-  nombreDe, tituloDe, onVerSeccion,
+  nombre = null, esDueno = false, tieneCajaDueno = false, nombreDe, tituloDe, onVerSeccion,
 }: {
+  nombre?: string | null;
+  esDueno?: boolean;
+  tieneCajaDueno?: boolean;
   nombreDe: (href: string) => string | null;
   tituloDe: (id: string) => string | null;
   onVerSeccion: (id: string) => void;
@@ -31,10 +51,13 @@ export function PreguntarAlManual({
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [pensando, setPensando] = useState<string | null>(null);
   const [fallo, setFallo] = useState(false);
+  const sugeridas = esDueno
+    ? [...(tieneCajaDueno ? ['¿Cómo anoto en mi caja lo que pagué?'] : []), ...SUGERIDAS_DUENO]
+    : SUGERIDAS_EQUIPO;
 
-  async function preguntar(e: FormEvent) {
-    e.preventDefault();
-    const pregunta = texto.trim();
+  async function preguntar(e?: FormEvent, dicha?: string) {
+    e?.preventDefault();
+    const pregunta = (dicha ?? texto).trim();
     if (pregunta.length < 3 || pensando) return;
     setPensando(pregunta);
     setFallo(false);
@@ -78,10 +101,22 @@ export function PreguntarAlManual({
   return (
     <Tarjeta relleno={false}>
       <TarjetaCabecera
-        titulo="Preguntale al manual"
-        sub="Contá qué querés hacer y te digo dónde y cómo. Si el sistema no lo tiene, te lo digo."
+        titulo={nombre ? `${nombre}, preguntale lo que quieras` : 'Preguntale lo que quieras'}
+        sub="Contá qué querés hacer, escrito o dictado, y te digo dónde y cómo, con el sistema de hoy. Si no lo tiene, te lo digo."
       />
       <div className="space-y-4 p-4 sm:p-5">
+        {turnos.length === 0 && !pensando && (
+          <div className="space-y-2">
+            <p className={ROTULO}>Para arrancar, tocá una</p>
+            <div className="flex flex-wrap gap-2">
+              {sugeridas.map((q) => (
+                <Boton key={q} variante="secundario" tamano="chico" onClick={() => { setTexto(q); void preguntar(undefined, q); }}>
+                  {q}
+                </Boton>
+              ))}
+            </div>
+          </div>
+        )}
         {turnos.map((t, i) => (
           <div key={i} className="space-y-2">
             <p className="break-words text-sm font-semibold text-tinta">{t.pregunta}</p>
@@ -144,7 +179,7 @@ export function PreguntarAlManual({
         )}
         {fallo && <Aviso tono="error">No pude preguntar ahora. Probá de nuevo en un momento.</Aviso>}
 
-        <form onSubmit={preguntar} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <form onSubmit={preguntar} className="grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
           <AreaTexto
             rows={2}
             value={texto}
@@ -154,6 +189,7 @@ export function PreguntarAlManual({
             aria-label="Tu pregunta al manual"
             maxLength={600}
           />
+          <BotonMicrofono textoActual={texto} onTexto={setTexto} onFin={(t) => void preguntar(undefined, t)} titulo="Dictar" />
           <Boton type="submit" disabled={!!pensando || texto.trim().length < 3}>
             {pensando ? 'Buscando…' : 'Preguntar'}
           </Boton>
@@ -167,8 +203,8 @@ const TIPO: Record<string, string> = { nuevo: 'Nuevo', mejora: 'Mejora', arreglo
 
 // Lo que se publicó en el último mes, más nuevo arriba: sale solo de cada
 // publicación (Mantenimiento), así el manual nunca se queda atrás.
-export function LoNuevo({ novedades }: { novedades: Novedad[] }) {
-  const [todo, setTodo] = useState(false);
+export function LoNuevo({ novedades, abierto = false }: { novedades: Novedad[]; abierto?: boolean }) {
+  const [todo, setTodo] = useState(abierto);
   if (!novedades.length) return null;
   const lista = todo ? novedades : novedades.slice(0, 4);
   return (
