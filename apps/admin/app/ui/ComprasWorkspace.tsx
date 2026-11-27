@@ -51,6 +51,45 @@ function redondearPrecio(p: number): number {
   return Math.round(n / 100) * 100;
 }
 
+// PRECIO DIRECTO (Juan Pablo, 26/11/2026: «poder poner el precio nuevo y que
+// calcule … automático el porcentual»). En la columna P. venta se escribe el
+// precio y la remarcación sale sola: (precio ÷ costo final − 1) × 100. Abajo,
+// el precio que tenía antes. Se guarda la remarcación (como siempre), así que
+// el precio queda con el mismo redondeo de góndola del servidor.
+function PrecioDirecto({ costo, precio, precioAntes, poner }: {
+  costo: number; precio: number | null; precioAntes: number | null; poner: (margenPct: number | '') => void;
+}) {
+  const [texto, setTexto] = useState<string | null>(null);
+  const escrito = texto != null ? Number(texto.replace(/\./g, '').replace(',', '.')) : null;
+  const bajoCosto = escrito != null && escrito > 0 && costo > 0 && escrito <= costo;
+  const cambiar = (v: string) => {
+    setTexto(v);
+    const n = Number(v.replace(/\./g, '').replace(',', '.'));
+    if (v.trim() === '') { poner(''); return; }
+    if (!(n > 0) || !(costo > 0) || n <= costo) return;
+    poner(Math.round((n / costo - 1) * 10000) / 100);
+  };
+  return (
+    <div className="min-w-0 text-right">
+      <input
+        inputMode="numeric"
+        value={texto ?? (precio != null ? String(precio) : '')}
+        placeholder="s/ rubro"
+        onChange={(e) => cambiar(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={() => setTexto(null)}
+        aria-label="Precio de venta"
+        aria-invalid={bajoCosto || undefined}
+        title={costo > 0 ? `Escribí el precio y el % de remarcación se calcula solo (costo final ${pesos(costo)}). Se redondea a la centena, como en góndola.` : 'Primero tiene que haber costo'}
+        className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe text-right font-semibold', bajoCosto && 'border-marca')}
+      />
+      {bajoCosto
+        ? <span className="mt-0.5 block text-xs leading-tight text-marca-hondo">no cubre el costo</span>
+        : precioAntes != null && <span className="mt-0.5 block whitespace-nowrap text-xs leading-tight text-tinta/60" title="Precio de venta que tiene hoy en el catálogo">antes {pesos(precioAntes)}</span>}
+    </div>
+  );
+}
+
 // el mismo estado lleva el mismo color en todo el panel (chips <Etiqueta>)
 const ESTADO_TONO: Record<string, TonoEtiqueta> = {
   borrador: 'neutro', pendiente_aprobacion: 'atencion',
@@ -3556,7 +3595,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                                 if (v == null) return null;
                                 return numImp(i.unidadesPorBulto) > 1 && Math.abs(v) > 300
                                   ? <span className="text-tinta/60">precio de caja vs. unidad</span>
-                                  : <span className={Math.abs(v) > 25 ? 'text-marca-hondo' : 'text-tinta/60'} title="Costo final de este renglón contra el costo del producto en el catálogo">costo {v > 0 ? '+' : ''}{String(v).replace('.', ',')}%</span>;
+                                  : <span className={Math.abs(v) > 25 ? 'text-marca-hondo' : 'text-tinta/60'} title="Costo final de este renglón contra el costo del producto en el catálogo">{numImp(i.costoCatalogo) > 0 ? <>costo antes {pesos(numImp(i.costoCatalogo))} · </> : 'costo '}{v > 0 ? '+' : ''}{String(v).replace('.', ',')}%</span>;
                               })()}
                               <button onClick={() => setVinculaIdx(idx)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>cambiar</button>
                               {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.bultoDescartado) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
@@ -3736,9 +3775,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
                             poner={(v) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: v === '' ? '' : Number(v) } : x))}
                           />
                         </div>
-                        <div className="importe text-right text-sm font-semibold text-tinta">
-                          {i.margenPct === '' || i.margenPct == null ? <span className="text-xs font-normal text-tinta/60">s/ rubro</span> : pesos(precioVenta(i))}
-                        </div>
+                        <PrecioDirecto
+                          costo={costoFinal(i, idx)}
+                          precio={i.margenPct === '' || i.margenPct == null ? null : precioVenta(i)}
+                          precioAntes={numImp(i.precioActual) || null}
+                          poner={(m) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: m } : x))}
+                        />
                       </div>
 
                       {/* 2 bis · entró a $0 hace poco: esta factura le pone el precio (10/10/2026) */}
