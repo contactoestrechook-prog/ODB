@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { landingDe, puedeVer, rolesDesdeToken } from './app/lib/permisos';
+import { abiertoDesdeAfuera } from './app/lib/rutas';
 import { COOKIES_DE_SESION, RUTAS_QUE_ESCRIBEN_LA_SESION, SESION_MAX_AGE } from './lib/sesion';
 
 // La sesión no vence (24/11/2026): cada pantalla y cada consulta del panel le
@@ -37,14 +38,22 @@ function decidir(req: NextRequest): NextResponse {
   if (token && pathname === '/login') {
     return NextResponse.redirect(new URL('/inicio', req.url));
   }
-  // con sesión abierta, recuperar la clave no tiene sentido: va a cambiarla
+  // con sesión abierta, recuperar la clave no tiene sentido: ya está adentro, va a su
+  // pantalla de trabajo (27/11/2026). Antes iba a «Cambiar mi contraseña», y quien entraba
+  // con el enlace de WhatsApp de «Recuperar contraseña» caía ahí cada vez (Camila Molina).
   if (token && (pathname === '/olvide-clave' || pathname === '/restablecer')) {
-    return NextResponse.redirect(new URL('/cambiar-clave', req.url));
+    return NextResponse.redirect(new URL(debeCambiar ? '/cambiar-clave' : landingDe(rolesDesdeToken(token.value)), req.url));
   }
   // clave temporal: no puede usar el panel hasta cambiarla (el cambio voluntario
   // a /cambiar-clave sí se permite siempre que esté logueado)
   if (token && debeCambiar && pathname !== '/cambiar-clave') {
     return NextResponse.redirect(new URL('/cambiar-clave', req.url));
+  }
+  // el cambio voluntario es desde el menú: abrir el panel DESDE AFUERA en «Cambiar mi
+  // contraseña» (un acceso directo guardado el día que se la hicieron cambiar) lleva a su
+  // pantalla de trabajo (27/11/2026)
+  if (token && !debeCambiar && pathname === '/cambiar-clave' && abiertoDesdeAfuera(req.headers)) {
+    return NextResponse.redirect(new URL(landingDe(rolesDesdeToken(token.value)), req.url));
   }
   // roles restringidos (backoffice): fuera de sus pantallas, a su inicio
   if (token) {

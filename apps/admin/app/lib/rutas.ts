@@ -17,6 +17,25 @@ export function esRutaDeAcceso(ruta: string | null | undefined): boolean {
   return RUTAS_ACCESO.some((base) => coincide(r, base));
 }
 
+/**
+ * ¿La pantalla se abrió DESDE AFUERA del panel (un acceso directo o favorito, el enlace de
+ * WhatsApp de «Recuperar contraseña») y no navegando adentro? (27/11/2026) Camila Molina
+ * caía en «Cambiar mi contraseña» cada vez que entraba sin que el sistema se lo pidiera:
+ * entraba por un acceso a esa pantalla o por el enlace de recuperar la clave.
+ * Lo que navega adentro con el menú es una consulta interna de Next (encabezado RSC) o
+ * viene del mismo sitio (Sec-Fetch-Site same-origin, o el Referer con el mismo host).
+ */
+export function abiertoDesdeAfuera(h: { get(nombre: string): string | null }): boolean {
+  if (h.get('rsc') || h.get('next-router-prefetch')) return false;
+  const destino = h.get('sec-fetch-dest');
+  if (destino && destino !== 'document') return false;
+  const sitio = h.get('sec-fetch-site');
+  if (sitio) return sitio !== 'same-origin';
+  const referer = h.get('referer');
+  if (!referer) return true;
+  try { return new URL(referer).host !== h.get('host'); } catch { return true; }
+}
+
 /** ¿En esta ruta se muestran los flotantes del panel ("Esto está mal", instalar la app)? */
 export function llevaFlotantes(ruta: string | null | undefined): boolean {
   const r = ruta ?? '';
