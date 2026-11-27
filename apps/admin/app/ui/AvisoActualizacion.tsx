@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fecha } from '../lib/formato';
+import { esCampoParaEscribir, MIRAR_CADA_MS, sePuedeActualizar } from '../lib/actualizar-sola';
 
 // Aviso de actualización. Aparece por dos motivos:
 //
@@ -12,8 +13,11 @@ import { fecha } from '../lib/formato';
 //    panel se da cuenta solo comparando la versión que tenía al abrir contra la
 //    que está publicada.
 //
-// Nunca recarga sin permiso: se avisa y decide la persona, porque una recarga
-// en medio de una carga de factura le borra lo que estaba escribiendo.
+// Y SE ACTUALIZA SOLO (27/11/2026, lib/actualizar-sola.ts): con una versión
+// nueva, la pestaña se recarga sola apenas es un momento en que no se pierde
+// nada (sin ventanas abiertas, sin avisos en la pila, sin nadie escribiendo y con
+// la pantalla quieta 3 minutos). Antes nunca recargaba sin permiso y Juan Pablo
+// siguió dos días con el panel viejo. «Ahora no» solo esconde el aviso.
 type Novedad = { id: string; version: string; titulo: string; detalle: string[]; requiere_recarga: boolean; publicada_en: string };
 
 const OMITIDA = 'odb_version_omitida';
@@ -24,6 +28,9 @@ export function AvisoActualizacion() {
   const [abierto, setAbierto] = useState(false);
   const [trabajando, setTrabajando] = useState(false);
   const versionInicial = useRef<string | null>(null);
+  // hay una versión publicada más nueva que la de esta pestaña (aunque hayan dicho «Ahora no»)
+  const [hayVersion, setHayVersion] = useState(false);
+  const ultimaActividad = useRef(0);
 
   const mirar = useCallback(async () => {
     try {
@@ -41,7 +48,8 @@ export function AvisoActualizacion() {
       if (!version) return;
       if (versionInicial.current === null) { versionInicial.current = version; return; }
       if (version === versionInicial.current) return;
-      // si ya dijo "ahora no" para ESTA versión, no se insiste
+      setHayVersion(true);
+      // si ya dijo "ahora no" para ESTA versión, el aviso no insiste (se actualiza sola igual)
       if (localStorage.getItem(OMITIDA) === version) return;
       setVersionNueva(version);
     } catch { /* idem */ }
@@ -56,6 +64,32 @@ export function AvisoActualizacion() {
     document.addEventListener('visibilitychange', alVolver);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
   }, [mirar]);
+
+  // lo último que hizo alguien en la pantalla
+  useEffect(() => {
+    const anotar = () => { ultimaActividad.current = Date.now(); };
+    anotar(); // abrir la pestaña cuenta como estar usándola
+    const eventos = ['pointerdown', 'pointermove', 'keydown', 'input', 'wheel', 'touchstart', 'scroll'] as const;
+    for (const e of eventos) window.addEventListener(e, anotar, { capture: true, passive: true });
+    return () => { for (const e of eventos) window.removeEventListener(e, anotar, { capture: true }); };
+  }, []);
+
+  // con versión nueva: se recarga sola en cuanto no se pierde nada (lib/actualizar-sola.ts)
+  useEffect(() => {
+    if (!hayVersion) return;
+    const probar = () => {
+      const listo = sePuedeActualizar({
+        ahora: Date.now(),
+        ultimaActividad: ultimaActividad.current,
+        ventanaAbierta: document.documentElement.dataset.modalAbierto === '1' || !!document.querySelector('[aria-modal="true"], [role="alertdialog"]'),
+        escribiendo: esCampoParaEscribir(document.activeElement as HTMLInputElement | null),
+        avisosEnPantalla: document.querySelectorAll('.pila-avisos section[aria-label]').length,
+      });
+      if (listo) window.location.reload();
+    };
+    const t = setInterval(probar, MIRAR_CADA_MS);
+    return () => clearInterval(t);
+  }, [hayVersion]);
 
   if (!novedades.length && !versionNueva) return null;
   const ultima = novedades[0];
@@ -103,7 +137,7 @@ export function AvisoActualizacion() {
               <p className="mt-0.5 text-xs text-white/70">y {novedades.length - 1} más desde tu última visita</p>
             )}
             {!ultima && (
-              <p className="mt-0.5 text-xs text-white/70">Actualizá para trabajar con la última versión.</p>
+              <p className="mt-0.5 text-xs text-white/70">Se actualiza sola cuando dejes de usar la pantalla, sin perder lo que estés cargando.</p>
             )}
             {ultima && (
               <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="mt-1 text-xs text-white/70 underline underline-offset-2 hover:text-white">
