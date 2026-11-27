@@ -40,6 +40,14 @@ describe('Montos con puntos de miles', () => {
     expect(f).toContain('Todo el saldo');
   });
 
+  it('el precio de venta directo de la entrada por foto también va con puntos de miles (27/11/2026)', () => {
+    const f = readFileSync(join(__dirname, '../../../admin/app/ui/ComprasWorkspace.tsx'), 'utf8');
+    const precio = f.slice(f.indexOf('function PrecioDirecto'), f.indexOf('aria-label="Precio de venta"'));
+    expect(precio).toContain('conPuntos(v)');
+    expect(precio).toContain('montoParaCampo(precio)');
+    expect(precio).not.toContain('String(precio)');
+  });
+
   it('la base paga el saldo justo si se pasa por el redondeo de la pantalla', () => {
     const sql = readFileSync(join(__dirname, '../../../../db/migracion-pago-factura-centavos.sql'), 'utf8');
     expect(sql).toMatch(/v_monto := round\(p_monto, 2\)/);

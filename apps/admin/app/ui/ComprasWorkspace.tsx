@@ -39,6 +39,7 @@ import {
 } from './kit';
 // `numero` se renombra: OrdenDetalle ya tiene una prop `numero` (el de la OC)
 import { fecha, numero as cifra, pesos } from '../lib/formato';
+import { conPuntos, montoEscrito, montoParaCampo } from '../lib/montos';
 import { VencimientoPlazo } from './VencimientoPlazo';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
@@ -59,21 +60,23 @@ function redondearPrecio(p: number): number {
 function PrecioDirecto({ costo, precio, precioAntes, poner }: {
   costo: number; precio: number | null; precioAntes: number | null; poner: (margenPct: number | '') => void;
 }) {
+  // con puntos de miles mientras se escribe, como todo monto (regla de Leandro, 6/11/2026)
   const [texto, setTexto] = useState<string | null>(null);
-  const escrito = texto != null ? Number(texto.replace(/\./g, '').replace(',', '.')) : null;
-  const bajoCosto = escrito != null && escrito > 0 && costo > 0 && escrito <= costo;
+  const escrito = texto != null ? montoEscrito(texto) : null;
+  const bajoCosto = escrito != null && costo > 0 && escrito <= costo;
   const cambiar = (v: string) => {
-    setTexto(v);
-    const n = Number(v.replace(/\./g, '').replace(',', '.'));
-    if (v.trim() === '') { poner(''); return; }
-    if (!(n > 0) || !(costo > 0) || n <= costo) return;
+    const t = conPuntos(v);
+    setTexto(t);
+    const n = montoEscrito(t);
+    if (t === '') { poner(''); return; }
+    if (n == null || !(costo > 0) || n <= costo) return;
     poner(Math.round((n / costo - 1) * 10000) / 100);
   };
   return (
     <div className="min-w-0 text-right">
       <input
-        inputMode="numeric"
-        value={texto ?? (precio != null ? String(precio) : '')}
+        inputMode="decimal"
+        value={texto ?? (precio != null ? montoParaCampo(precio) : '')}
         placeholder="s/ rubro"
         onChange={(e) => cambiar(e.target.value)}
         onFocus={(e) => e.target.select()}
