@@ -86,9 +86,12 @@ const ESTADOS_ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
 
 type Usuario = { sub?: string; rol?: string; roles?: unknown };
 
-/** El op salón y fiambrería arman solo en su sucursal; depósito sin sucursal fija sirve en todas. */
+/**
+ * Con sucursal, cada uno arma solo en la suya; sin sucursal fija, en todas (depósito, y desde el
+ * 27/11/2026 también op salón y fiambrería: Leandro, por Brenda, «ella puede estar en cualquiera
+ * dependiendo de dónde la necesiten». Antes op salón sin sucursal no servía en ninguna).
+ */
 export function sirveEnSucursal(u: { rol: string; roles?: unknown; sucursal_id?: string | null }, sucursalId: string) {
-  if (!u.sucursal_id && rolesFila(u).some(deSuSucursal)) return false;
   return !u.sucursal_id || u.sucursal_id === sucursalId;
 }
 
@@ -170,7 +173,8 @@ export class SalonService {
   async guardarUbicacion(dto: { productoId: string; sucursalId: string; ubicacion?: string }, quien: Usuario = {}) {
     const usuarioId = quien.sub;
     if (!dto.productoId || !dto.sucursalId) throw new BadRequestException('Faltan el producto o la sucursal');
-    if (deSuSucursal(quien.rol) && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+    const propiaUbicacion = deSuSucursal(quien.rol) ? await this.sucursalDe(usuarioId) : null;
+    if (propiaUbicacion && dto.sucursalId !== propiaUbicacion) {
       throw new ForbiddenException('Solo cargás lugares de tu sucursal');
     }
     const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80) || null;
@@ -274,7 +278,8 @@ export class SalonService {
   async lugarDeCategoria(dto: { sucursalId: string; categoriaId: string; ubicacion?: string }, quien: Usuario = {}) {
     const usuarioId = quien.sub;
     if (!dto.sucursalId || !dto.categoriaId) throw new BadRequestException('Faltan la sucursal o la categoría');
-    if (deSuSucursal(quien.rol) && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+    const propiaCategoria = deSuSucursal(quien.rol) ? await this.sucursalDe(usuarioId) : null;
+    if (propiaCategoria && dto.sucursalId !== propiaCategoria) {
       throw new ForbiddenException('Solo cargás lugares de tu sucursal');
     }
     const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80);
@@ -307,8 +312,9 @@ export class SalonService {
     if (!dto.proveedorId) throw new BadRequestException('Elegí el proveedor');
     const remito = String(dto.numeroRemito ?? '').trim();
     if (!remito) throw new BadRequestException('Falta el número de remito');
-    // op salón: siempre a su sucursal, diga lo que diga el pedido
-    const sucursalId = deSuSucursal(quien.rol) ? await this.sucursalDe(usuarioId) : dto.sucursalId || (await this.sucursalDe(usuarioId));
+    // op salón: siempre a su sucursal, diga lo que diga el pedido; sin sucursal fija, la que elige
+    const propiaIngreso = deSuSucursal(quien.rol) ? await this.sucursalDe(usuarioId) : null;
+    const sucursalId = propiaIngreso ?? (dto.sucursalId || (await this.sucursalDe(usuarioId)));
     if (!sucursalId) throw new BadRequestException('Elegí la sucursal');
     if (!dto.items?.length) throw new BadRequestException('Escaneá al menos un producto');
 

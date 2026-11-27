@@ -31,8 +31,8 @@ export default async function Salon() {
   const trabajo = (
     <SalonWorkspace
       proveedores={(proveedores ?? []).filter((p: any) => p.activo !== false).map((p: any) => ({ id: p.id, nombre: p.nombre }))}
-      // el op salón trabaja en SU sucursal
-      sucursales={(sucursales ?? []).filter((s: any) => !esOp || s.id === propia).map((s: any) => ({ id: s.id, nombre: s.nombre }))}
+      // el op salón trabaja en SU sucursal; sin sucursal fija, en todas (27/11/2026)
+      sucursales={(sucursales ?? []).filter((s: any) => !esOp || !propia || s.id === propia).map((s: any) => ({ id: s.id, nombre: s.nombre }))}
       sucursalPropia={propia}
       verTodos={verTodos}
       miId={miId}

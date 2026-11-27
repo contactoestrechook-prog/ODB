@@ -37,10 +37,13 @@ describe('medición del armado', () => {
 import { sirveEnSucursal } from './salon.service';
 
 describe('a quién se le asigna según la sucursal', () => {
-  it('el op salón solo en la suya; depósito sin sucursal en todas', () => {
+  it('con sucursal, solo en la suya; sin sucursal fija, en todas (op salón también desde el 27/11/2026)', () => {
     expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: 'st' }, 'st')).toBe(true);
     expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: 'st' }, 'si')).toBe(false);
-    expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: null }, 'si')).toBe(false);
+    // Brenda: cajera y op salón, «puede estar en cualquiera dependiendo de dónde la necesiten»
+    expect(sirveEnSucursal({ rol: 'cajero', roles: ['cajero', 'op_salon'], sucursal_id: null }, 'si')).toBe(true);
+    expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: null }, 'si')).toBe(true);
+    expect(sirveEnSucursal({ rol: 'fiambreria', sucursal_id: null }, 'st')).toBe(true);
     expect(sirveEnSucursal({ rol: 'deposito', sucursal_id: null }, 'si')).toBe(true);
     expect(sirveEnSucursal({ rol: 'deposito', sucursal_id: 'st' }, 'si')).toBe(false);
   });

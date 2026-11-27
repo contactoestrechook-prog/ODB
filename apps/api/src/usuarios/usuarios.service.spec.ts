@@ -80,9 +80,9 @@ describe('usuarios: varios roles', () => {
     expect(inserts.find((i) => i.tabla === 'usuarios')!.valores).toMatchObject({ rol: 'cajero', roles: ['cajero', 'repartidor', 'op_salon'] });
   });
 
-  it('fiambrería y op salón piden sucursal', async () => {
+  it('fiambrería y op salón ya no tienen que tener una sucursal: sin sucursal van donde los necesiten (27/11/2026)', async () => {
     const { db } = dbFalsa(pendiente);
-    await expect(new UsuariosService(db).crear({ nombre: 'Y', email: 'y@x.com', rol: 'fiambreria', clave: '123456' }, dueno)).rejects.toThrow('Fiambrería tiene que tener su sucursal');
+    await expect(new UsuariosService(db).crear({ nombre: 'Y', email: 'y@x.com', rol: 'fiambreria', clave: '123456' }, dueno)).resolves.toBeTruthy();
   });
 
   it('un gerente no puede sumarle el rol dueño a nadie', async () => {

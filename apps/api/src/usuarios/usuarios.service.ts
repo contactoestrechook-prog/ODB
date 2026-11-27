@@ -7,8 +7,6 @@ import { normalizarRoles, rolesDe } from '../auth/roles';
 /** Email de relleno de un alta para completar: administración pone el real. */
 export const DOMINIO_PENDIENTE = '@pendiente.odb.interno';
 export const esEmailPendiente = (email?: string | null) => String(email ?? '').toLowerCase().endsWith(DOMINIO_PENDIENTE);
-/** Los que trabajan en UNA sucursal: tienen que tenerla cargada. */
-const ROLES_CON_SUCURSAL = ['op_salon', 'fiambreria'];
 /** Lo único que administración toca de un usuario: completar sus datos (19/11/2026). */
 const CAMPOS_DE_ADMINISTRACION = ['nombre', 'email', 'telefono', 'clave'];
 const esJefe = (actor: { rol: string }) => actor.rol === 'dueno' || actor.rol === 'gerente';
@@ -70,8 +68,8 @@ export class UsuariosService {
     if (!dto.clave || dto.clave.length < 6) {
       throw new BadRequestException('La clave debe tener al menos 6 caracteres');
     }
-    // op salón y fiambrería: cada uno es de UNA sucursal (Leandro, 5/11/2026)
-    this.exigirSucursal(roles, dto.sucursalId);
+    // op salón y fiambrería ya no tienen que tener UNA sucursal (27/11/2026): sin sucursal
+    // fija trabajan donde los necesiten (Leandro, por Brenda). Antes era obligatoria (5/11).
     const { data, error } = await this.db
       .from('usuarios')
       .insert({
@@ -124,8 +122,6 @@ export class UsuariosService {
       : null;
     if (rolesNuevos && !rolesNuevos.length) throw new BadRequestException('Elegí al menos un rol');
     const rolesFinales = rolesNuevos ?? rolesDe(o);
-    const sucursalFinal = dto.sucursalId !== undefined ? dto.sucursalId : o.sucursal_id;
-    this.exigirSucursal(rolesFinales, sucursalFinal);
     this.validar(dto, actor, o.rol, rolesNuevos?.[0], rolesNuevos ?? undefined, rolesDe(o));
 
     if (id === actor.sub && dto.activo === false) {
@@ -190,13 +186,6 @@ export class UsuariosService {
         : { leida_en: new Date().toISOString(), leida_por: actorId },
     ).eq('tipo', 'usuarios_para_completar').is('leida_en', null);
     await avisos.then(() => null, () => null);
-  }
-
-  private exigirSucursal(roles: string[], sucursalId?: string | null) {
-    const cual = roles.find((r) => ROLES_CON_SUCURSAL.includes(r));
-    if (cual && !sucursalId) {
-      throw new BadRequestException(`${cual === 'fiambreria' ? 'Fiambrería' : 'Un op salón'} tiene que tener su sucursal`);
-    }
   }
 
   // Elimina un usuario. Si ya tiene historial (ventas, cajas, movimientos), no

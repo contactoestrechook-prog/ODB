@@ -113,7 +113,6 @@ export function GestionUsuarios({ usuarios, sucursales, soloCompletar = false }:
   };
 
   const completando = !!editando?.altaPendiente;
-  const faltaSucursal = !soloCompletar && form.roles.some((r: string) => CON_SUCURSAL.includes(r)) && !form.sucursalId;
   const faltaParaCompletar = completando && (!form.email.trim() || soloDigitos(form.telefono).length < 10 || form.clave.length < 6);
 
   const guardar = async () => {
@@ -383,7 +382,7 @@ export function GestionUsuarios({ usuarios, sucursales, soloCompletar = false }:
               <Boton variante="secundario" onClick={() => setAbierto(false)}>
                 Cancelar
               </Boton>
-              <Boton onClick={guardar} cargando={cargando} disabled={faltaSucursal || (!soloCompletar && !form.roles.length) || faltaParaCompletar}>
+              <Boton onClick={guardar} cargando={cargando} disabled={(!soloCompletar && !form.roles.length) || faltaParaCompletar}>
                 {cargando ? 'Guardando…' : completando ? 'Guardar y activar' : 'Guardar'}
               </Boton>
             </>
@@ -438,10 +437,10 @@ export function GestionUsuarios({ usuarios, sucursales, soloCompletar = false }:
                   })}
                 </div>
               </Campo>
-              {/* op salón y fiambrería: cada uno es de UNA sucursal (5/11/2026) */}
-              <Campo etiqueta="Sucursal" obligatorio={faltaSucursal || form.roles.some((r: string) => CON_SUCURSAL.includes(r))} ayuda={form.roles.some((r: string) => CON_SUCURSAL.includes(r)) ? 'Solo ve y arma los pedidos de esta sucursal' : undefined}>
+              {/* op salón y fiambrería: una sucursal, o todas si va donde la necesiten (27/11/2026) */}
+              <Campo etiqueta="Sucursal" ayuda={form.roles.some((r: string) => CON_SUCURSAL.includes(r)) ? (form.sucursalId ? 'Solo ve y arma los pedidos de esta sucursal' : 'Va donde la necesiten: la caja de cualquier sucursal le puede asignar pedidos') : undefined}>
                 <Selector value={form.sucursalId} onChange={(e) => campo('sucursalId', e.target.value)}>
-                  <option value="">{form.roles.some((r: string) => CON_SUCURSAL.includes(r)) ? 'Elegí la sucursal' : 'Todas las sucursales'}</option>
+                  <option value="">{form.roles.some((r: string) => CON_SUCURSAL.includes(r)) ? 'Todas: va donde la necesiten' : 'Todas las sucursales'}</option>
                   {sucursales.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.nombre}
