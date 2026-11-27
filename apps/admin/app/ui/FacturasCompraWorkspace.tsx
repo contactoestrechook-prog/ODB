@@ -8,6 +8,7 @@ import {
 import { fecha, pesos } from '../lib/formato';
 import { conPuntos, montoEscrito, montoParaCampo, tieneCentavos } from '../lib/montos';
 import { CambiarProveedor, type ProveedorCorto } from './CambiarProveedor';
+import { VencimientoPlazo } from './VencimientoPlazo';
 
 // clip de "tiene comprobante adjunto" (en lugar del 📎)
 function IconoClip({ className = 'size-4' }: { className?: string }) {
@@ -608,7 +609,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol, pagaYAnula, proveedorFactu
             <Campo etiqueta="Letra"><Selector disabled={!editable} value={edit.letra} onChange={(e) => setEdit({ ...edit, letra: e.target.value })}><option value="">—</option><option>A</option><option>B</option><option>C</option><option>X</option></Selector></Campo>
             <Campo etiqueta="Empresa"><Selector disabled={!editable} value={edit.empresa} onChange={(e) => setEdit({ ...edit, empresa: e.target.value })}><option value="">—</option><option value="principal">Sant Thomas</option><option value="santa_ines">Santa Inés</option></Selector></Campo>
             <Campo etiqueta="Emisión"><Entrada disabled={!editable} type="date" value={edit.fechaEmision} onChange={(e) => setEdit({ ...edit, fechaEmision: e.target.value })} /></Campo>
-            <Campo etiqueta="Vencimiento"><Entrada disabled={!editable} type="date" value={edit.vencimiento} onChange={(e) => setEdit({ ...edit, vencimiento: e.target.value })} /></Campo>
+            <VencimientoPlazo disabled={!editable} valor={edit.vencimiento ?? ''} emision={edit.fechaEmision} onCambiar={(v) => setEdit((x: any) => ({ ...x, vencimiento: v }))} />
             <Campo etiqueta="Categoría"><Selector disabled={!editable} value={edit.categoriaGasto} onChange={(e) => setEdit({ ...edit, categoriaGasto: e.target.value })}><option value="">Mercadería</option>{CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}</Selector></Campo>
           </div>
 
@@ -1002,7 +1003,7 @@ function CargaManual({ proveedores, cerrar, refrescar }: { proveedores: any[]; c
             <Entrada aria-label="Número" value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="Número (0001-00001234)" />
           </div>
           <Campo etiqueta="Fecha de emisión"><Entrada type="date" value={f.fechaEmision ?? ''} onChange={(e) => set('fechaEmision', e.target.value)} /></Campo>
-          <Campo etiqueta="Vencimiento del pago"><Entrada type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} /></Campo>
+          <VencimientoPlazo etiqueta="Vencimiento del pago" valor={f.vencimiento ?? ''} emision={f.fechaEmision} onCambiar={(v) => set('vencimiento', v)} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-tinta">

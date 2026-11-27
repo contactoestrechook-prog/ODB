@@ -595,6 +595,7 @@ const ESCRITAS: Seccion[] = [
           'Si venís con varias: en Compras → Entrada por foto elegí hasta 5 fotos de una vez. Se leen todas juntas, en segundo plano, y van apareciendo en la bandeja de lectura de Compras. Mientras tanto seguí con otra cosa; abrí cada una cuando diga "lista".',
           'En cada renglón, la primera línea es el papel tal cual (cantidad × precio = importe) para cotejar con la factura. En la columna Costo hay dos números en la misma línea: a la izquierda el precio unitario del papel (sin IVA, se puede corregir) y a la derecha, con la flecha, el costo final c/IVA: el mismo precio más el IVA, las percepciones y los impuestos internos de la factura repartidos entre los renglones. Ese costo final es el que queda en stock y del que sale el margen y el precio de venta. Al lado, × cantidad = el total del renglón a ese costo final.',
           'Revisá el desglose: neto, IVA, percepciones e impuestos internos van separados. De ahí sale el Libro IVA.',
+          'El vencimiento se carga en "Días" (lo que dice casi toda factura: 30, 60…) o en "Fecha", con el botoncito al lado del rótulo. En días se cuenta desde la fecha de emisión y abajo muestra en qué fecha vence; si cambiás la emisión, el vencimiento se corre solo. Si una fecha da antes de la emisión, avisa: casi siempre es el año mal tipeado.',
           'Guardá. La factura queda como deuda pendiente de pago.',
         ],
       },

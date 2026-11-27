@@ -39,6 +39,7 @@ import {
 } from './kit';
 // `numero` se renombra: OrdenDetalle ya tiene una prop `numero` (el de la OC)
 import { fecha, numero as cifra, pesos } from '../lib/formato';
+import { VencimientoPlazo } from './VencimientoPlazo';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
 // (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
@@ -4356,7 +4357,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, ordenes = [], a
             <input value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="N° de factura" aria-label="N° de factura" className={input} />
             <input type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder="Monto $" aria-label="Monto" className={input} />
           </div>
-          <input type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} aria-label="Vencimiento" className={input} />
+          <VencimientoPlazo valor={f.vencimiento ?? ''} onCambiar={(v) => set('vencimiento', v)} />
           {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
