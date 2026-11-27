@@ -199,6 +199,21 @@ export class AuthService {
     return { ok: true, token, usuario: { id: u.id, nombre: u.nombre, rol: u.rol, roles: rolesDe(u), debeCambiarClave: false } };
   }
 
+  // LA SESIÓN CON LOS PERMISOS DE HOY (27/11/2026). El panel decide a qué pantalla
+  // entra cada uno con los roles del token, y el token era el del día que entró: a
+  // María Belén Avalos la crearon cajera, entró, la pasaron a salón y fiambrería, y
+  // la app la seguía mandando a la Caja. El middleware del panel pide esto una vez
+  // por minuto y cambia el token por uno con los roles, el nombre y la sucursal de hoy.
+  async sesionAlDia(usuarioId: string) {
+    const { data: u } = await this.db
+      .from('usuarios')
+      .select('id, nombre, rol, roles, sucursal_id, activo')
+      .eq('id', usuarioId)
+      .maybeSingle();
+    if (!u || (u as any).activo === false) throw new UnauthorizedException('Tu usuario ya no está activo en ODB');
+    return { token: await this.firmar(u), roles: rolesDe(u) };
+  }
+
   // La sesión del equipo no vence (24/11/2026): 10 años es «para siempre». Quien
   // queda afuera es el dado de baja, y eso lo controla el AuthGuard con la ficha
   // del usuario, no la fecha del token.

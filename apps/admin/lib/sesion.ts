@@ -14,6 +14,14 @@ export const COOKIES_DE_SESION: { nombre: string; httpOnly: boolean }[] = [
   { nombre: 'odb_cambiar', httpOnly: true },
 ];
 
+// Los permisos de hoy (27/11/2026): cada cuánto el middleware cambia el token por
+// uno con los roles, el nombre y la sucursal de hoy (GET /auth/sesion-al-dia), y la
+// cookie que anota cuándo fue la última vez. Antes el panel usaba los roles del día
+// en que la persona entró: a quien le cambiaban los permisos lo seguía mandando a
+// las pantallas de antes (María Belén Avalos, creada cajera y pasada a salón).
+export const REVISAR_SESION_MS = 60_000;
+export const COOKIE_SESION_AL_DIA = 'odb_al_dia';
+
 // Estas rutas escriben o borran las cookies de la sesión: el middleware no las
 // toca ahí, para no pisar el token nuevo (entrar, cambiar la clave) ni revivir
 // el que se está borrando (salir).

@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { landingDe, puedeVer, rolesDesdeToken } from './app/lib/permisos';
 import { abiertoDesdeAfuera } from './app/lib/rutas';
-import { COOKIES_DE_SESION, RUTAS_QUE_ESCRIBEN_LA_SESION, SESION_MAX_AGE } from './lib/sesion';
+import { COOKIE_SESION_AL_DIA, COOKIES_DE_SESION, REVISAR_SESION_MS, RUTAS_QUE_ESCRIBEN_LA_SESION, SESION_MAX_AGE } from './lib/sesion';
+
+const API = process.env.API_URL ?? 'http://localhost:3001';
+
+// LOS PERMISOS DE HOY (27/11/2026): una vez por minuto, el token se cambia por uno con
+// los roles, el nombre y la sucursal de hoy (lib/sesion.ts). Si la API no contesta,
+// se sigue con el que había y se vuelve a probar al minuto.
+async function sesionAlDia(req: NextRequest): Promise<{ revisada: boolean; token: string | null }> {
+  const token = req.cookies.get('odb_token')?.value;
+  if (!token || RUTAS_QUE_ESCRIBEN_LA_SESION.includes(req.nextUrl.pathname)) return { revisada: false, token: null };
+  const ultima = Number(req.cookies.get(COOKIE_SESION_AL_DIA)?.value ?? 0);
+  if (Date.now() - ultima < REVISAR_SESION_MS) return { revisada: false, token: null };
+  try {
+    const r = await fetch(`${API}/auth/sesion-al-dia`, {
+      headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: AbortSignal.timeout(2_500),
+    });
+    if (!r.ok) return { revisada: true, token: null };
+    const datos = await r.json().catch(() => null);
+    return { revisada: true, token: typeof datos?.token === 'string' && datos.token ? datos.token : null };
+  } catch {
+    return { revisada: true, token: null };
+  }
+}
 
 // La sesión no vence (24/11/2026): cada pantalla y cada consulta del panel le
 // renueva la cookie, así nunca llega a su fecha (ver lib/sesion.ts). Las
@@ -18,9 +40,22 @@ function renovar(req: NextRequest, res: NextResponse): NextResponse {
   return res;
 }
 
-export function middleware(req: NextRequest) {
-  return renovar(req, decidir(req));
+export async function middleware(req: NextRequest) {
+  const alDia = await sesionAlDia(req);
+  // el token nuevo vale ya en este pedido: para decidir la pantalla y para lo que
+  // la página lea de las cookies (va en los encabezados que siguen, ver seguir())
+  if (alDia.token) req.cookies.set('odb_token', alDia.token);
+  const res = renovar(req, decidir(req));
+  if (alDia.revisada) {
+    res.cookies.set(COOKIE_SESION_AL_DIA, String(Date.now()), {
+      httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: SESION_MAX_AGE,
+    });
+  }
+  return res;
 }
+
+// sigue de largo con los encabezados del pedido (con el token al día, si cambió)
+const seguir = (req: NextRequest) => NextResponse.next({ request: { headers: req.headers } });
 
 function decidir(req: NextRequest): NextResponse {
   const token = req.cookies.get('odb_token');
@@ -28,7 +63,7 @@ function decidir(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
   // las consultas del panel (/api/…) solo pasan por acá para renovar la sesión:
   // cada una se cuida sola (sin token, la API contesta 401)
-  if (pathname.startsWith('/api/')) return NextResponse.next();
+  if (pathname.startsWith('/api/')) return seguir(req);
   // Pantallas de recuperación de clave: quien las usa, justamente, NO puede
   // entrar. Si el middleware las mandara al login, el circuito no serviría.
   const publicas = ['/login', '/olvide-clave', '/restablecer'];
@@ -63,7 +98,7 @@ function decidir(req: NextRequest): NextResponse {
       return NextResponse.redirect(new URL(landingDe(roles), req.url));
     }
   }
-  return NextResponse.next();
+  return seguir(req);
 }
 
 export const config = {

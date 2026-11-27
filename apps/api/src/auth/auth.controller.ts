@@ -41,6 +41,14 @@ export class AuthController {
     return this.auth.resetearClave(body?.token ?? '', body?.claveNueva ?? '');
   }
 
+  // La sesión con los permisos de hoy (27/11/2026): el middleware del panel la pide
+  // una vez por minuto. Cualquier rol, también los encerrados (salón, fiambrería).
+  @ParaCualquierRol()
+  @Get('sesion-al-dia')
+  sesionAlDia(@Req() req: any) {
+    return this.auth.sesionAlDia(String(req.usuario?.sub ?? ''));
+  }
+
   // Cambiar la propia clave (cualquier usuario logueado). El AuthGuard global
   // ya exige token; req.usuario.sub es el dueño de la sesión.
   @ParaCualquierRol()
