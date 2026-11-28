@@ -59,7 +59,23 @@ export function prepararAudio() {
     empuje.connect(comp);
     salida = empuje;
   }
-  if (audio.state === 'suspended') audio.resume().catch(() => null);
+  despertar(audio);
+}
+
+// Despierta el audio si está dormido. En el iPhone no alcanza con mirar 'suspended': al
+// volver de otra app o de una llamada, Safari lo deja «interrupted» (un estado que solo
+// tiene él) y ahí quedaba para siempre, con el cartel del sonido clavado arriba (28/11/2026,
+// Leandro desde el celular: el cartel le tapaba el buscador y no se iba). El sonido mudo de
+// un cuadro, dentro del toque, es lo que los iPhone viejos piden para destrabarse.
+function despertar(ctx: AudioContext) {
+  if (ctx.state === 'running' || ctx.state === 'closed') return;
+  ctx.resume().catch(() => null);
+  try {
+    const mudo = ctx.createBufferSource();
+    mudo.buffer = ctx.createBuffer(1, 1, 22_050);
+    mudo.connect(ctx.destination);
+    mudo.start(0);
+  } catch { /* sin destrabar: el próximo toque lo intenta de nuevo */ }
 }
 
 /** ¿Puede sonar ya? false hasta el primer toque, si Chrome no se abrió con el acceso directo. */
@@ -100,7 +116,7 @@ const NOTAS = [1318.5, 1760, 2217.5, 1760];
 export function sonarEscandalo() {
   if (!audio) prepararAudio();
   if (!audio || !salida) return;
-  if (audio.state === 'suspended') audio.resume().catch(() => null);
+  despertar(audio);
   const t0 = audio.currentTime + 0.03;
   for (let i = 0; i < ALARMA.golpesPorToque; i++) golpe(audio, salida, t0 + i * 0.15, NOTAS[i % NOTAS.length]);
   try { navigator.vibrate?.([350, 120, 350]); } catch { /* sin vibración */ }

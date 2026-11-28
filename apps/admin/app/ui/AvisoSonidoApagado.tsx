@@ -11,6 +11,14 @@ import { FOCO, unir } from './kit';
 // sonar nada hasta que la persona toca la página (salvo el acceso directo con el que se
 // abren las PC con impresora). Esto despierta el audio con el primer toque o tecla en
 // cualquier pantalla y, mientras siga dormido, lo dice: así el primer pedido ya suena.
+//
+// En el celular el toque que cuenta es cuando se levanta el dedo (pointerup, touchend,
+// click), no cuando se apoya: escuchando solo pointerdown, tocar cualquier parte de la
+// pantalla no despertaba nada y el cartel quedaba fijo encima del buscador (28/11/2026,
+// Leandro: «quiero entrar al buscador de arriba y no me permite»). Se escucha en la
+// captura, así ningún botón que frene el toque lo deja dormido. Deslizar no cuenta: el
+// teléfono no deja sonar por un desliz, hace falta un toque.
+const TOQUES = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const;
 
 export function AvisoSonidoApagado() {
   const ruta = usePathname();
@@ -21,15 +29,13 @@ export function AvisoSonidoApagado() {
     const mirar = () => setDormido(!audioActivo());
     const dejarDeOir = alCambiarAudio(mirar);
     const despertar = () => prepararAudio();
-    window.addEventListener('pointerdown', despertar);
-    window.addEventListener('keydown', despertar);
+    for (const e of TOQUES) window.addEventListener(e, despertar, { capture: true, passive: true });
     // el estado del audio vive afuera de React: se mira al montar y cada tanto (Safari no siempre avisa)
     const t = setInterval(mirar, 3_000);
     const primero = setTimeout(mirar, 300);
     return () => {
       dejarDeOir(); clearInterval(t); clearTimeout(primero);
-      window.removeEventListener('pointerdown', despertar);
-      window.removeEventListener('keydown', despertar);
+      for (const e of TOQUES) window.removeEventListener(e, despertar, { capture: true });
     };
   }, []);
 
